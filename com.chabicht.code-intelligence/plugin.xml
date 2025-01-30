@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+   <extension
+         point="org.eclipse.ui.commands">
+      <category
+            id="com.chabicht.code-intelligence.commands.category"
+            name="Sample Category">
+      </category>
+      <command
+            categoryId="com.chabicht.code-intelligence.commands.category"
+            name="Sample Command"
+            id="com.chabicht.code-intelligence.commands.sampleCommand">
+      </command>
+   </extension>
+   <extension
+         point="org.eclipse.ui.handlers">
+      <handler
+            class="com.chabicht.codeintelligence.handlers.SampleHandler"
+            commandId="com.chabicht.code-intelligence.commands.sampleCommand">
+      </handler>
+   </extension>
+   <extension
+         point="org.eclipse.ui.bindings">
+      <key
+            commandId="com.chabicht.code-intelligence.commands.sampleCommand"
+            schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+            contextId="org.eclipse.ui.contexts.window"
+            sequence="M1+6">
+      </key>
+   </extension>
+   <extension
+         point="org.eclipse.ui.menus">
+      <menuContribution
+            locationURI="menu:org.eclipse.ui.main.menu?after=additions">
+         <menu
+               id="com.chabicht.code-intelligence.menus.sampleMenu"
+               label="Sample Menu"
+               mnemonic="M">
+            <command
+                  commandId="com.chabicht.code-intelligence.commands.sampleCommand"
+                  id="com.chabicht.code-intelligence.menus.sampleCommand"
+                  mnemonic="S">
+            </command>
+         </menu>
+      </menuContribution>
+      <menuContribution
+            locationURI="toolbar:org.eclipse.ui.main.toolbar?after=additions">
+         <toolbar
+               id="com.chabicht.code-intelligence.toolbars.sampleToolbar">
+            <command
+                  id="com.chabicht.code-intelligence.toolbars.sampleCommand"
+                  commandId="com.chabicht.code-intelligence.commands.sampleCommand"
+                  icon="icons/sample.png"
+                  tooltip="Say hello world">
+            </command>
+         </toolbar>
+      </menuContribution>
+   </extension>
+   <extension
+         point="org.eclipse.ui.preferencePages">
+      <page
+            class="com.chabicht.codeintelligence.preferences.CodeIntelligencePreferencePage"
+            id="com.chabicht.codeintelligence.preferences.CodeIntelligencePreferencePage"
+            name="Code Intelligence">
+      </page>
+   </extension>
+   <extension
+         point="org.eclipse.core.runtime.preferences">
+      <initializer
+            class="com.chabicht.codeintelligence.preferences.PreferenceInitializer">
+      </initializer>
+   </extension>
+   <extension
+         point="org.eclipse.jdt.ui.javaCompletionProposalComputer"
+         id="com.chabicht.code_intelligence.completions"
+         name="Code Intelligence">
+		<proposalCategory
+			icon="/icons/completion.png"/>
+		<javaCompletionProposalComputer
+			requiresUIThread="false"
+			class="com.chabicht.code_intelligence.completion.CodeIntelligenceCompletionProposalComputer"
+			categoryId="com.chabicht.code_intelligence.codeIntelligenceCategory"
+			needsSortingAfterFiltering="true"
+			activate="true">
+				<partition type="__dftl_partition_content_type"/>
+				<partition type="__java_string"/>
+				<partition type="__java_singleline_comment"/> <!-- to get NLS templates -->
+		</javaCompletionProposalComputer>
+   </extension>
+   <extension
+         point="org.eclipse.ui.startup">
+      <startup
+            class="com.chabicht.code_intelligence.changelistener.Startup">
+      </startup>
+   </extension>
+
+</plugin>

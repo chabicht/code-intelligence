@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+    <category-def name="com.chabicht.code-intelligence" label="Code Intelligence">
+        <description>
+            AI powered coding tools.
+        </description>
+    </category-def>
+
+    <feature id="com.chabicht.code_intelligence.feature" version="1.0.0">
+        <category name="com.chabicht.code-intelligence"/>
+    </feature>
+</site>
