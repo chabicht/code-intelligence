@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.apiclient;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpClient.Redirect;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -46,8 +47,9 @@ public class OllamaApiClient implements IAiApiClient {
 		String responseBody = "(nothing)";
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-					.connectTimeout(Duration.ofSeconds(5)).build();
-			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(apiConnection.getBaseUri() + relPath)).GET()
+					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
+			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(apiConnection.getBaseUri()).resolve(relPath))
+					.GET()
 					.build();
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -69,8 +71,8 @@ public class OllamaApiClient implements IAiApiClient {
 		String requestBodyString = gson.toJson(requestBody);
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-					.connectTimeout(Duration.ofSeconds(5)).build();
-			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(apiConnection.getBaseUri() + relPath))
+					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
+			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(apiConnection.getBaseUri()).resolve(relPath))
 					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
 					.header("Content-Type", "application/json").build();
 

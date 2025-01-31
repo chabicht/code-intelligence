@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.apiclient;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpClient.Redirect;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -54,9 +55,9 @@ public class OpenAiApiClient implements IAiApiClient {
 		String responseBody = "(nothing)";
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-					.connectTimeout(Duration.ofSeconds(5)).build();
+					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri() + relPath)).GET();
+					.uri(URI.create(apiConnection.getBaseUri()).resolve(relPath)).GET();
 			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
 				requestBuilder = requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
 			}
@@ -87,9 +88,9 @@ public class OpenAiApiClient implements IAiApiClient {
 		try {
 			requestBodyString = gson.toJson(requestBody);
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-					.connectTimeout(Duration.ofSeconds(5)).build();
+					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri() + relPath))
+					.uri(URI.create(apiConnection.getBaseUri()).resolve(relPath))
 					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString));
 			requestBuilder.header("Content-Type", "application/json");
 			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {

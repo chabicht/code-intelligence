@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+   <feature url="features/com.chabicht.code_intelligence.feature_1.0.0.qualifier.jar" id="com.chabicht.code_intelligence.feature" version="1.0.0.qualifier">
+      <category name="com.chabicht.code-intelligence"/>
+   </feature>
+   <category-def name="com.chabicht.code-intelligence" label="Code Intelligence"/>
+</site>
