@@ -2,6 +2,17 @@
 
 This Eclipse plugin provides AI code completion.
 
+## Usage
+
+The completion feature is integrated in the JDT completion proposal mechanism.  
+So when you invoke it by e.g. pressing *Ctrl + Space*, an AI completion is triggered by default.
+
+![Screenshot: invocation of the plugin](images/example-vanilla.png)
+
+What also works really well is adding a `// TODO` comment above where you want an ai completion.
+
+![Screenshot: invocation of the plugin with a TODO comment](images/example-todo-prompt.png)
+
 ## Installation
 
 The update site is hosted on [https://chabicht.github.io/code-intelligence/com.chabicht.code-intelligence.updatesite/](https://chabicht.github.io/code-intelligence/com.chabicht.code-intelligence.updatesite/).
