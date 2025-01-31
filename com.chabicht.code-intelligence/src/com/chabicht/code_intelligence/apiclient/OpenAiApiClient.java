@@ -37,7 +37,7 @@ public class OpenAiApiClient implements IAiApiClient {
 
 	@Override
 	public List<AiModel> getModels() {
-		JsonObject res = performGet(JsonObject.class, "/models");
+		JsonObject res = performGet(JsonObject.class, "models");
 		return res.get("data").getAsJsonArray().asList().stream().map(e -> {
 			JsonObject o = e.getAsJsonObject();
 			String id = o.get("id").getAsString();
@@ -57,7 +57,7 @@ public class OpenAiApiClient implements IAiApiClient {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri()).resolve(relPath)).GET();
+					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath)).GET();
 			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
 				requestBuilder = requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
 			}
@@ -90,7 +90,7 @@ public class OpenAiApiClient implements IAiApiClient {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri()).resolve(relPath))
+					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath))
 					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString));
 			requestBuilder.header("Content-Type", "application/json");
 			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
@@ -136,7 +136,7 @@ public class OpenAiApiClient implements IAiApiClient {
 
 		req.add("messages", messages);
 
-		JsonObject res = performPost(JsonObject.class, "/chat/completions", req);
+		JsonObject res = performPost(JsonObject.class, "chat/completions", req);
 		return new CompletionResult(res.get("choices").getAsJsonArray().get(0).getAsJsonObject().get("message")
 				.getAsJsonObject().get("content").getAsString());
 	}

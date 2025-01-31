@@ -29,7 +29,7 @@ public class OllamaApiClient implements IAiApiClient {
 
 	@Override
 	public List<AiModel> getModels() {
-		JsonObject res = performGet(JsonObject.class, "/api/tags");
+		JsonObject res = performGet(JsonObject.class, "api/tags");
 		return res.get("models").getAsJsonArray().asList().stream().map(e -> {
 			JsonObject o = e.getAsJsonObject();
 			String id = o.get("name").getAsString();
@@ -48,9 +48,8 @@ public class OllamaApiClient implements IAiApiClient {
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
-			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(apiConnection.getBaseUri()).resolve(relPath))
-					.GET()
-					.build();
+			HttpRequest request = HttpRequest.newBuilder()
+					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath)).GET().build();
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
@@ -72,7 +71,8 @@ public class OllamaApiClient implements IAiApiClient {
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
-			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(apiConnection.getBaseUri()).resolve(relPath))
+			HttpRequest request = HttpRequest.newBuilder()
+					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath))
 					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
 					.header("Content-Type", "application/json").build();
 
@@ -104,7 +104,7 @@ public class OllamaApiClient implements IAiApiClient {
 		req.add("options", options);
 		req.addProperty("stream", false);
 
-		JsonObject res = performPost(JsonObject.class, "/api/generate", req);
+		JsonObject res = performPost(JsonObject.class, "api/generate", req);
 
 		return new CompletionResult(res.get("response").getAsString());
 	}
