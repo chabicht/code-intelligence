@@ -14,7 +14,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.CompletionResult;
-import com.chabicht.code_intelligence.model.Prompt;
+import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -123,7 +123,7 @@ public class OpenAiApiClient implements IAiApiClient {
 	}
 
 	@Override
-	public CompletionResult performCompletion(String modelName, Prompt completionPrompt) {
+	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
 		req.addProperty("temperature", completionPrompt.getTemperature());

@@ -20,7 +20,7 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.changelistener.LastEditsDocumentListener;
 import com.chabicht.code_intelligence.model.CompletionResult;
-import com.chabicht.code_intelligence.model.Prompt;
+import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class CodeIntelligenceCompletionProposalComputer implements IJavaCompletionProposalComputer {
@@ -97,7 +97,7 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 
 			String lastEdits = createLastEdits();
 
-			Prompt completionPrompt = new Prompt(0f,
+			CompletionPrompt completionPrompt = new CompletionPrompt(0f,
 			// @formatter:off
 					"""
 					Complete the code beginning at the <<<cursor>>> position.

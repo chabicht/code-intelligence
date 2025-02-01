@@ -2,7 +2,7 @@ package com.chabicht.code_intelligence.apiclient;
 
 import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.model.CompletionResult;
-import com.chabicht.code_intelligence.model.Prompt;
+import com.chabicht.code_intelligence.model.CompletionPrompt;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
@@ -87,7 +87,7 @@ public class AiApiConnection extends Bean {
 		return apiClient;
 	}
 
-	public CompletionResult performCompletion(String modelName, Prompt completionPrompt) {
+	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
 		if (!enabled) {
 			throw new RuntimeException("API connection disabled!");
 		}

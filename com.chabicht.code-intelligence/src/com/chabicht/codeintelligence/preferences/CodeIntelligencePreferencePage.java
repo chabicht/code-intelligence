@@ -55,10 +55,10 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		grpCompletionLayout.marginWidth = 5;
 		grpCompletion.setLayout(grpCompletionLayout);
 		grpCompletion.setText("Completion");
-		Composite inner = new Composite(grpCompletion, SWT.NONE);
-		inner.setLayout(new GridLayout());
+		Composite innerCompletion = new Composite(grpCompletion, SWT.NONE);
+		innerCompletion.setLayout(new GridLayout());
 
-		addField(new StringButtonFieldEditor(PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", inner) {
+		addField(new StringButtonFieldEditor(PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", innerCompletion) {
 			@Override
 			protected String changePressed() {
 				List<AiModel> models = new ArrayList<>();
@@ -83,6 +83,43 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 				return res;
 			}
 		});
+
+		Group grpChat = new Group(getFieldEditorParent(), SWT.NONE);
+		grpChat.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
+		FillLayout grpChatLayout = new FillLayout();
+		grpChatLayout.marginHeight = 5;
+		grpChatLayout.marginWidth = 5;
+		grpChat.setLayout(grpChatLayout);
+		grpChat.setText("Completion");
+		Composite innerChat = new Composite(grpChat, SWT.NONE);
+		innerChat.setLayout(new GridLayout());
+		
+		addField(new StringButtonFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:", innerChat) {
+			
+			@Override
+			protected String changePressed() {
+				List<AiModel> models = new ArrayList<>();
+				for (AiApiConnection conn : connections) {
+					if (conn.isEnabled()) {
+						try {
+							List<AiModel> modelsFromConn = conn.getApiClient().getModels();
+							modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
+							models.addAll(modelsFromConn);
+						} catch (RuntimeException e) {
+							Activator.logError(
+									"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
+						}
+					}
+				}
+				ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
+				String res = null;
+				if (dialog.open() == ModelSelectionDialog.OK) {
+					AiModel model = dialog.getSelectedModel();
+					res = model.getApiConnection().getName() + "/" + model.getName();
+				}
+				return res;
+			}
+		})
 
 		addField(new BooleanFieldEditor(PreferenceConstants.DEBUG_LOG_PROMPTS, "Log prompts to Error Log",
 				getFieldEditorParent()));

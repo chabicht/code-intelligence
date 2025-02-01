@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import com.chabicht.code_intelligence.model.CompletionResult;
-import com.chabicht.code_intelligence.model.Prompt;
+import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -94,7 +94,7 @@ public class OllamaApiClient implements IAiApiClient {
 	}
 
 	@Override
-	public CompletionResult performCompletion(String modelName, Prompt completionPrompt) {
+	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
 		req.addProperty("prompt", completionPrompt.compile());
