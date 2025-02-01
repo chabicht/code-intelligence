@@ -7,14 +7,17 @@ import java.net.http.HttpClient.Redirect;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
-import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
+import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -139,5 +142,113 @@ public class OpenAiApiClient implements IAiApiClient {
 		JsonObject res = performPost(JsonObject.class, "chat/completions", req);
 		return new CompletionResult(res.get("choices").getAsJsonArray().get(0).getAsJsonObject().get("message")
 				.getAsJsonObject().get("content").getAsString());
+	}
+
+	/**
+	 * Sends a chat request in streaming mode using the current ChatConversation.
+	 * <p>
+	 * This method does the following:
+	 * <ol>
+	 * <li>Builds the JSON request from the conversation messages already present.
+	 * (It does not include a reply message yet.)</li>
+	 * <li>Adds a new (empty) assistant message to the conversation which will be
+	 * updated as the API response streams in.</li>
+	 * <li>Sends the request with "stream": true and processes the response
+	 * line-by-line.</li>
+	 * <li>As each new chunk arrives, it appends the new text to the assistant
+	 * message, notifies the conversation listeners, and calls the optional onChunk
+	 * callback.</li>
+	 * </ol>
+	 *
+	 * @param modelName the model to use (for example, "gpt-4")
+	 * @param chat      the ChatConversation object containing the conversation so
+	 *                  far
+	 * @param onChunk   a Consumer callback invoked with each new text chunk (may be
+	 *                  null)
+	 */
+	@Override
+	public void performChat(String modelName, ChatConversation chat, Consumer<String> onChunk) {
+		// Build the JSON array of messages from the conversation.
+		// (We use the messages already in the conversation. We assume the conversation
+		// ends with a user message.)
+		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
+		JsonArray messagesJson = new JsonArray();
+		for (ChatConversation.ChatMessage msg : messagesToSend) {
+			JsonObject jsonMsg = new JsonObject();
+			// Convert the role enum to lowercase string (system, user, assistant).
+			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
+			jsonMsg.addProperty("content", msg.getContent());
+			messagesJson.add(jsonMsg);
+		}
+
+		// Create the JSON request object.
+		JsonObject req = new JsonObject();
+		req.addProperty("model", modelName);
+		req.addProperty("stream", true);
+		req.add("messages", messagesJson);
+
+		// Add a new (empty) assistant message to the conversation.
+		// This is the message that will be updated as new text is streamed in.
+		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
+				ChatConversation.Role.ASSISTANT, "");
+		chat.addMessage(assistantMessage);
+
+		// Prepare the HTTP request.
+		String requestBody = gson.toJson(req);
+		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+				.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
+
+		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+				.uri(URI.create(apiConnection.getBaseUri() + "/").resolve("chat/completions"))
+				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("Content-Type", "application/json");
+		if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
+			requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
+		}
+		HttpRequest request = requestBuilder.build();
+
+		// Send the request asynchronously and process the streamed response
+		// line-by-line.
+		client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
+			if (response.statusCode() >= 200 && response.statusCode() < 300) {
+				response.body().forEach(line -> {
+					// Each chunk from the API is prefixed with "data: ".
+					if (line != null && line.startsWith("data: ")) {
+						String data = line.substring("data: ".length()).trim();
+						if ("[DONE]".equals(data)) {
+							// End of stream.
+							return;
+						}
+						try {
+							JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
+							JsonArray choices = jsonChunk.getAsJsonArray("choices");
+							for (JsonElement choiceElement : choices) {
+								JsonObject choice = choiceElement.getAsJsonObject();
+								if (choice.has("delta")) {
+									JsonObject delta = choice.getAsJsonObject("delta");
+									if (delta.has("content")) {
+										String chunk = delta.get("content").getAsString();
+										// Append the received chunk to the assistant message.
+										assistantMessage.setContent(assistantMessage.getContent() + chunk);
+										// Notify the conversation listeners that the assistant message was updated.
+										chat.notifyMessageUpdated(assistantMessage);
+										// Also call the external onChunk callback, if provided.
+										if (onChunk != null) {
+											onChunk.accept(chunk);
+										}
+									}
+								}
+							}
+						} catch (JsonSyntaxException e) {
+							Activator.logError("Error parsing stream chunk: " + data, e);
+						}
+					}
+				});
+			} else {
+				Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+			}
+		}).exceptionally(e -> {
+			Activator.logError("Exception during streaming chat", e);
+			return null;
+		});
 	}
 }

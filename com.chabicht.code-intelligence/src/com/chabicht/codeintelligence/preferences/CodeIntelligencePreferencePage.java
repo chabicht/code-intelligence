@@ -119,7 +119,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 				}
 				return res;
 			}
-		})
+		});
 
 		addField(new BooleanFieldEditor(PreferenceConstants.DEBUG_LOG_PROMPTS, "Log prompts to Error Log",
 				getFieldEditorParent()));

@@ -2,6 +2,7 @@ package com.chabicht.code_intelligence.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * A conversation with a chat model, displayed in the chat view.
@@ -12,7 +13,6 @@ public class ChatConversation {
 	 */
 	public static enum Role {
 		SYSTEM, USER, ASSISTANT;
-
 	}
 
 	/**
@@ -80,6 +80,70 @@ public class ChatConversation {
 
 	private final List<ChatMessage> messages = new ArrayList<>();
 
+	// --- Notification mechanism added below ---
+
+	/**
+	 * Listener interface for conversation updates.
+	 */
+	public interface ChatListener {
+		/**
+		 * Called when a chat message is added or updated.
+		 *
+		 * @param message the updated message.
+		 */
+		void onMessageUpdated(ChatMessage message);
+	}
+
+	private final List<ChatListener> listeners = new CopyOnWriteArrayList<>();
+
+	/**
+	 * Adds a listener to receive conversation updates.
+	 *
+	 * @param listener the listener to add.
+	 */
+	public void addListener(ChatListener listener) {
+		listeners.add(listener);
+	}
+
+	/**
+	 * Removes a previously added listener.
+	 *
+	 * @param listener the listener to remove.
+	 */
+	public void removeListener(ChatListener listener) {
+		listeners.remove(listener);
+	}
+
+	/**
+	 * Adds a new message to the conversation and notifies listeners.
+	 *
+	 * @param message the message to add.
+	 */
+	public void addMessage(ChatMessage message) {
+		messages.add(message);
+		notifyListeners(message);
+	}
+
+	/**
+	 * Notifies listeners that an existing message has been updated.
+	 *
+	 * @param message the message that was updated.
+	 */
+	public void notifyMessageUpdated(ChatMessage message) {
+		notifyListeners(message);
+	}
+
+	private void notifyListeners(ChatMessage message) {
+		for (ChatListener listener : listeners) {
+			listener.onMessageUpdated(message);
+		}
+	}
+
+	/**
+	 * Returns the list of messages in the conversation.
+	 *
+	 * @return the messages.
+	 */
 	public List<ChatMessage> getMessages() {
 		return messages;
 	}

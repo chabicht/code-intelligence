@@ -8,9 +8,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -107,5 +109,11 @@ public class OllamaApiClient implements IAiApiClient {
 		JsonObject res = performPost(JsonObject.class, "api/generate", req);
 
 		return new CompletionResult(res.get("response").getAsString());
+	}
+
+	@Override
+	public void performChat(String modelName, ChatConversation chat, Consumer<String> onChunk) {
+		// TODO Auto-generated method stub
+		
 	}
 }
