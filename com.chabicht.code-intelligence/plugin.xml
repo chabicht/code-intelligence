@@ -25,7 +25,7 @@
 		<javaCompletionProposalComputer
 			requiresUIThread="false"
 			class="com.chabicht.code_intelligence.completion.CodeIntelligenceCompletionProposalComputer"
-			categoryId="com.chabicht.code_intelligence.codeIntelligenceCategory"
+			categoryId="com.chabicht.code_intelligence.completions"
 			needsSortingAfterFiltering="true"
 			activate="true">
 				<partition type="__dftl_partition_content_type"/>
