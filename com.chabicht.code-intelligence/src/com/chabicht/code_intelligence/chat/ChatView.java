@@ -127,7 +127,7 @@ public class ChatView extends ViewPart {
 		btnClear.setText("🧹");
 		btnClear.setFont(buttonSymbolFont);
 
-		txtUserInput = new Text(composite, SWT.BORDER | SWT.MULTI);
+		txtUserInput = new Text(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
 		txtUserInput.addKeyListener(new KeyAdapter() {
 			@Override
 			public void keyReleased(KeyEvent e) {
