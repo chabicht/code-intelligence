@@ -1,11 +1,10 @@
 package com.chabicht.code_intelligence.apiclient;
 
 import java.util.List;
-import java.util.function.Consumer;
 
-import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
+import com.chabicht.code_intelligence.model.CompletionResult;
 
 public interface IAiApiClient {
 	/**
@@ -44,6 +43,6 @@ public interface IAiApiClient {
 	 * @param onChunk   a Consumer callback invoked with each new text chunk (may be
 	 *                  null)
 	 */
-	void performChat(String modelName, ChatConversation chat, Consumer<String> onChunk);
+	void performChat(String modelName, ChatConversation chat);
 
 }

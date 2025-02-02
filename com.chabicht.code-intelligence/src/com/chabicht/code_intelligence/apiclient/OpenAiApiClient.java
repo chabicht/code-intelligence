@@ -9,7 +9,6 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -167,7 +166,7 @@ public class OpenAiApiClient implements IAiApiClient {
 	 *                  null)
 	 */
 	@Override
-	public void performChat(String modelName, ChatConversation chat, Consumer<String> onChunk) {
+	public void performChat(String modelName, ChatConversation chat) {
 		// Build the JSON array of messages from the conversation.
 		// (We use the messages already in the conversation. We assume the conversation
 		// ends with a user message.)
@@ -231,10 +230,6 @@ public class OpenAiApiClient implements IAiApiClient {
 										assistantMessage.setContent(assistantMessage.getContent() + chunk);
 										// Notify the conversation listeners that the assistant message was updated.
 										chat.notifyMessageUpdated(assistantMessage);
-										// Also call the external onChunk callback, if provided.
-										if (onChunk != null) {
-											onChunk.accept(chunk);
-										}
 									}
 								}
 							}

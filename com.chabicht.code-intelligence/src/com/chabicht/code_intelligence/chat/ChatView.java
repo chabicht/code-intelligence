@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence.chat;
 
+import org.commonmark.parser.Parser;
+import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.swt.SWT;
@@ -11,11 +13,16 @@ import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.ui.part.ViewPart;
 
+import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.Role;
 
 public class ChatView extends ViewPart {
 	private Text txtUserInput;
@@ -25,6 +32,13 @@ public class ChatView extends ViewPart {
 	private Font buttonSymbolFont;
 
 	private ChatConversation conversation = new ChatConversation();
+	private ChatMessage currentMessage;
+
+	private Browser bChat;
+
+	private Parser markdownParser = Parser.builder().build();
+	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
+	private int latestMessageOffset = 0;
 
 	public ChatView() {
 		buttonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(18));
@@ -42,10 +56,10 @@ public class ChatView extends ViewPart {
 		ToolBar tbTop = new ToolBar(composite, SWT.FLAT | SWT.RIGHT);
 		tbTop.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 
-		Browser bChat = new Browser(composite, SWT.NONE);
+		bChat = new Browser(composite, SWT.NONE);
 		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 2, 1));
 
-		txtUserInput = new Text(composite, SWT.BORDER);
+		txtUserInput = new Text(composite, SWT.BORDER | SWT.MULTI);
 		GridData gd_txtUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1);
 		gd_txtUserInput.heightHint = 80;
 		txtUserInput.setLayoutData(gd_txtUserInput);
@@ -54,7 +68,8 @@ public class ChatView extends ViewPart {
 		btnSend.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-
+				conversation.addMessage(new ChatMessage(Role.USER, txtUserInput.getText()));
+				ConnectionFactory.forChat().chat(conversation);
 			}
 		});
 		GridData gd_btnSend = new GridData(SWT.RIGHT, SWT.BOTTOM, false, false, 1, 1);
@@ -64,6 +79,26 @@ public class ChatView extends ViewPart {
 		btnSend.setToolTipText("Send message (Ctrl + Enter)");
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
+
+		conversation.addListener(new ChatListener() {
+
+			@Override
+			public void onMessageUpdated(ChatMessage message) {
+				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
+				Display.getDefault().asyncExec(() -> {
+					bChat.setText(bChat.getText().substring(0, latestMessageOffset) + "<br/><br/>" + messageHtml);
+				});
+			}
+
+			@Override
+			public void onMessageAdded(ChatMessage message) {
+				latestMessageOffset = bChat.getText().length();
+				Display.getDefault().asyncExec(() -> {
+					currentMessage = message;
+					bChat.setText(bChat.getText() + "Message:" + message.getId() + "<br/><br/>" + message.getContent());
+				});
+			}
+		});
 	}
 
 	@Override

@@ -8,12 +8,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
+import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -112,7 +111,7 @@ public class OllamaApiClient implements IAiApiClient {
 	}
 
 	@Override
-	public void performChat(String modelName, ChatConversation chat, Consumer<String> onChunk) {
+	public void performChat(String modelName, ChatConversation chat) {
 		// TODO Auto-generated method stub
 		
 	}

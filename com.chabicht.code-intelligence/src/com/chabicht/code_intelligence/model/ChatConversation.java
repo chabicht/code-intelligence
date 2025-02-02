@@ -2,6 +2,7 @@ package com.chabicht.code_intelligence.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -52,13 +53,19 @@ public class ChatConversation {
 	 * Message in a Chat.
 	 */
 	public static class ChatMessage {
+		private final UUID id;
 		private final Role role;
 		private String content;
 		private final List<MessageContext> context = new ArrayList<>();
 
 		public ChatMessage(Role role, String content) {
+			id = UUID.randomUUID();
 			this.role = role;
 			this.content = content;
+		}
+
+		public UUID getId() {
+			return id;
 		}
 
 		public String getContent() {
@@ -87,7 +94,14 @@ public class ChatConversation {
 	 */
 	public interface ChatListener {
 		/**
-		 * Called when a chat message is added or updated.
+		 * Called when a chat message is added.
+		 *
+		 * @param message the updated message.
+		 */
+		void onMessageAdded(ChatMessage message);
+
+		/**
+		 * Called when a chat message is updated.
 		 *
 		 * @param message the updated message.
 		 */
@@ -121,7 +135,7 @@ public class ChatConversation {
 	 */
 	public void addMessage(ChatMessage message) {
 		messages.add(message);
-		notifyListeners(message);
+		messageAdded(message);
 	}
 
 	/**
@@ -130,10 +144,16 @@ public class ChatConversation {
 	 * @param message the message that was updated.
 	 */
 	public void notifyMessageUpdated(ChatMessage message) {
-		notifyListeners(message);
+		messageUpdated(message);
 	}
 
-	private void notifyListeners(ChatMessage message) {
+	private void messageAdded(ChatMessage message) {
+		for (ChatListener listener : listeners) {
+			listener.onMessageAdded(message);
+		}
+	}
+
+	private void messageUpdated(ChatMessage message) {
 		for (ChatListener listener : listeners) {
 			listener.onMessageUpdated(message);
 		}

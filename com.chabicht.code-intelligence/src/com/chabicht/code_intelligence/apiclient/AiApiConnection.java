@@ -1,8 +1,9 @@
 package com.chabicht.code_intelligence.apiclient;
 
 import com.chabicht.code_intelligence.Bean;
-import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
+import com.chabicht.code_intelligence.model.CompletionResult;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
@@ -93,5 +94,13 @@ public class AiApiConnection extends Bean {
 		}
 
 		return getApiClient().performCompletion(modelName, completionPrompt);
+	}
+
+	public void performChat(String modelName, ChatConversation chat) {
+		if (!enabled) {
+			throw new RuntimeException("API connection disabled!");
+		}
+
+		getApiClient().performChat(modelName, chat);
 	}
 }
