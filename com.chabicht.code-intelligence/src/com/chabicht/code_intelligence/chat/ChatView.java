@@ -124,7 +124,8 @@ public class ChatView extends ViewPart {
 		gd_btnClear.widthHint = 40;
 		btnClear.setLayoutData(gd_btnClear);
 		btnClear.setToolTipText("Clear conversation");
-		btnClear.setText("🧹");
+		// Broom 🧹
+		btnClear.setText("\uD83E\uDDF9");
 		btnClear.setFont(buttonSymbolFont);
 
 		txtUserInput = new Text(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
