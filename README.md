@@ -4,6 +4,8 @@ This Eclipse plugin provides AI code completion.
 
 ## Usage
 
+### Completion
+
 The completion feature is integrated in the JDT completion proposal mechanism.  
 So when you invoke it by e.g. pressing *Ctrl + Space*, an AI completion is triggered by default.
 
@@ -12,6 +14,14 @@ So when you invoke it by e.g. pressing *Ctrl + Space*, an AI completion is trigg
 What also works really well is adding a `// TODO` comment above where you want an ai completion.
 
 ![Screenshot: invocation of the plugin with a TODO comment](images/example-todo-prompt.png)
+
+### Chat
+
+You can open a (for now rudimentary) chat view. Go to *Window* -> *Show View* -> *Other...* and select the *Code Intelligence Chat* view.
+
+![Screenshot: Show chat view](images/show-view-chat.png)
+
+![Screenshot: Example of the chat view.](images/chat-view-example.png)
 
 ## Installation
 
