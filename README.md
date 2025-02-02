@@ -36,9 +36,9 @@ In the dialog, click on *Add...* and enter the new repository information. For *
 
 Open the preferences: *Window* -> *Preferences* -> *Code Intelligence*.
 
-![Screenshot: Plugin configuration page](images/image-1.png)
+![Screenshot: Plugin configuration page](images/preferences.png)
 
-Here you can add connections to different API providers and select the model you want to use for code completion.
+Here you can add connections to different API providers and select the model you want to use for *code completion* and *chat* requests.
 
 ### Ollama connection settings
 
