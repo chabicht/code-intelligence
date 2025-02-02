@@ -25,7 +25,7 @@ You can open a (for now rudimentary) chat view. Go to *Window* -> *Show View* ->
 
 ## Installation
 
-The update site is hosted on [https://chabicht.github.io/code-intelligence/upate-site/](https://chabicht.github.io/code-intelligence/upate-site/).
+The update site is hosted on [https://chabicht.github.io/code-intelligence/update-site/](https://chabicht.github.io/code-intelligence/update-site/).
 
 In Eclipse, open *Help* -> *Install New Software...*.  
 In the dialog, click on *Add...* and enter the new repository information. For *Location*, use the URL above.  
