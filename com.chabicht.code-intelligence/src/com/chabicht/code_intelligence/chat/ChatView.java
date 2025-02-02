@@ -6,6 +6,8 @@ import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.browser.Browser;
+import org.eclipse.swt.events.KeyAdapter;
+import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
@@ -15,7 +17,6 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Text;
-import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.ui.part.ViewPart;
 
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
@@ -32,13 +33,32 @@ public class ChatView extends ViewPart {
 	private Font buttonSymbolFont;
 
 	private ChatConversation conversation = new ChatConversation();
-	private ChatMessage currentMessage;
 
 	private Browser bChat;
 
 	private Parser markdownParser = Parser.builder().build();
 	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
-	private int latestMessageOffset = 0;
+
+	private ChatListener chatListener = new ChatListener() {
+
+		@Override
+		public void onMessageUpdated(ChatMessage message) {
+			String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
+			Display.getDefault().asyncExec(() -> {
+				bChat.execute(
+						String.format("updateMessage('%s', '%s');", message.getId(), escapeForJavaScript(messageHtml)));
+			});
+		}
+
+		@Override
+		public void onMessageAdded(ChatMessage message) {
+			Display.getDefault().asyncExec(() -> {
+				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
+				bChat.execute(String.format("addMessage('%s', '%s', '%s');", message.getId(),
+						message.getRole().name().toLowerCase(), escapeForJavaScript(messageHtml)));
+			});
+		}
+	};
 
 	public ChatView() {
 		buttonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(18));
@@ -53,13 +73,39 @@ public class ChatView extends ViewPart {
 		gl_composite.horizontalSpacing = 0;
 		composite.setLayout(gl_composite);
 
-		ToolBar tbTop = new ToolBar(composite, SWT.FLAT | SWT.RIGHT);
-		tbTop.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
-
 		bChat = new Browser(composite, SWT.NONE);
-		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 2, 1));
+		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		bChat.setText(CHAT_TEMPLATE);
+
+		Button btnClear = new Button(composite, SWT.NONE);
+		btnClear.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				conversation.removeListener(chatListener);
+				conversation = new ChatConversation();
+				conversation.addListener(chatListener);
+				bChat.setText(CHAT_TEMPLATE);
+				txtUserInput.setText("");
+			}
+		});
+		GridData gd_btnClear = new GridData(SWT.LEFT, SWT.TOP, false, false, 1, 1);
+		gd_btnClear.heightHint = 40;
+		gd_btnClear.widthHint = 40;
+		btnClear.setLayoutData(gd_btnClear);
+		btnClear.setToolTipText("Clear conversation");
+		btnClear.setText("🧹");
+		btnClear.setFont(buttonSymbolFont);
 
 		txtUserInput = new Text(composite, SWT.BORDER | SWT.MULTI);
+		txtUserInput.addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyReleased(KeyEvent e) {
+				if ((e.stateMask & SWT.CTRL) > 0 && (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR)) {
+					e.doit = false;
+					sendMessage();
+				}
+			}
+		});
 		GridData gd_txtUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1);
 		gd_txtUserInput.heightHint = 80;
 		txtUserInput.setLayoutData(gd_txtUserInput);
@@ -68,8 +114,7 @@ public class ChatView extends ViewPart {
 		btnSend.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				conversation.addMessage(new ChatMessage(Role.USER, txtUserInput.getText()));
-				ConnectionFactory.forChat().chat(conversation);
+				sendMessage();
 			}
 		});
 		GridData gd_btnSend = new GridData(SWT.RIGHT, SWT.BOTTOM, false, false, 1, 1);
@@ -79,26 +124,7 @@ public class ChatView extends ViewPart {
 		btnSend.setToolTipText("Send message (Ctrl + Enter)");
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
-
-		conversation.addListener(new ChatListener() {
-
-			@Override
-			public void onMessageUpdated(ChatMessage message) {
-				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
-				Display.getDefault().asyncExec(() -> {
-					bChat.setText(bChat.getText().substring(0, latestMessageOffset) + "<br/><br/>" + messageHtml);
-				});
-			}
-
-			@Override
-			public void onMessageAdded(ChatMessage message) {
-				latestMessageOffset = bChat.getText().length();
-				Display.getDefault().asyncExec(() -> {
-					currentMessage = message;
-					bChat.setText(bChat.getText() + "Message:" + message.getId() + "<br/><br/>" + message.getContent());
-				});
-			}
-		});
+		conversation.addListener(chatListener);
 	}
 
 	@Override
@@ -108,22 +134,77 @@ public class ChatView extends ViewPart {
 		}
 	}
 
-	private final static String CHAT_TEMPLATE = """
+	private void sendMessage() {
+		conversation.addMessage(new ChatMessage(Role.USER, txtUserInput.getText()));
+		ConnectionFactory.forChat().chat(conversation);
+		txtUserInput.setText("");
+	}
+
+	/**
+	 * Escapes a string for safe use in a JavaScript literal.
+	 *
+	 * @param input the original string to be escaped
+	 * @return a string where characters that might break a JS literal are escaped
+	 */
+	public static String escapeForJavaScript(String input) {
+		if (input == null) {
+			return "";
+		}
+		StringBuilder escaped = new StringBuilder();
+		for (int i = 0; i < input.length(); i++) {
+			char c = input.charAt(i);
+			switch (c) {
+			case '\\':
+				escaped.append("\\\\");
+				break;
+			case '"':
+				escaped.append("\\\"");
+				break;
+			case '\'':
+				escaped.append("\\'");
+				break;
+			case '`':
+				escaped.append("\\`");
+				break;
+			case '\n':
+				escaped.append("\\n");
+				break;
+			case '\r':
+				escaped.append("\\r");
+				break;
+			case '\t':
+				escaped.append("\\t");
+				break;
+			default:
+				escaped.append(c);
+			}
+		}
+		return escaped.toString();
+	}
+
+	private String CHAT_TEMPLATE = """
 			<!DOCTYPE html>
+			<meta http-equiv="X-UA-Compatible" content="IE=edge" />
 			<html>
 			<head>
 			  <style>
+				html, body {
+				  margin: 0;
+				  padding: 0;
+				}
+
 			    /* The main container uses flex layout in column direction */
 			    .chat-container {
 			      display: flex;
 			      flex-direction: column;
-			      width: 100vw;
-			      height: 100vh;
+			      width: 100%;
+			      height: 100%;
 			      margin: 0;
 			      padding: 10px;
 			      box-sizing: border-box;
 			      background-color: #f5f5f5;
-			      overflow-y: auto;
+				  overflow-y: hidden;
+				  overflow-x: auto;
 			    }
 
 			    /* General message bubble styling */
@@ -135,6 +216,7 @@ public class ChatView extends ViewPart {
 			      padding: 10px;
 			      margin: 5px 0;
 			      box-sizing: border-box;
+				  overflow: auto;
 			    }
 
 			    /* Message from "me": align bubbles to the right */
@@ -152,20 +234,57 @@ public class ChatView extends ViewPart {
 			</head>
 			<body>
 
-			<div class="chat-container">
-			  <div class="message from-them">
-			    Hey, how are you?
-			  </div>
-			  <div class="message from-me">
-			    I’m doing well, how about you?
-			  </div>
-			  <div class="message from-them">
-			    I’m great, thanks for asking!
-			  </div>
-			  <div class="message from-me">
-			    Glad to hear. Let’s chat more later!
-			  </div>
+			<div id="chat-container" class="chat-container">
 			</div>
+			<div id='bottom' style='visibility: hidden;'></div>
+
+			<script>
+			/**
+			 * Adds a new message to the chat container.
+			 * @param {String} uuid - Unique identifier for the message.
+			 * @param {String} role - The role of the sender ("assistant" or "user").
+			 * @param {String} content - The HTML content of the message.
+			 */
+			function addMessage(uuid, role, content) {
+			  var container = document.getElementById("chat-container");
+			  if (!container) {
+			    return;
+			  }
+			  var div = document.createElement("div");
+
+			  // Choose the correct CSS class based on the role
+			  if (role === "assistant") {
+			    div.className = "message from-them";
+			  } else if (role === "user") {
+			    div.className = "message from-me";
+			  } else {
+			    div.className = "message";
+			  }
+
+			  // Set the uuid as the element's id for future reference
+			  div.id = uuid;
+			  div.innerHTML = content;
+			  container.appendChild(div);
+
+			  var bottom = document.getElementById("bottom");
+			  bottom.scrollIntoView(true);
+			}
+
+			/**
+			 * Updates an existing message's content.
+			 * @param {String} uuid - Unique identifier for the message to update.
+			 * @param {String} updatedContent - The new HTML content for the message.
+			 */
+			function updateMessage(uuid, updatedContent) {
+			  var message = document.getElementById(uuid);
+			  if (message) {
+			    message.innerHTML = updatedContent;
+			  }
+
+			  var bottom = document.getElementById("bottom");
+			  bottom.scrollIntoView(true);
+			}
+			</script>
 
 			</body>
 			</html>
