@@ -4,6 +4,8 @@ Bundle-Name: Code-intelligence
 Bundle-SymbolicName: com.chabicht.code-intelligence;singleton:=true
 Bundle-Version: 1.0.0.qualifier
 Bundle-Activator: com.chabicht.code_intelligence.Activator
+Bundle-ClassPath: lib/commonmark-0.24.0.jar,
+ .
 Bundle-Vendor: chabicht.com
 Require-Bundle: org.eclipse.ui,
  org.eclipse.core.runtime,
@@ -19,7 +21,8 @@ Require-Bundle: org.eclipse.ui,
  org.eclipse.ui.ide;bundle-version="3.21.100",
  org.eclipse.ui.workbench.texteditor;bundle-version="3.17.100",
  org.eclipse.core.resources;bundle-version="3.19.100",
- org.apache.commons.lang3;bundle-version="3.0.0"
+ org.apache.commons.lang3;bundle-version="3.0.0",
+ org.eclipse.jetty.http;bundle-version="10.0.15"
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: com.chabicht.code.intelligence
 Bundle-ActivationPolicy: lazy

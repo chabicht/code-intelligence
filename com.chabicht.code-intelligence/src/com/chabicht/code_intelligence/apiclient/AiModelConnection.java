@@ -1,7 +1,8 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
-import com.chabicht.code_intelligence.model.Prompt;
 
 public class AiModelConnection {
 	private final AiApiConnection conn;
@@ -20,7 +21,11 @@ public class AiModelConnection {
 		return modelName;
 	}
 
-	public CompletionResult complete(Prompt completionPrompt) {
+	public CompletionResult complete(CompletionPrompt completionPrompt) {
 		return conn.performCompletion(modelName, completionPrompt);
+	}
+
+	public void chat(ChatConversation chat) {
+		conn.performChat(modelName, chat);
 	}
 }

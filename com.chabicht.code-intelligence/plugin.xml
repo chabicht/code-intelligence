@@ -39,5 +39,20 @@
             class="com.chabicht.code_intelligence.changelistener.Startup">
       </startup>
    </extension>
+   <extension
+         point="org.eclipse.ui.views">
+      <view
+            category="com.chabicht.code_intelligence"
+            class="com.chabicht.code_intelligence.chat.ChatView"
+            icon="icons/completion.png"
+            id="com.chabicht.code_intelligence.chat.ChatView"
+            name="Code Intelligence Chat"
+            restorable="true">
+      </view>
+      <category
+            id="com.chabicht.code_intelligence"
+            name="Code Intelligence">
+      </category>
+   </extension>
 
 </plugin>
