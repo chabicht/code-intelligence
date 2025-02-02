@@ -234,7 +234,7 @@ public class ChatView extends ViewPart {
 			      margin: 0;
 			      padding: 10px;
 			      box-sizing: border-box;
-			      background-color: #f5f5f5;
+			      background-color: #ffffff;
 				  overflow-y: hidden;
 				  overflow-x: auto;
 			    }
@@ -254,13 +254,13 @@ public class ChatView extends ViewPart {
 			    /* Message from "me": align bubbles to the right */
 			    .from-me {
 			      align-self: flex-start;
-			      background-color: #e0f7fa;
+			      background-color: #ededed;
 			    }
 
 			    /* Message from "them": align bubbles to the left */
 			    .from-them {
 			      align-self: flex-end;
-			      background-color: #ffffff;
+			      background-color: #ededed;
 			    }
 
 				/* Style for the details element */
@@ -280,7 +280,7 @@ public class ChatView extends ViewPart {
 				  border-left: 2px solid #ccc;
 				  margin: 10px 0;
 				  padding-left: 10px;
-				  background: #f9f9f9;
+				  background: #ededed;
 				}
 			  </style>
 			</head>
