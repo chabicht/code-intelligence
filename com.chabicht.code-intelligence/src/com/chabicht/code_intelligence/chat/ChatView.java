@@ -223,7 +223,7 @@ public class ChatView extends ViewPart {
 				if (diff.isAddition()) {
 					Label l = new Label(cmpAttachments, SWT.NONE);
 					// Add the paperclip emoji "📎"
-					l.setText("\uD935\uDECE");
+					l.setText("\uD83D\uDCCE");
 					l.setFont(attachmentSymbolFont);
 					l.setToolTipText(ctx.getFileName() + ":" + ctx.getStartLine() + "-" + ctx.getEndLine());
 					l.setData(ctx);
@@ -273,6 +273,7 @@ public class ChatView extends ViewPart {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
 
 			chatMessage.getContext().addAll(externallyAddedContext);
+			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
 			conversation.addMessage(chatMessage);
