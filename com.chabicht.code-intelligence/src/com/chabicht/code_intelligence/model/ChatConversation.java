@@ -106,6 +106,13 @@ public class ChatConversation {
 		 * @param message the updated message.
 		 */
 		void onMessageUpdated(ChatMessage message);
+
+		/**
+		 * Called when an async chat response finished updating the message.
+		 * 
+		 * @param message
+		 */
+		void onChatResponseFinished(ChatMessage message);
 	}
 
 	private final List<ChatListener> listeners = new CopyOnWriteArrayList<>();
@@ -145,6 +152,12 @@ public class ChatConversation {
 	 */
 	public void notifyMessageUpdated(ChatMessage message) {
 		messageUpdated(message);
+	}
+
+	public void notifyChatResponseFinished(ChatMessage message) {
+		for (ChatListener listener : listeners) {
+			listener.onChatResponseFinished(message);
+		}
 	}
 
 	private void messageAdded(ChatMessage message) {

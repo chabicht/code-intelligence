@@ -45,4 +45,8 @@ public interface IAiApiClient {
 	 */
 	void performChat(String modelName, ChatConversation chat);
 
+	void abortChat();
+
+	boolean isChatPending();
+
 }

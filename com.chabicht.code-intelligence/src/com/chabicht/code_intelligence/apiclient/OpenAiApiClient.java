@@ -9,12 +9,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
@@ -32,6 +34,7 @@ public class OpenAiApiClient implements IAiApiClient {
 
 	private final AiApiConnection apiConnection;
 	private transient final Gson gson = new Gson();
+	private CompletableFuture<Void> asyncRequest;
 
 	public OpenAiApiClient(AiApiConnection apiConnection) {
 		this.apiConnection = apiConnection;
@@ -174,9 +177,22 @@ public class OpenAiApiClient implements IAiApiClient {
 		JsonArray messagesJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : messagesToSend) {
 			JsonObject jsonMsg = new JsonObject();
+
 			// Convert the role enum to lowercase string (system, user, assistant).
 			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
-			jsonMsg.addProperty("content", msg.getContent());
+
+			StringBuilder content = new StringBuilder(256);
+			if (!msg.getContext().isEmpty()) {
+				content.append("Context information:\n\n");
+			}
+			for (MessageContext ctx : msg.getContext()) {
+				content.append("// ").append(ctx.getFileName()).append(" lines ").append(ctx.getStartLine())
+						.append(" to ").append(ctx.getEndLine()).append("\n");
+				content.append(ctx.getContent());
+				content.append("\n\n");
+			}
+			content.append(msg.getContent());
+			jsonMsg.addProperty("content", content.toString());
 			messagesJson.add(jsonMsg);
 		}
 
@@ -207,43 +223,61 @@ public class OpenAiApiClient implements IAiApiClient {
 
 		// Send the request asynchronously and process the streamed response
 		// line-by-line.
-		client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
-			if (response.statusCode() >= 200 && response.statusCode() < 300) {
-				response.body().forEach(line -> {
-					// Each chunk from the API is prefixed with "data: ".
-					if (line != null && line.startsWith("data: ")) {
-						String data = line.substring("data: ".length()).trim();
-						if ("[DONE]".equals(data)) {
-							// End of stream.
-							return;
-						}
-						try {
-							JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
-							JsonArray choices = jsonChunk.getAsJsonArray("choices");
-							for (JsonElement choiceElement : choices) {
-								JsonObject choice = choiceElement.getAsJsonObject();
-								if (choice.has("delta")) {
-									JsonObject delta = choice.getAsJsonObject("delta");
-									if (delta.has("content")) {
-										String chunk = delta.get("content").getAsString();
-										// Append the received chunk to the assistant message.
-										assistantMessage.setContent(assistantMessage.getContent() + chunk);
-										// Notify the conversation listeners that the assistant message was updated.
-										chat.notifyMessageUpdated(assistantMessage);
+		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
+			try {
+				if (response.statusCode() >= 200 && response.statusCode() < 300) {
+					response.body().forEach(line -> {
+						// Each chunk from the API is prefixed with "data: ".
+						if (line != null && line.startsWith("data: ")) {
+							String data = line.substring("data: ".length()).trim();
+							if ("[DONE]".equals(data)) {
+								// End of stream.
+								return;
+							}
+							try {
+								JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
+								JsonArray choices = jsonChunk.getAsJsonArray("choices");
+								for (JsonElement choiceElement : choices) {
+									JsonObject choice = choiceElement.getAsJsonObject();
+									if (choice.has("delta")) {
+										JsonObject delta = choice.getAsJsonObject("delta");
+										if (delta.has("content")) {
+											String chunk = delta.get("content").getAsString();
+											// Append the received chunk to the assistant message.
+											assistantMessage.setContent(assistantMessage.getContent() + chunk);
+											// Notify the conversation listeners that the assistant message was updated.
+											chat.notifyMessageUpdated(assistantMessage);
+										}
 									}
 								}
+							} catch (JsonSyntaxException e) {
+								Activator.logError("Error parsing stream chunk: " + data, e);
 							}
-						} catch (JsonSyntaxException e) {
-							Activator.logError("Error parsing stream chunk: " + data, e);
 						}
-					}
-				});
-			} else {
-				Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+					});
+				} else {
+					Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+				}
+			} finally {
+				chat.notifyChatResponseFinished(assistantMessage);
+				asyncRequest = null;
 			}
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat", e);
 			return null;
 		});
+	}
+
+	@Override
+	public synchronized boolean isChatPending() {
+		return asyncRequest != null;
+	}
+
+	@Override
+	public synchronized void abortChat() {
+		if (asyncRequest != null) {
+			asyncRequest.cancel(true);
+			asyncRequest = null;
+		}
 	}
 }

@@ -90,12 +90,12 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		grpChatLayout.marginHeight = 5;
 		grpChatLayout.marginWidth = 5;
 		grpChat.setLayout(grpChatLayout);
-		grpChat.setText("Completion");
+		grpChat.setText("Chat");
 		Composite innerChat = new Composite(grpChat, SWT.NONE);
 		innerChat.setLayout(new GridLayout());
-		
+
 		addField(new StringButtonFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:", innerChat) {
-			
+
 			@Override
 			protected String changePressed() {
 				List<AiModel> models = new ArrayList<>();

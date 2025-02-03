@@ -28,4 +28,12 @@ public class AiModelConnection {
 	public void chat(ChatConversation chat) {
 		conn.performChat(modelName, chat);
 	}
+
+	public void abortChat() {
+		conn.abortChat();
+	}
+
+	public boolean isChatPending() {
+		return conn.isChatPending();
+	}
 }

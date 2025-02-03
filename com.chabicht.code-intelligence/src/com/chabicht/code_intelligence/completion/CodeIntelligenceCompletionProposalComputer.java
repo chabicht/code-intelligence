@@ -19,8 +19,8 @@ import org.eclipse.swt.graphics.Image;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.changelistener.LastEditsDocumentListener;
-import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
+import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class CodeIntelligenceCompletionProposalComputer implements IJavaCompletionProposalComputer {
@@ -53,11 +53,11 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
 
-			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - 10));
+			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - 20));
 			int selectedLinesStartOffset = doc.getLineOffset(doc.getLineOfOffset(textSelection.getOffset()));
 			int selectedLinesEndOffset = doc
 					.getLineOffset(doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1);
-			int ctxAfterEndOffset = doc.getLineOffset(Math.min(doc.getNumberOfLines() - 1, endLine + 10));
+			int ctxAfterEndOffset = doc.getLineOffset(Math.min(doc.getNumberOfLines() - 1, endLine + 20));
 
 			int cursorOffset = invocationContext.getInvocationOffset();
 			int lineOfCursor = doc.getLineOfOffset(cursorOffset);

@@ -103,4 +103,15 @@ public class AiApiConnection extends Bean {
 
 		getApiClient().performChat(modelName, chat);
 	}
+
+	public void abortChat() {
+		if (apiClient != null) {
+			apiClient.abortChat();
+		}
+	}
+
+	public boolean isChatPending() {
+		return apiClient == null ? false : apiClient.isChatPending();
+	}
+
 }

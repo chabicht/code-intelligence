@@ -9,12 +9,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
@@ -28,6 +30,7 @@ public class OllamaApiClient implements IAiApiClient {
 
 	private final AiApiConnection apiConnection;
 	private transient final Gson gson = new Gson();
+	private CompletableFuture<Void> asyncRequest;
 
 	public OllamaApiClient(AiApiConnection apiConnection) {
 		this.apiConnection = apiConnection;
@@ -144,9 +147,23 @@ public class OllamaApiClient implements IAiApiClient {
 		JsonArray messagesJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : messagesToSend) {
 			JsonObject jsonMsg = new JsonObject();
+
 			// Convert the role to lowercase (e.g. "system", "user", "assistant").
 			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
-			jsonMsg.addProperty("content", msg.getContent());
+
+			StringBuilder content = new StringBuilder(256);
+			if (!msg.getContext().isEmpty()) {
+				content.append("Context information:\n\n");
+			}
+			for (MessageContext ctx : msg.getContext()) {
+				content.append("// ").append(ctx.getFileName()).append(" lines ").append(ctx.getStartLine())
+						.append(" to ").append(ctx.getEndLine()).append("\n");
+				content.append(ctx.getContent());
+				content.append("\n\n");
+			}
+			content.append(msg.getContent());
+			jsonMsg.addProperty("content", content.toString());
+
 			messagesJson.add(jsonMsg);
 		}
 
@@ -180,43 +197,61 @@ public class OllamaApiClient implements IAiApiClient {
 
 		// Send the request asynchronously and process the streamed response
 		// line-by-line.
-		client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
-			if (response.statusCode() >= 200 && response.statusCode() < 300) {
-				response.body().forEach(line -> {
-					// Each line is expected to be a JSON object.
-					if (line != null && !line.trim().isEmpty()) {
-						try {
-							JsonObject jsonChunk = JsonParser.parseString(line).getAsJsonObject();
-							// The Ollama chat endpoint returns a JSON object with a "message" field.
-							// That "message" object should contain a "content" field that holds the new
-							// text.
-							if (jsonChunk.has("message")) {
-								JsonObject messageObj = jsonChunk.getAsJsonObject("message");
-								if (messageObj.has("content")) {
-									String chunk = messageObj.get("content").getAsString();
-									// Append the received chunk to the assistant message.
-									assistantMessage.setContent(assistantMessage.getContent() + chunk);
-									// Notify the conversation listeners that the assistant message was updated.
-									chat.notifyMessageUpdated(assistantMessage);
+		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
+			try {
+				if (response.statusCode() >= 200 && response.statusCode() < 300) {
+					response.body().forEach(line -> {
+						// Each line is expected to be a JSON object.
+						if (line != null && !line.trim().isEmpty()) {
+							try {
+								JsonObject jsonChunk = JsonParser.parseString(line).getAsJsonObject();
+								// The Ollama chat endpoint returns a JSON object with a "message" field.
+								// That "message" object should contain a "content" field that holds the new
+								// text.
+								if (jsonChunk.has("message")) {
+									JsonObject messageObj = jsonChunk.getAsJsonObject("message");
+									if (messageObj.has("content")) {
+										String chunk = messageObj.get("content").getAsString();
+										// Append the received chunk to the assistant message.
+										assistantMessage.setContent(assistantMessage.getContent() + chunk);
+										// Notify the conversation listeners that the assistant message was updated.
+										chat.notifyMessageUpdated(assistantMessage);
+									}
 								}
+								// Optionally, if the response includes a "done" flag that is true, you can
+								// finish early.
+								if (jsonChunk.has("done") && jsonChunk.get("done").getAsBoolean()) {
+									// End of stream.
+									return;
+								}
+							} catch (JsonSyntaxException e) {
+								Activator.logError("Error parsing stream chunk: " + line, e);
 							}
-							// Optionally, if the response includes a "done" flag that is true, you can
-							// finish early.
-							if (jsonChunk.has("done") && jsonChunk.get("done").getAsBoolean()) {
-								// End of stream.
-								return;
-							}
-						} catch (JsonSyntaxException e) {
-							Activator.logError("Error parsing stream chunk: " + line, e);
 						}
-					}
-				});
-			} else {
-				Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+					});
+				} else {
+					Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+				}
+			} finally {
+				chat.notifyChatResponseFinished(assistantMessage);
+				asyncRequest = null;
 			}
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat", e);
 			return null;
 		});
+	}
+
+	@Override
+	public synchronized boolean isChatPending() {
+		return asyncRequest != null;
+	}
+
+	@Override
+	public synchronized void abortChat() {
+		if (asyncRequest != null) {
+			asyncRequest.cancel(true);
+			asyncRequest = null;
+		}
 	}
 }
