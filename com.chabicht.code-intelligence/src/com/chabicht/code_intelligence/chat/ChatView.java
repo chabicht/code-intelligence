@@ -1,11 +1,15 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
+import org.eclipse.core.databinding.observable.list.IListChangeListener;
+import org.eclipse.core.databinding.observable.list.ListDiffEntry;
+import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.jface.text.ITextSelection;
@@ -20,9 +24,13 @@ import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.layout.RowData;
+import org.eclipse.swt.layout.RowLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPage;
@@ -43,11 +51,14 @@ public class ChatView extends ViewPart {
 	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>");
 	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>");
 
+	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
+
 	private Text txtUserInput;
 
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
 
 	private Font buttonSymbolFont;
+	private Font attachmentSymbolFont;
 
 	private ChatConversation conversation = new ChatConversation();
 
@@ -55,6 +66,9 @@ public class ChatView extends ViewPart {
 
 	private Parser markdownParser = Parser.builder().build();
 	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
+
+	private Button btnSend;
+	private AiModelConnection connection;
 
 	private ChatListener chatListener = new ChatListener() {
 
@@ -98,7 +112,8 @@ public class ChatView extends ViewPart {
 					for (MessageContext ctx : message.getContext()) {
 						attachments.append(String.format("<span class=\"attachment-container\">"
 								+ "<span class=\"attachment-icon\">&#128206;</span>"
-								+ "<span class=\"tooltip\">%s</span>" + "</span>", ctx.getFileName()));
+								+ "<span class=\"tooltip\">%s</span>" + "</span>",
+								ctx.getFileName() + ":" + ctx.getStartLine() + "-" + ctx.getEndLine()));
 					}
 				}
 				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
@@ -121,12 +136,12 @@ public class ChatView extends ViewPart {
 
 	public ChatView() {
 		buttonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(18));
+		attachmentSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(16));
 	}
 
 	@Override
 	public void createPartControl(Composite parent) {
-
-		Composite composite = new Composite(parent, SWT.NONE);
+		composite = new Composite(parent, SWT.NONE);
 		GridLayout gl_composite = new GridLayout(2, false);
 		gl_composite.marginWidth = 0;
 		gl_composite.horizontalSpacing = 0;
@@ -143,6 +158,7 @@ public class ChatView extends ViewPart {
 				conversation.removeListener(chatListener);
 				conversation = new ChatConversation();
 				conversation.addListener(chatListener);
+				externallyAddedContext.clear();
 				bChat.setText(CHAT_TEMPLATE);
 				txtUserInput.setText("");
 			}
@@ -155,6 +171,16 @@ public class ChatView extends ViewPart {
 		// Broom 🧹
 		btnClear.setText("\uD83E\uDDF9");
 		btnClear.setFont(buttonSymbolFont);
+
+		cmpAttachments = new Composite(composite, SWT.NONE);
+		GridData gd_cmpAttachments = new GridData(SWT.FILL, SWT.FILL, false, false, 1, 1);
+		gd_cmpAttachments.heightHint = 30;
+		cmpAttachments.setLayoutData(gd_cmpAttachments);
+		RowLayout layoutCmpAttachments = new RowLayout(SWT.HORIZONTAL);
+		layoutCmpAttachments.marginTop = 0;
+		layoutCmpAttachments.marginBottom = 0;
+		cmpAttachments.setLayout(layoutCmpAttachments);
+		new Label(composite, SWT.NONE);
 
 		txtUserInput = new Text(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
 		txtUserInput.addKeyListener(new KeyAdapter() {
@@ -186,6 +212,43 @@ public class ChatView extends ViewPart {
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
 		conversation.addListener(chatListener);
+
+		initListeners();
+	}
+
+	private void initListeners() {
+		IListChangeListener<? super MessageContext> listChangeListener = e -> {
+			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
+				MessageContext ctx = diff.getElement();
+				if (diff.isAddition()) {
+					Label l = new Label(cmpAttachments, SWT.NONE);
+					// Add the paperclip emoji "📎"
+					l.setText("📎");
+					l.setFont(attachmentSymbolFont);
+					l.setToolTipText(ctx.getFileName() + ":" + ctx.getStartLine() + "-" + ctx.getEndLine());
+					l.setData(ctx);
+					RowData rd = new RowData(30, 30);
+					l.setLayoutData(rd);
+					cmpAttachments.layout();
+				} else {
+					removeAttachmentLabel(ctx);
+				}
+			}
+		};
+		externallyAddedContext.addListChangeListener(listChangeListener);
+		composite.addDisposeListener(e -> ChatView.externallyAddedContext.removeListChangeListener(listChangeListener));
+	}
+
+	private void removeAttachmentLabel(MessageContext ctx) {
+		if (cmpAttachments != null && !cmpAttachments.isDisposed() && cmpAttachments.getChildren() != null) {
+			Control[] children = cmpAttachments.getChildren();
+			for (int i = children.length - 1; i >= 0; i--) {
+				Control child = children[i];
+				if (child.getData() == ctx) {
+					child.dispose();
+				}
+			}
+		}
 	}
 
 	@Override
@@ -209,6 +272,7 @@ public class ChatView extends ViewPart {
 		} else {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
 
+			chatMessage.getContext().addAll(externallyAddedContext);
 			addSelectionAsContext(chatMessage);
 
 			conversation.addMessage(chatMessage);
@@ -243,8 +307,8 @@ public class ChatView extends ViewPart {
 			}
 
 			String fileName = textEditor.getEditorInput().getName();
-			chatMessage.getContext().add(new MessageContext("Text selection from file " + fileName,
-					textSelection.getStartLine(), textSelection.getEndLine(), selectedText));
+			chatMessage.getContext().add(new MessageContext(fileName, textSelection.getStartLine(),
+					textSelection.getEndLine(), selectedText));
 		}
 	}
 
@@ -288,6 +352,10 @@ public class ChatView extends ViewPart {
 			}
 		}
 		return escaped.toString();
+	}
+
+	public static List<MessageContext> getExternallyaddedcontext() {
+		return externallyAddedContext;
 	}
 
 	private String CHAT_TEMPLATE = """
@@ -477,6 +545,6 @@ public class ChatView extends ViewPart {
 			</body>
 			</html>
 			""";
-	private Button btnSend;
-	private AiModelConnection connection;
+	private Composite cmpAttachments;
+	private Composite composite;
 }
