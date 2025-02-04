@@ -47,6 +47,12 @@ public class ChatConversation {
 		public String getContent() {
 			return content;
 		}
+
+		@Override
+		public String toString() {
+			return "MessageContext [fileName=" + fileName + ", startLine=" + startLine + ", endLine=" + endLine
+					+ ", content:\n  ===\n" + content + "\n  ===\n";
+		}
 	}
 
 	/**
@@ -82,6 +88,21 @@ public class ChatConversation {
 
 		public List<MessageContext> getContext() {
 			return context;
+		}
+
+		@Override
+		public String toString() {
+			StringBuilder sb = new StringBuilder("ChatMessage {").append("\n");
+			sb.append("  id=").append(id);
+			sb.append(", role=").append(role).append("\n");
+			sb.append("  content:\n  ===\n").append(content).append("\n  ===\n");
+			if (context != null && !context.isEmpty()) {
+				sb.append("  context=").append(context).append("\n");
+			} else {
+				sb.append(", context=[]");
+			}
+			sb.append(" }").append("\n");
+			return sb.toString();
 		}
 	}
 
@@ -179,5 +200,10 @@ public class ChatConversation {
 	 */
 	public List<ChatMessage> getMessages() {
 		return messages;
+	}
+
+	@Override
+	public String toString() {
+		return "ChatConversation [\n" + messages + "\n]";
 	}
 }

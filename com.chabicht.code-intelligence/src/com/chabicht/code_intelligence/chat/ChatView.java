@@ -10,6 +10,7 @@ import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.core.databinding.observable.list.IListChangeListener;
 import org.eclipse.core.databinding.observable.list.ListDiffEntry;
 import org.eclipse.core.databinding.observable.list.WritableList;
+import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.jface.text.ITextSelection;
@@ -22,6 +23,7 @@ import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
+import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.layout.RowData;
@@ -39,6 +41,7 @@ import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.part.ViewPart;
 import org.eclipse.ui.texteditor.ITextEditor;
 
+import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -46,6 +49,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatView extends ViewPart {
 	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>");
@@ -58,7 +62,7 @@ public class ChatView extends ViewPart {
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
 
 	private Font buttonSymbolFont;
-	private Font attachmentSymbolFont;
+	private Image paperclipImage;
 
 	private ChatConversation conversation = new ChatConversation();
 
@@ -130,13 +134,24 @@ public class ChatView extends ViewPart {
 				btnSend.setText("\u25B6");
 
 				connection = null;
+
+				if (isDebugPromptLoggingEnabled()) {
+					Activator.logInfo(conversation.toString());
+				}
 			});
 		}
 	};
 
+	private boolean isDebugPromptLoggingEnabled() {
+		return Activator.getDefault().getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
+	}
+
 	public ChatView() {
 		buttonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(18));
-		attachmentSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(16));
+
+		ImageDescriptor paperclipDescriptor = ImageDescriptor.createFromFile(getClass(), "/icons/paperclip.png");
+		paperclipImage = resources.create(paperclipDescriptor);
+
 	}
 
 	@Override
@@ -222,12 +237,10 @@ public class ChatView extends ViewPart {
 				MessageContext ctx = diff.getElement();
 				if (diff.isAddition()) {
 					Label l = new Label(cmpAttachments, SWT.NONE);
-					// Add the paperclip emoji "📎"
-					l.setText("\uD83D\uDCCE");
-					l.setFont(attachmentSymbolFont);
 					l.setToolTipText(ctx.getFileName() + ":" + ctx.getStartLine() + "-" + ctx.getEndLine());
 					l.setData(ctx);
-					RowData rd = new RowData(30, 30);
+					l.setImage(paperclipImage);
+					RowData rd = new RowData(16, 25);
 					l.setLayoutData(rd);
 					cmpAttachments.layout();
 				} else {
@@ -272,7 +285,8 @@ public class ChatView extends ViewPart {
 		} else {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
 
-			chatMessage.getContext().addAll(externallyAddedContext);
+			externallyAddedContext.forEach(ctx -> addContextIfNotDuplicate(chatMessage, ctx.getFileName(),
+					ctx.getStartLine(), ctx.getEndLine(), ctx.getContent()));
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
@@ -308,8 +322,23 @@ public class ChatView extends ViewPart {
 			}
 
 			String fileName = textEditor.getEditorInput().getName();
-			chatMessage.getContext().add(new MessageContext(fileName, textSelection.getStartLine(),
-					textSelection.getEndLine(), selectedText));
+			int startLine = textSelection.getStartLine();
+			int endLine = textSelection.getEndLine();
+			addContextIfNotDuplicate(chatMessage, fileName, startLine, endLine, selectedText);
+		}
+	}
+
+	public void addContextIfNotDuplicate(ChatMessage chatMessage, String fileName, int startLine, int endLine,
+			String selectedText) {
+		boolean duplicate = false;
+		for (MessageContext ctx : chatMessage.getContext()) {
+			if (StringUtils.equals(ctx.getFileName(), fileName) && ctx.getStartLine() == startLine
+					&& ctx.getEndLine() == endLine) {
+				duplicate = true;
+			}
+		}
+		if (!duplicate) {
+			chatMessage.getContext().add(new MessageContext(fileName, startLine, endLine, selectedText));
 		}
 	}
 
