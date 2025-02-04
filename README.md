@@ -1,6 +1,6 @@
 # Code Intelligence
 
-This Eclipse plugin provides AI code completion.
+This Eclipse plugin provides AI code completion and reasoning in a chat view.
 
 ## Usage
 
@@ -66,6 +66,14 @@ Here you can add connections to different API providers and select the model you
 - Use *Type* OpenAI.
 - For the *Base URI*, use `https://api.groq.com/openai/v1`.
 - You have to create an API key in the [Groq playground](https://console.groq.com/keys).
+
+### Anthropic connection settings
+
+![Screenshot: Anthropic configuration](images/anthropic.png)
+
+- Use *Type* Anthropic.
+- For the *Base URI*, use `https://api.anthropic.com/v1`.
+- You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
 
 ### Model selection
 
