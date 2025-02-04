@@ -78,7 +78,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 				String res = null;
 				if (dialog.open() == ModelSelectionDialog.OK) {
 					AiModel model = dialog.getSelectedModel();
-					res = model.getApiConnection().getName() + "/" + model.getName();
+					res = model.getApiConnection().getName() + "/" + model.getId();
 				}
 				return res;
 			}
@@ -115,7 +115,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 				String res = null;
 				if (dialog.open() == ModelSelectionDialog.OK) {
 					AiModel model = dialog.getSelectedModel();
-					res = model.getApiConnection().getName() + "/" + model.getName();
+					res = model.getApiConnection().getName() + "/" + model.getId();
 				}
 				return res;
 			}

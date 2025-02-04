@@ -7,7 +7,7 @@ import com.chabicht.code_intelligence.model.CompletionResult;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
-		OPENAI("OpenAI"), OLLAMA("Ollama");
+		OPENAI("OpenAI"), OLLAMA("Ollama"), ANTHROPIC("Anthropic");
 
 		private ApiType(String label) {
 			this.label = label;
@@ -80,6 +80,9 @@ public class AiApiConnection extends Bean {
 				break;
 			case OLLAMA:
 				apiClient = new OllamaApiClient(this);
+				break;
+			case ANTHROPIC:
+				apiClient = new AnthropicApiClient(this);
 				break;
 			default:
 				throw new RuntimeException("Unsupported API type: " + type);
