@@ -55,65 +55,25 @@
       </category>
    </extension>
    <extension
-         point="org.eclipse.ui.commands">
-      <command
-            defaultHandler="com.chabicht.code_intelligence.chat.AddFileToContextCommand"
-            id="com.chabicht.code-intelligence.command.AddFileToContextCommand"
-            name="Add file to context">
-      </command>
-      <command
-            defaultHandler="com.chabicht.code_intelligence.chat.AddSelectionToContextCommand"
-            id="com.chabicht.code-intelligence.command.AddSelectionToContextCommand"
-            name="Add selection to context">
-      </command>
-      <command
-            defaultHandler="com.chabicht.code_intelligence.chat.AddSearchResultsToContextCommand"
-            id="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
-            name="Add search results to context">
-      </command>
+         point="org.eclipse.ui.handlers">
+      <handler
+            commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
+            class="com.chabicht.code_intelligence.chat.AddSearchResultsToContextHandler">
+      </handler>
    </extension>
    <extension
-         point="org.eclipse.ui.menus">
-      <menuContribution
-            allPopups="false"
-            locationURI="popup:#CompilationUnitEditorContext?before=additions">
-         <command
-               commandId="com.chabicht.code-intelligence.command.AddSelectionToContextCommand"
+         point="org.eclipse.ui.popupMenus">
+      <objectContribution
+            id="com.chabicht.code-intelligence.outlineContribution"
+            objectClass="java.lang.Object"
+            adaptable="true">
+         <action
+               class="com.chabicht.code_intelligence.chat.AddSearchResultsToContextAction"
                icon="icons/completion.png"
+               id="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
                label="Add selection to context"
-               style="push">
-         </command>
-      </menuContribution>
-
-      <menuContribution
-            allPopups="false"
-            locationURI="popup:org.eclipse.search.ui.views.SearchView">
-         <command
-               commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
-               icon="icons/completion.png"
-               label="Add selectin to context"
-               style="push">
-         </command>
-      </menuContribution>
-      <menuContribution
-            allPopups="false"
-            locationURI="popup:org.eclipse.jdt.ui.PackageExplorer">
-         <command
-               commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
-               icon="icons/completion.png"
-               label="Add selection to context"
-               style="push">
-         </command>
-      </menuContribution>
-      <menuContribution
-            allPopups="false"
-            locationURI="popup:org.eclipse.ui.navigator.ProjectExplorer#PopupMenu">
-         <command
-               commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
-               icon="icons/completion.png"
-               label="Add selection to context"
-               style="push">
-         </command>
-      </menuContribution>
-   </extension>
+               menubarPath="additions">
+         </action>
+      </objectContribution>
+   </extension>     
 </plugin>

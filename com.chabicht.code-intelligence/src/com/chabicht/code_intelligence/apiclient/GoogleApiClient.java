@@ -12,8 +12,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.StringUtils;
-
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -26,32 +24,29 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 
-/**
- * Implementation for OpenAI or compatible API using the chat completion
- * endpoint.
- */
-public class OpenAiApiClient implements IAiApiClient {
+public class GoogleApiClient implements IAiApiClient {
 
 	private final AiApiConnection apiConnection;
 	private transient final Gson gson = new Gson();
 	private CompletableFuture<Void> asyncRequest;
 
-	public OpenAiApiClient(AiApiConnection apiConnection) {
+	public GoogleApiClient(AiApiConnection apiConnection) {
 		this.apiConnection = apiConnection;
+	}
+
+	public AiApiConnection getApiConnection() {
+		return apiConnection;
 	}
 
 	@Override
 	public List<AiModel> getModels() {
 		JsonObject res = performGet(JsonObject.class, "models");
-		return res.get("data").getAsJsonArray().asList().stream().map(e -> {
+		return res.get("models").getAsJsonArray().asList().stream().map(e -> {
 			JsonObject o = e.getAsJsonObject();
-			String id = o.get("id").getAsString();
-			return new AiModel(apiConnection, id, id);
+			String name = o.get("name").getAsString();
+			String displayName = o.has("displayName") ? o.get("displayName").getAsString() : name;
+			return new AiModel(apiConnection, name, displayName);
 		}).collect(Collectors.toList());
-	}
-
-	public AiApiConnection getApiConnection() {
-		return apiConnection;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -62,15 +57,19 @@ public class OpenAiApiClient implements IAiApiClient {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath)).GET();
-			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
-				requestBuilder = requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
-			}
+					.uri(URI.create(apiConnection.getBaseUri() + "/v1beta/")
+							.resolve(relPath + "?key=" + apiConnection.getApiKey()))
+					.GET();
+
 			HttpRequest request = requestBuilder.build();
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 			statusCode = response.statusCode();
 			responseBody = response.body();
+			if (statusCode < 200 || statusCode >= 300) {
+				throw new RuntimeException(
+						String.format("API request failed with code %s:\n%s", statusCode, responseBody));
+			}
 			return (T) JsonParser.parseString(responseBody);
 		} catch (JsonSyntaxException | IOException | InterruptedException e) {
 			Activator.logError(String.format("""
@@ -80,7 +79,7 @@ public class OpenAiApiClient implements IAiApiClient {
 					Status code: %d
 					Response:
 					%s
-					""", apiConnection.getBaseUri() + relPath, statusCode, responseBody), e);
+					""", apiConnection.getBaseUri() + "/v1beta/" + relPath, statusCode, responseBody), e);
 			throw new RuntimeException(e);
 		}
 	}
@@ -95,12 +94,11 @@ public class OpenAiApiClient implements IAiApiClient {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath))
+					.uri(URI.create(apiConnection.getBaseUri() + "/v1beta/")
+							.resolve(relPath + "?key=" + apiConnection.getApiKey()))
 					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString));
 			requestBuilder.header("Content-Type", "application/json");
-			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
-				requestBuilder = requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
-			}
+
 			HttpRequest request = requestBuilder.build();
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -122,7 +120,8 @@ public class OpenAiApiClient implements IAiApiClient {
 					%s
 					Response:
 					%s
-					""", apiConnection.getBaseUri() + relPath, statusCode, requestBodyString, responseBody), e);
+					""", apiConnection.getBaseUri() + "/v1beta/" + relPath, statusCode, requestBodyString,
+					responseBody), e);
 			throw new RuntimeException(e);
 		}
 	}
@@ -130,56 +129,42 @@ public class OpenAiApiClient implements IAiApiClient {
 	@Override
 	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
 		JsonObject req = new JsonObject();
-		req.addProperty("model", modelName);
-		req.addProperty("temperature", completionPrompt.getTemperature());
+		JsonObject content = new JsonObject();
+		JsonArray parts = new JsonArray();
+		JsonObject part = new JsonObject();
+		part.addProperty("text", completionPrompt.compile());
+		parts.add(part);
+		content.add("parts", parts);
+		JsonArray contents = new JsonArray();
+		contents.add(content);
+		req.add("contents", contents);
 
-		JsonArray messages = new JsonArray();
-		JsonObject userMessage = new JsonObject();
-		userMessage.addProperty("role", "user");
-		userMessage.addProperty("content", completionPrompt.compile());
-		messages.add(userMessage);
+		JsonObject generationConfig = new JsonObject();
+		generationConfig.addProperty("temperature", completionPrompt.getTemperature());
+		req.add("generationConfig", generationConfig);
 
-		req.add("messages", messages);
-
-		JsonObject res = performPost(JsonObject.class, "chat/completions", req);
-		return new CompletionResult(res.get("choices").getAsJsonArray().get(0).getAsJsonObject().get("message")
-				.getAsJsonObject().get("content").getAsString());
+		JsonObject res = performPost(JsonObject.class, "models/" + modelName + ":generateContent", req);
+		JsonArray candidates = res.getAsJsonArray("candidates");
+		if (candidates != null && !candidates.isEmpty()) {
+			JsonObject candidate = candidates.get(0).getAsJsonObject();
+			JsonObject contentRes = candidate.getAsJsonObject("content");
+			JsonArray partsRes = contentRes.getAsJsonArray("parts");
+			if (partsRes != null && !partsRes.isEmpty()) {
+				return new CompletionResult(partsRes.get(0).getAsJsonObject().get("text").getAsString());
+			}
+		}
+		return new CompletionResult(""); // Return empty result if extraction fails
 	}
 
-	/**
-	 * Sends a chat request in streaming mode using the current ChatConversation.
-	 * <p>
-	 * This method does the following:
-	 * <ol>
-	 * <li>Builds the JSON request from the conversation messages already present.
-	 * (It does not include a reply message yet.)</li>
-	 * <li>Adds a new (empty) assistant message to the conversation which will be
-	 * updated as the API response streams in.</li>
-	 * <li>Sends the request with "stream": true and processes the response
-	 * line-by-line.</li>
-	 * <li>As each new chunk arrives, it appends the new text to the assistant
-	 * message, notifies the conversation listeners, and calls the optional onChunk
-	 * callback.</li>
-	 * </ol>
-	 *
-	 * @param modelName the model to use (for example, "gpt-4")
-	 * @param chat      the ChatConversation object containing the conversation so
-	 *                  far
-	 * @param onChunk   a Consumer callback invoked with each new text chunk (may be
-	 *                  null)
-	 */
 	@Override
 	public void performChat(String modelName, ChatConversation chat) {
-		// Build the JSON array of messages from the conversation.
-		// (We use the messages already in the conversation. We assume the conversation
-		// ends with a user message.)
+		// Build the JSON array of contents from the conversation.
 		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
-		JsonArray messagesJson = new JsonArray();
+		JsonArray contentsJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : messagesToSend) {
-			JsonObject jsonMsg = new JsonObject();
-
-			// Convert the role enum to lowercase string (system, user, assistant).
-			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
+			JsonObject contentJson = new JsonObject();
+			JsonArray parts = new JsonArray();
+			JsonObject part = new JsonObject();
 
 			StringBuilder content = new StringBuilder(256);
 			if (!msg.getContext().isEmpty()) {
@@ -191,15 +176,16 @@ public class OpenAiApiClient implements IAiApiClient {
 				content.append("\n\n");
 			}
 			content.append(msg.getContent());
-			jsonMsg.addProperty("content", content.toString());
-			messagesJson.add(jsonMsg);
+			part.addProperty("text", content.toString());
+			parts.add(part);
+			contentJson.add("parts", parts);
+			contentJson.addProperty("role", msg.getRole().toString().toLowerCase()); // roles: user, model
+			contentsJson.add(contentJson);
 		}
 
 		// Create the JSON request object.
 		JsonObject req = new JsonObject();
-		req.addProperty("model", modelName);
-		req.addProperty("stream", true);
-		req.add("messages", messagesJson);
+		req.add("contents", contentsJson);
 
 		// Add a new (empty) assistant message to the conversation.
 		// This is the message that will be updated as new text is streamed in.
@@ -213,11 +199,10 @@ public class OpenAiApiClient implements IAiApiClient {
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 
 		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-				.uri(URI.create(apiConnection.getBaseUri() + "/").resolve("chat/completions"))
+				.uri(URI.create(apiConnection.getBaseUri() + "/v1beta/").resolve(
+						"models/" + modelName + ":streamGenerateContent?alt=sse&key=" + apiConnection.getApiKey()))
 				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("Content-Type", "application/json");
-		if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
-			requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
-		}
+
 		HttpRequest request = requestBuilder.build();
 
 		// Send the request asynchronously and process the streamed response
@@ -235,27 +220,30 @@ public class OpenAiApiClient implements IAiApiClient {
 							}
 							try {
 								JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
-								JsonArray choices = jsonChunk.getAsJsonArray("choices");
-								for (JsonElement choiceElement : choices) {
-									JsonObject choice = choiceElement.getAsJsonObject();
-									if (choice.has("delta")) {
-										JsonObject delta = choice.getAsJsonObject("delta");
-										if (delta.has("content")) {
-											String chunk = delta.get("content").getAsString();
-											// Append the received chunk to the assistant message.
-											assistantMessage.setContent(assistantMessage.getContent() + chunk);
-											// Notify the conversation listeners that the assistant message was updated.
-											chat.notifyMessageUpdated(assistantMessage);
-										}
+								JsonArray candidates = jsonChunk.getAsJsonArray("candidates");
+								if (candidates != null && !candidates.isEmpty()) {
+									JsonObject candidate = candidates.get(0).getAsJsonObject();
+									JsonObject contentRes = candidate.getAsJsonObject("content");
+									JsonArray partsRes = contentRes.getAsJsonArray("parts");
+									if (partsRes != null && !partsRes.isEmpty()) {
+										String chunk = partsRes.get(0).getAsJsonObject().get("text").getAsString();
+										// Append the received chunk to the assistant message.
+										assistantMessage.setContent(assistantMessage.getContent() + chunk);
+										// Notify the conversation listeners that the assistant message was updated.
+										chat.notifyMessageUpdated(assistantMessage);
 									}
 								}
+
 							} catch (JsonSyntaxException e) {
 								Activator.logError("Error parsing stream chunk: " + data, e);
 							}
+						} else if (line != null && line.startsWith("error")) {
+							Activator.logError("Error in SSE stream: " + line, null);
 						}
 					});
 				} else {
-					Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+					Activator.logError("Streaming chat failed with status: " + response.statusCode() + ", body: "
+							+ response.body(), null);
 				}
 			} finally {
 				chat.notifyChatResponseFinished(assistantMessage);

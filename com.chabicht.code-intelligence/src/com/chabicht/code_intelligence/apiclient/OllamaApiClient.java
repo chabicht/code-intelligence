@@ -156,8 +156,7 @@ public class OllamaApiClient implements IAiApiClient {
 				content.append("Context information:\n\n");
 			}
 			for (MessageContext ctx : msg.getContext()) {
-				content.append("// ").append(ctx.getFileName()).append(" ").append(ctx.getRangeDescription())
-						.append("\n");
+				content.append(ctx.getDescriptor());
 				content.append(ctx.getContent());
 				content.append("\n\n");
 			}

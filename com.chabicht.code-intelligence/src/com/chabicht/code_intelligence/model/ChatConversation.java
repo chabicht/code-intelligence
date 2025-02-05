@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.apache.commons.lang3.StringUtils;
+
 /**
  * A conversation with a chat model, displayed in the chat view.
  */
@@ -16,21 +18,41 @@ public class ChatConversation {
 		SYSTEM, USER, ASSISTANT;
 	}
 
+	public static enum RangeType {
+		LINE("line", "l"), OFFSET("offset", "o");
+
+		private String name;
+		private String shorthand;
+
+		private RangeType(String name, String shorthand) {
+			this.name = name;
+			this.shorthand = shorthand;
+		}
+
+		public String getName() {
+			return name;
+		}
+
+		public String getShorthand() {
+			return shorthand;
+		}
+	}
+
 	/**
 	 * Context information added to a message.
 	 */
 	public static class MessageContext {
 		private final String fileName;
-		private final String rangeType;
+		private final RangeType rangeType;
 		private final int start;
 		private final int end;
 		private final String content;
 
 		public MessageContext(String fileName, int startLine, int endLine, String content) {
-			this(fileName, "line", startLine, endLine, content);
+			this(fileName, RangeType.LINE, startLine, endLine, content);
 		}
 
-		public MessageContext(String fileName, String rangeType, int start, int end, String content) {
+		public MessageContext(String fileName, RangeType rangeType, int start, int end, String content) {
 			this.fileName = fileName;
 			this.rangeType = rangeType;
 			this.start = start;
@@ -38,11 +60,20 @@ public class ChatConversation {
 			this.content = content;
 		}
 
+		public boolean isDuplicate(MessageContext other) {
+			if (other != null && StringUtils.equals(this.getFileName(), other.getFileName())
+					&& this.getRangeType().equals(other.getRangeType())
+					&& this.getStart() == other.getStart() && this.getEnd() == other.getEnd()) {
+				return true;
+			}
+			return false;
+		}
+
 		public String getFileName() {
 			return fileName;
 		}
 
-		public String getRangeType() {
+		public RangeType getRangeType() {
 			return rangeType;
 		}
 
@@ -58,12 +89,17 @@ public class ChatConversation {
 			return content;
 		}
 
+		public String getDescriptor() {
+			return new StringBuilder().append("// ").append(this.getFileName()).append(" ")
+					.append(this.getRangeDescription()).append("\n").toString();
+		}
+
 		public String getRangeDescription() {
-			return rangeType + " " + start + " to " + end;
+			return rangeType.getName() + " " + start + " to " + end;
 		}
 
 		public String getShortRangeDescription() {
-			return start + ":" + end;
+			return rangeType.getShorthand() + start + "-" + end;
 		}
 
 		@Override

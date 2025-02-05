@@ -1,6 +1,7 @@
 package com.chabicht.code_intelligence.chat;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,6 +19,10 @@ import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.browser.Browser;
+import org.eclipse.swt.browser.BrowserFunction;
+import org.eclipse.swt.browser.LocationAdapter;
+import org.eclipse.swt.browser.LocationEvent;
+import org.eclipse.swt.browser.ProgressListener;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -48,6 +53,7 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
+import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
@@ -73,6 +79,9 @@ public class ChatView extends ViewPart {
 
 	private Button btnSend;
 	private AiModelConnection connection;
+
+	private Composite cmpAttachments;
+	private Composite composite;
 
 	private ChatListener chatListener = new ChatListener() {
 
@@ -171,12 +180,7 @@ public class ChatView extends ViewPart {
 		btnClear.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				conversation.removeListener(chatListener);
-				conversation = new ChatConversation();
-				conversation.addListener(chatListener);
-				externallyAddedContext.clear();
-				bChat.setText(CHAT_TEMPLATE);
-				txtUserInput.setText("");
+				clearChat();
 			}
 		});
 		GridData gd_btnClear = new GridData(SWT.LEFT, SWT.TOP, false, false, 1, 1);
@@ -251,6 +255,18 @@ public class ChatView extends ViewPart {
 		};
 		externallyAddedContext.addListChangeListener(listChangeListener);
 		composite.addDisposeListener(e -> ChatView.externallyAddedContext.removeListChangeListener(listChangeListener));
+
+		bChat.addProgressListener(ProgressListener.completedAdapter(event -> {
+			final BrowserFunction function = new OnClickFunction(bChat, "elementClicked");
+			bChat.execute(ONCLICK_LISTENER);
+			bChat.addLocationListener(new LocationAdapter() {
+				@Override
+				public void changed(LocationEvent event) {
+					bChat.removeLocationListener(this);
+					function.dispose();
+				}
+			});
+		}));
 	}
 
 	private void removeAttachmentLabel(MessageContext ctx) {
@@ -286,7 +302,7 @@ public class ChatView extends ViewPart {
 		} else {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
 
-			externallyAddedContext.forEach(ctx -> addContextIfNotDuplicate(chatMessage, ctx.getFileName(),
+			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
 					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
@@ -298,6 +314,30 @@ public class ChatView extends ViewPart {
 			// Set text to "⏹️"
 			btnSend.setText("\u23F9");
 		}
+	}
+
+	public void editChat(String messageUuidString) {
+		Display.getDefault().syncExec(() -> {
+			UUID messageUuid = UUID.fromString(messageUuidString);
+			getExternallyAddedContext().clear();
+			if (connection == null || !connection.isChatPending()) {
+				ChatConversation oldConvo = conversation;
+
+				clearChat();
+
+				List<ChatMessage> messages = oldConvo.getMessages();
+				for (int i = 0; i < messages.size(); i++) {
+					ChatMessage msg = messages.get(i);
+					if (messageUuid.equals(msg.getId())) {
+						txtUserInput.setText(msg.getContent());
+						getExternallyAddedContext().addAll(msg.getContext());
+						break;
+					} else {
+						conversation.addMessage(msg);
+					}
+				}
+			}
+		});
 	}
 
 	private void addSelectionAsContext(ChatMessage chatMessage) {
@@ -325,22 +365,34 @@ public class ChatView extends ViewPart {
 			String fileName = textEditor.getEditorInput().getName();
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
-			addContextIfNotDuplicate(chatMessage, fileName, "line", startLine, endLine, selectedText);
+			addContextToMessageIfNotDuplicate(chatMessage, fileName, RangeType.LINE, startLine + 1, endLine + 1,
+					selectedText);
 		}
 	}
 
-	public void addContextIfNotDuplicate(ChatMessage chatMessage, String fileName, String rangeType, int start, int end,
+	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
+			int start,
+			int end,
 			String selectedText) {
 		boolean duplicate = false;
+		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, selectedText);
 		for (MessageContext ctx : chatMessage.getContext()) {
-			if (StringUtils.equals(ctx.getFileName(), fileName) && StringUtils.equals(ctx.getRangeType(), rangeType)
-					&& ctx.getStart() == start && ctx.getEnd() == end) {
+			if (newCtx.isDuplicate(ctx)) {
 				duplicate = true;
 			}
 		}
 		if (!duplicate) {
 			chatMessage.getContext().add(new MessageContext(fileName, start, end, selectedText));
 		}
+	}
+
+	private void clearChat() {
+		conversation.removeListener(chatListener);
+		conversation = new ChatConversation();
+		conversation.addListener(chatListener);
+		externallyAddedContext.clear();
+		bChat.setText(CHAT_TEMPLATE);
+		txtUserInput.setText("");
 	}
 
 	/**
@@ -385,8 +437,35 @@ public class ChatView extends ViewPart {
 		return escaped.toString();
 	}
 
-	public static List<MessageContext> getExternallyaddedcontext() {
+	private static List<MessageContext> getExternallyAddedContext() {
 		return externallyAddedContext;
+	}
+
+	public static void addContext(MessageContext newCtx) {
+		boolean isDuplicate = false;
+		for (MessageContext ctx : getExternallyAddedContext()) {
+			isDuplicate |= newCtx.isDuplicate(ctx);
+		}
+		if (!isDuplicate) {
+			getExternallyAddedContext().add(newCtx);
+		}
+	}
+
+	private class OnClickFunction extends BrowserFunction {
+
+		public OnClickFunction(Browser browser, String name) {
+			super(browser, name);
+		}
+
+		@Override
+		public Object function(Object[] arguments) {
+			if (arguments[0] instanceof String str && !StringUtils.isBlank(str) && str.startsWith("edit:")) {
+				String messageUuid = str.substring("edit:".length());
+				editChat(messageUuid);
+			}
+			return null;
+		}
+
 	}
 
 	private String CHAT_TEMPLATE = """
@@ -551,6 +630,21 @@ public class ChatView extends ViewPart {
 			  // Set the uuid as the element's id for future reference
 			  div.id = uuid;
 			  div.innerHTML = content;
+
+			  // If the message is from the user, add the edit icon
+			  if (role === "user") {
+			    var editSpan = document.createElement("span");
+			    editSpan.id = "edit:" + uuid;
+			    editSpan.innerHTML = "🖊️";
+			    editSpan.style.position = "absolute";
+			    editSpan.style.bottom = "5px";
+			    editSpan.style.right = "5px";
+			    editSpan.style.cursor = "pointer";
+
+			    div.style.position = "relative";
+			    div.appendChild(editSpan);
+			  }
+
 			  container.appendChild(div);
 
 			  var bottom = document.getElementById("bottom");
@@ -576,6 +670,8 @@ public class ChatView extends ViewPart {
 			</body>
 			</html>
 			""";
-	private Composite cmpAttachments;
-	private Composite composite;
+
+	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
+			+ "if (e) {var target = e.target || e.srcElement; " + "var elementId = target.id ? target.id : 'no-id';"
+			+ "elementClicked(elementId);}}";
 }
