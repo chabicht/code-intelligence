@@ -635,11 +635,13 @@ public class ChatView extends ViewPart {
 			  if (role === "user") {
 			    var editSpan = document.createElement("span");
 			    editSpan.id = "edit:" + uuid;
-			    editSpan.innerHTML = "🖊️";
+			    editSpan.innerHTML = "\uD83D\uDD8A"; // 🖊️ emoji
 			    editSpan.style.position = "absolute";
 			    editSpan.style.bottom = "5px";
 			    editSpan.style.right = "5px";
 			    editSpan.style.cursor = "pointer";
+			    editSpan.style.fontSize = "26px";
+			    editSpan.style.fontWeight = "800";
 
 			    div.style.position = "relative";
 			    div.appendChild(editSpan);
