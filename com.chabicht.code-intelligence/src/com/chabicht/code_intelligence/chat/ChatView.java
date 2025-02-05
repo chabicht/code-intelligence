@@ -114,10 +114,11 @@ public class ChatView extends ViewPart {
 				StringBuilder attachments = new StringBuilder();
 				if (!message.getContext().isEmpty()) {
 					for (MessageContext ctx : message.getContext()) {
-						attachments.append(String.format("<span class=\"attachment-container\">"
-								+ "<span class=\"attachment-icon\">&#128206;</span>"
-								+ "<span class=\"tooltip\">%s</span>" + "</span>",
-								ctx.getFileName() + ":" + ctx.getStartLine() + "-" + ctx.getEndLine()));
+						attachments.append(String.format(
+								"<span class=\"attachment-container\">"
+										+ "<span class=\"attachment-icon\">&#128206;</span>"
+										+ "<span class=\"tooltip\">%s</span>" + "</span>",
+								ctx.getFileName() + ":" + ctx.getShortRangeDescription()));
 					}
 				}
 				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
@@ -237,7 +238,7 @@ public class ChatView extends ViewPart {
 				MessageContext ctx = diff.getElement();
 				if (diff.isAddition()) {
 					Label l = new Label(cmpAttachments, SWT.NONE);
-					l.setToolTipText(ctx.getFileName() + ":" + ctx.getStartLine() + "-" + ctx.getEndLine());
+					l.setToolTipText(ctx.getFileName() + ":" + ctx.getShortRangeDescription());
 					l.setData(ctx);
 					l.setImage(paperclipImage);
 					RowData rd = new RowData(16, 25);
@@ -286,7 +287,7 @@ public class ChatView extends ViewPart {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
 
 			externallyAddedContext.forEach(ctx -> addContextIfNotDuplicate(chatMessage, ctx.getFileName(),
-					ctx.getStartLine(), ctx.getEndLine(), ctx.getContent()));
+					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
@@ -324,21 +325,21 @@ public class ChatView extends ViewPart {
 			String fileName = textEditor.getEditorInput().getName();
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
-			addContextIfNotDuplicate(chatMessage, fileName, startLine, endLine, selectedText);
+			addContextIfNotDuplicate(chatMessage, fileName, "line", startLine, endLine, selectedText);
 		}
 	}
 
-	public void addContextIfNotDuplicate(ChatMessage chatMessage, String fileName, int startLine, int endLine,
+	public void addContextIfNotDuplicate(ChatMessage chatMessage, String fileName, String rangeType, int start, int end,
 			String selectedText) {
 		boolean duplicate = false;
 		for (MessageContext ctx : chatMessage.getContext()) {
-			if (StringUtils.equals(ctx.getFileName(), fileName) && ctx.getStartLine() == startLine
-					&& ctx.getEndLine() == endLine) {
+			if (StringUtils.equals(ctx.getFileName(), fileName) && StringUtils.equals(ctx.getRangeType(), rangeType)
+					&& ctx.getStart() == start && ctx.getEnd() == end) {
 				duplicate = true;
 			}
 		}
 		if (!duplicate) {
-			chatMessage.getContext().add(new MessageContext(fileName, startLine, endLine, selectedText));
+			chatMessage.getContext().add(new MessageContext(fileName, start, end, selectedText));
 		}
 	}
 

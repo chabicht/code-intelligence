@@ -66,6 +66,11 @@
             id="com.chabicht.code-intelligence.command.AddSelectionToContextCommand"
             name="Add selection to context">
       </command>
+      <command
+            defaultHandler="com.chabicht.code_intelligence.chat.AddSearchResultsToContextCommand"
+            id="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
+            name="Add search results to context">
+      </command>
    </extension>
    <extension
          point="org.eclipse.ui.menus">
@@ -75,10 +80,40 @@
          <command
                commandId="com.chabicht.code-intelligence.command.AddSelectionToContextCommand"
                icon="icons/completion.png"
+               label="Add selection to context"
+               style="push">
+         </command>
+      </menuContribution>
+
+      <menuContribution
+            allPopups="false"
+            locationURI="popup:org.eclipse.search.ui.views.SearchView">
+         <command
+               commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
+               icon="icons/completion.png"
                label="Add selectin to context"
                style="push">
          </command>
       </menuContribution>
+      <menuContribution
+            allPopups="false"
+            locationURI="popup:org.eclipse.jdt.ui.PackageExplorer">
+         <command
+               commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
+               icon="icons/completion.png"
+               label="Add selection to context"
+               style="push">
+         </command>
+      </menuContribution>
+      <menuContribution
+            allPopups="false"
+            locationURI="popup:org.eclipse.ui.navigator.ProjectExplorer#PopupMenu">
+         <command
+               commandId="com.chabicht.code-intelligence.command.AddSearchResultsToContextCommand"
+               icon="icons/completion.png"
+               label="Add selection to context"
+               style="push">
+         </command>
+      </menuContribution>
    </extension>
-
 </plugin>

@@ -21,14 +21,20 @@ public class ChatConversation {
 	 */
 	public static class MessageContext {
 		private final String fileName;
-		private final int startLine;
-		private final int endLine;
+		private final String rangeType;
+		private final int start;
+		private final int end;
 		private final String content;
 
 		public MessageContext(String fileName, int startLine, int endLine, String content) {
+			this(fileName, "line", startLine, endLine, content);
+		}
+
+		public MessageContext(String fileName, String rangeType, int start, int end, String content) {
 			this.fileName = fileName;
-			this.startLine = startLine;
-			this.endLine = endLine;
+			this.rangeType = rangeType;
+			this.start = start;
+			this.end = end;
 			this.content = content;
 		}
 
@@ -36,21 +42,33 @@ public class ChatConversation {
 			return fileName;
 		}
 
-		public int getStartLine() {
-			return startLine;
+		public String getRangeType() {
+			return rangeType;
 		}
 
-		public int getEndLine() {
-			return endLine;
+		public int getStart() {
+			return start;
+		}
+
+		public int getEnd() {
+			return end;
 		}
 
 		public String getContent() {
 			return content;
 		}
 
+		public String getRangeDescription() {
+			return rangeType + " " + start + " to " + end;
+		}
+
+		public String getShortRangeDescription() {
+			return start + ":" + end;
+		}
+
 		@Override
 		public String toString() {
-			return "MessageContext [fileName=" + fileName + ", startLine=" + startLine + ", endLine=" + endLine
+			return "MessageContext [fileName=" + fileName + ", startLine=" + start + ", endLine=" + end
 					+ ", content:\n  ===\n" + content + "\n  ===\n";
 		}
 	}

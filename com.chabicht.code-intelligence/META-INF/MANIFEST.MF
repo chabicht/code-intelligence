@@ -22,7 +22,10 @@ Require-Bundle: org.eclipse.ui,
  org.eclipse.ui.workbench.texteditor;bundle-version="3.17.100",
  org.eclipse.core.resources;bundle-version="3.19.100",
  org.apache.commons.lang3;bundle-version="3.0.0",
- org.eclipse.jetty.http;bundle-version="10.0.15"
+ org.eclipse.jetty.http;bundle-version="10.0.15",
+ org.eclipse.search;bundle-version="3.15.200",
+ org.apache.commons.commons-beanutils;bundle-version="1.9.4",
+ org.apache.commons.commons-io;bundle-version="2.17.0"
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: com.chabicht.code.intelligence
 Bundle-ActivationPolicy: lazy

@@ -126,9 +126,8 @@ public class AnthropicApiClient implements IAiApiClient {
                 content.append("Context information:\n\n");
             }
             for (ChatConversation.MessageContext ctx : msg.getContext()) {
-                content.append("// ").append(ctx.getFileName())
-                    .append(" lines ").append(ctx.getStartLine())
-                    .append(" to ").append(ctx.getEndLine()).append("\n");
+				content.append("// ").append(ctx.getFileName()).append(" ")
+						.append(ctx.getRangeDescription()).append("\n");
                 content.append(ctx.getContent());
                 content.append("\n\n");
             }

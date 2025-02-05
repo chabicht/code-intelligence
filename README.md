@@ -2,9 +2,9 @@
 
 This Eclipse plugin provides AI code completion and reasoning in a chat view.
 
-## Usage
+# Usage
 
-### Completion
+## Completion
 
 The completion feature is integrated in the JDT completion proposal mechanism.  
 So when you invoke it by e.g. pressing *Ctrl + Space*, an AI completion is triggered by default.
@@ -15,13 +15,24 @@ What also works really well is adding a `// TODO` comment above where you want a
 
 ![Screenshot: invocation of the plugin with a TODO comment](images/example-todo-prompt.png)
 
-### Chat
+## Chat
 
 You can open a (for now rudimentary) chat view. Go to *Window* -> *Show View* -> *Other...* and select the *Code Intelligence Chat* view.
 
 ![Screenshot: Show chat view](images/show-view-chat.png)
 
 ![Screenshot: Example of the chat view.](images/chat-view-example.png)
+
+### Adding context information
+
+If you select text in a Java editor, that selection is added automatically to the context of the next chat message.  
+![Screenshot: Selection as context](images/selection-as-context1.png)  
+![Screenshot: Selection as context](images/selection-as-context2.png)
+
+You also can right-click on several Java code items such as files, classes, fields, search results, etc.  
+![Screenshot: Adding search results as context](images/add-context-search.png)
+
+It's important to be careful with the amount of context you add. Depending on the model used too much information can easily overwhelm the model or become expensive in terms of API fees.
 
 ## Installation
 
@@ -32,7 +43,7 @@ In the dialog, click on *Add...* and enter the new repository information. For *
 
 ![Screenshot: Add Repository](images/image.png)
 
-## Configuration
+# Configuration
 
 Open the preferences: *Window* -> *Preferences* -> *Code Intelligence*.
 
@@ -40,7 +51,7 @@ Open the preferences: *Window* -> *Preferences* -> *Code Intelligence*.
 
 Here you can add connections to different API providers and select the model you want to use for *code completion* and *chat* requests.
 
-### Ollama connection settings
+## Ollama connection settings
 
 ![Screenshot: Ollama configuration](images/ollama.png)
 
@@ -49,7 +60,7 @@ Here you can add connections to different API providers and select the model you
   Default is `http://localhost:11434`.
 - Usually you don't need an API key.
 
-### OpenAI connection settings
+## OpenAI connection settings
 
 ![Screenshot: OpenAI configuration](images/openai.png)
 
@@ -59,7 +70,7 @@ Here you can add connections to different API providers and select the model you
   Note: This doesn't work with a ChatGPT subscription. You need to set up API access.  
   For a tutorial, cf. e.g. [this video on YouTube](https://www.youtube.com/watch?v=OB99E7Y1cMA).
 
-### Groq.com connection settings
+## Groq.com connection settings
 
 ![Screenshot: Groq configuration](images/groq.png)
 
@@ -67,7 +78,7 @@ Here you can add connections to different API providers and select the model you
 - For the *Base URI*, use `https://api.groq.com/openai/v1`.
 - You have to create an API key in the [Groq playground](https://console.groq.com/keys).
 
-### Anthropic connection settings
+## Anthropic connection settings
 
 ![Screenshot: Anthropic configuration](images/anthropic.png)
 
@@ -75,13 +86,13 @@ Here you can add connections to different API providers and select the model you
 - For the *Base URI*, use `https://api.anthropic.com/v1`.
 - You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
 
-### Model selection
+## Model selection
 
 The model is identified by `[Connection Name]/[Model ID]`, so assuming your OpenAI connection was named *OpenAI*, to use GPT-4o-Mini, you would enter `OpenAI/gpt-4o-mini`.
 
 Clicking on *Change...* opens a dialog where you can select a model from the enabled connections.
 
-### Customizing code completion behaviour
+# Customizing code completion behaviour
 
 By default the an AI request happens when a code completion is triggered.
 
