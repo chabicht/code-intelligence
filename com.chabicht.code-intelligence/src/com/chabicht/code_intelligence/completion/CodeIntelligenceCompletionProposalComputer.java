@@ -53,7 +53,7 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
 
-			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - 20));
+			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - 100));
 			int selectedLinesStartOffset = doc.getLineOffset(doc.getLineOfOffset(textSelection.getOffset()));
 			int selectedLinesEndOffset = doc
 					.getLineOffset(doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1);
@@ -140,36 +140,34 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 					Completion:
 					```
 					HttpRequest request = HttpRequest.newBuilder().uri(URI.create(model.apiUrl()))
-					    .timeout( Duration.ofSeconds( configuration.getRequestTimoutSeconds() ) )
-					    .version(HttpClient.Version.HTTP_1_1)
-					                .header("Authorization", "Bearer " + model.apiKey())
-					                .header("Accept", "text/event-stream")
-					                .header("Content-Type", "application/json")
-					                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-					                .build();
 					```
+
 
 					Example 3:
 					```
-					layout.marginWidth = convertHorizontalDLUsToPixels(IDialogConstants.HORIZONTAL_MARGIN);
-					layout.verticalSpacing = convertVerticalDLUsToPixels(IDialogConstants.VERTICAL_SPACING);
-					layout.horizontalSpacing = convertHorizontalDLUsToPixels(IDialogConstants.HORIZONTAL_SPACING);
+					var model = configuration.getSelectedModel().orElseThrow();
 
-					Composite composite = new Composite(parent, SWT.NONE);
-					composite.setLayout(layout);
-					composite.setLayoutData(<<<selection_start>>>new GridData(GridData.FILL_BOTH)<<<cursor>>><<<selection_end>>>);
-					applyDialogFont(composite);
+					HttpClient client = HttpClient.newBuilder()
+					                                  .connectTimeout( Duration.ofSeconds(configuration.getConnectionTimoutSeconds()) )
+					                                  .build();
 
-					Label lblName = new Label(composite, SWT.NONE);
-					lblName.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
-					lblName.setText("Name:");
+					String requestBody = getRequestBody(prompt, model);
+					HttpRequest request = HttpRequest.newBuilder().uri(URI.create(model.apiUrl()))
+					<<<cursor>>>
+					logger.info("Sending request to ChatGPT.\n\n" + requestBody);
+
+					try
+					{
+					        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+					        if (response.statusCode() != 200)
+
 					```
 					Completion:
 					```
-					GridData layoutData = new GridData(GridData.FILL_BOTH);
-					layoutData.widthHint = 300;
-					composite.setLayoutData(layoutData);
+					.timeout( Duration.ofSeconds( configuration.getRequestTimoutSeconds() ) )
 					```
+
 
 					Here is a list of the most recent edits made by the user:
 					%s
@@ -179,10 +177,11 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 					- Do not repeat the context in your answer.
 					- Include the current line until the <<<cursor>>> marker in your answer.
 					- Focus on relevant variables and methods from the context provided.
-					- If the code can be completed logically in 1-10 lines, do so; otherwise, finalize the snippet where it makes sense.
 					- If the context before the current line ends with a comment, implement what the comment intends to do.
 					- Use the provided last edits by the user to guess what might be an appropriate completion here.
 					- Output only the completion snippet (no extra explanations, no markdown, not the whole program again).
+					- If the code can be completed logically in 1-5 lines, do so; otherwise, finalize the snippet where it makes sense.
+					- It is important to create short completions.
 
 					Now do this for this code:
 					```

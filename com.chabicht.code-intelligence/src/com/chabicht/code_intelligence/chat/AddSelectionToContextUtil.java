@@ -70,8 +70,27 @@ public class AddSelectionToContextUtil {
 			try {
 				String ancestor = getFileOrTypeName(sre);
 				ISourceRange sourceRange = sre.getSourceRange();
-				ChatView.addContext(new MessageContext(ancestor, RangeType.OFFSET, sourceRange.getOffset(),
-						sourceRange.getOffset() + sourceRange.getLength(), sre.getSource()));
+				String source = sre.getSource();
+				if(StringUtils.isNotBlank(source)) {
+					ChatView.addContext(new MessageContext(ancestor, RangeType.OFFSET, sourceRange.getOffset(),
+							sourceRange.getOffset() + sourceRange.getLength(), source));
+				} else {
+					String stringRep = sre.toString();
+					String binaryLabel = "Binary " + stringRep.replaceAll(" \\[.*", "");
+					ChatView.addContext(new MessageContext(binaryLabel, RangeType.OFFSET, sourceRange.getOffset(),
+							sourceRange.getOffset() + sourceRange.getLength(), stringRep) {
+
+						@Override
+						public String getLabel() {
+							return binaryLabel;
+						}
+
+						@Override
+						public String getDescriptor() {
+							return "";
+						}
+					});
+				}
 			} catch (JavaModelException e) {
 				Activator.logError("Could not obtain source for reference " + obj, e);
 			}

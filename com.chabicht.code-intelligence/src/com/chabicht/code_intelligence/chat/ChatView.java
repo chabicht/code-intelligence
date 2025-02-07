@@ -127,7 +127,7 @@ public class ChatView extends ViewPart {
 								"<span class=\"attachment-container\">"
 										+ "<span class=\"attachment-icon\">&#128206;</span>"
 										+ "<span class=\"tooltip\">%s</span>" + "</span>",
-								ctx.getFileName() + ":" + ctx.getShortRangeDescription()));
+								ctx.getLabel()));
 					}
 				}
 				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
@@ -242,7 +242,7 @@ public class ChatView extends ViewPart {
 				MessageContext ctx = diff.getElement();
 				if (diff.isAddition()) {
 					Label l = new Label(cmpAttachments, SWT.NONE);
-					l.setToolTipText(ctx.getFileName() + ":" + ctx.getShortRangeDescription());
+					l.setToolTipText(ctx.getLabel());
 					l.setData(ctx);
 					l.setImage(paperclipImage);
 					RowData rd = new RowData(16, 25);
@@ -387,6 +387,10 @@ public class ChatView extends ViewPart {
 	}
 
 	private void clearChat() {
+		if (connection != null) {
+			connection.abortChat();
+			connection = null;
+		}
 		conversation.removeListener(chatListener);
 		conversation = new ChatConversation();
 		conversation.addListener(chatListener);

@@ -89,6 +89,10 @@ public class ChatConversation {
 			return content;
 		}
 
+		public String getLabel() {
+			return this.fileName + ":" + getShortRangeDescription();
+		}
+
 		public String getDescriptor() {
 			return new StringBuilder().append("// ").append(this.getFileName()).append(" ")
 					.append(this.getRangeDescription()).append("\n").toString();
