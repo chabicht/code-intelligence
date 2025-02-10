@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import org.apache.commons.lang3.StringUtils;
-import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.preference.FieldEditor;
@@ -28,7 +27,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 public class ApiConnectionFieldEditor extends FieldEditor {
-	private WritableList<AiApiConnection> connections;
+	private List<AiApiConnection> connections;
 
 	private TableViewer tableViewer;
 	private Composite buttonBox;
@@ -37,7 +36,7 @@ public class ApiConnectionFieldEditor extends FieldEditor {
 	private Button editButton;
 
 	public ApiConnectionFieldEditor(String name, String labelText, Composite parent,
-			WritableList<AiApiConnection> connections) {
+			List<AiApiConnection> connections) {
 		super(name, labelText, parent);
 		this.connections = connections;
 	}
