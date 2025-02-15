@@ -24,7 +24,7 @@ public class ChatComponent extends Composite {
 		gridLayout.marginHeight = 0;
 		setLayout(gridLayout);
 
-		bChat = new Browser(this, SWT.WEBKIT | SWT.EDGE);
+		bChat = new Browser(this, SWT.NONE);
 		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
 		bChat.setText(CHAT_TEMPLATE);
 		bChat.addProgressListener(ProgressListener.completedAdapter(e -> {
