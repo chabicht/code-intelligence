@@ -37,7 +37,7 @@ public class ChatComponent extends Composite {
 		gridLayout.marginHeight = 0;
 		setLayout(gridLayout);
 
-		bChat = new Browser(this, SWT.NONE);
+		bChat = new Browser(this, SWT.WEBKIT);
 		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
 		bChat.setText(getHtml());
 		bChat.addProgressListener(ProgressListener.completedAdapter(e -> {
@@ -63,8 +63,8 @@ public class ChatComponent extends Composite {
 
 	private ColorDescriptor interpolate(Color bgColor, Color fgColor, int weight) {
 		return ColorDescriptor
-				.createFrom(new RGB(bgColor.getRed() * weight / 100+ fgColor.getRed() * (100 - weight) / 100,
-						bgColor.getGreen() * weight / 100+ fgColor.getGreen() * (100 - weight) / 100,
+				.createFrom(new RGB(bgColor.getRed() * weight / 100 + fgColor.getRed() * (100 - weight) / 100,
+						bgColor.getGreen() * weight / 100 + fgColor.getGreen() * (100 - weight) / 100,
 						bgColor.getBlue() * weight / 100 + fgColor.getBlue() * (100 - weight) / 100));
 	}
 
@@ -174,7 +174,7 @@ public class ChatComponent extends Composite {
 
 	private String CHAT_TEMPLATE = """
 			<!DOCTYPE html>
-			<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+			<meta http-equiv="X-UA-Compatible" />
 			<html>
 			<head>
 			  <style>
@@ -239,15 +239,15 @@ public class ChatComponent extends Composite {
 				summary {
 				  cursor: pointer;
 				  font-weight: bold;
-				  color: #007acc;
+				  color: {{{foreground_color}}};
 				}
 
 				/* Optional: Style the blockquote to better match your chat theme */
 				blockquote {
-				  border-left: 2px solid #ccc;
+				  border-left: 2px solid {{{bubble_border_color}}};
 				  margin: 10px 0;
 				  padding-left: 10px;
-				  background: #ededed;
+				  background: {{{bubble_background_color}}};
 				}
 
 				/* Container for the attachment icon and tooltip */
