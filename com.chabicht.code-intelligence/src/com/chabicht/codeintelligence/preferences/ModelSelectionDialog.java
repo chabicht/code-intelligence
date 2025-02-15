@@ -32,7 +32,7 @@ public class ModelSelectionDialog extends Dialog {
 	private TableViewer tableViewer;
 	private DataBindingContext bindingContext;
 
-	protected ModelSelectionDialog(Shell parentShell, List<AiModel> models) {
+	public ModelSelectionDialog(Shell parentShell, List<AiModel> models) {
 		super(parentShell);
 		this.models = new WritableList<>(models, AiModel.class);
 	}

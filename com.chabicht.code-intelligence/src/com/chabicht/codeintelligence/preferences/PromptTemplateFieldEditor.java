@@ -30,6 +30,7 @@ import org.eclipse.swt.widgets.Table;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.model.DefaultPrompts;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
 

@@ -5,11 +5,13 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
@@ -17,7 +19,9 @@ import org.eclipse.osgi.service.datalocation.Location;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
+import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.model.PromptTemplate;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.reflect.TypeToken;
@@ -72,6 +76,17 @@ public class Activator extends AbstractUIPlugin {
 	 */
 	public static void logInfo(String message) {
 		getDefault().getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
+	}
+
+	public List<AiApiConnection> loadConnections() {
+		String json = getPreferenceStore().getString(PreferenceConstants.API_CONNECTION_DATA);
+		if (StringUtils.isEmpty(json)) {
+			return new ArrayList<>();
+		} else {
+			Type listType = new TypeToken<List<AiApiConnection>>() {
+			}.getType();
+			return new Gson().fromJson(json, listType);
+		}
 	}
 
 	public List<PromptTemplate> loadPromptTemplates() {

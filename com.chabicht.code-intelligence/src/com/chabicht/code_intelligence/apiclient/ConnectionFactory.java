@@ -38,12 +38,14 @@ public class ConnectionFactory {
 		throw new IllegalStateException("No connection found for completion model. Check your preferences.");
 	}
 
-	public static AiModelConnection forChat() {
-		String completionModelName = Activator.getDefault().getPreferenceStore()
-				.getString(PreferenceConstants.CHAT_MODEL_NAME);
-		int firstSlashIndex = completionModelName.indexOf('/');
-		String completionConnectionName = completionModelName.substring(0, firstSlashIndex);
-		String modelName = completionModelName.substring(firstSlashIndex + 1);
+	public static AiModelConnection forChat(String chatModelName) {
+		if (StringUtils.isBlank(chatModelName)) {
+			chatModelName = Activator.getDefault().getPreferenceStore().getString(PreferenceConstants.CHAT_MODEL_NAME);
+		}
+
+		int firstSlashIndex = chatModelName.indexOf('/');
+		String completionConnectionName = chatModelName.substring(0, firstSlashIndex);
+		String modelName = chatModelName.substring(firstSlashIndex + 1);
 
 		for (AiApiConnection conn : getApis()) {
 			if (conn.getName().equals(completionConnectionName)) {

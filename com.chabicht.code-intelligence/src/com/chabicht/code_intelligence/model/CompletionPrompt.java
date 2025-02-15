@@ -1,11 +1,18 @@
 package com.chabicht.code_intelligence.model;
 
+import java.util.Map;
+
+import org.apache.commons.lang3.StringUtils;
+
+import com.samskivert.mustache.Mustache;
+import com.samskivert.mustache.Template;
+
 public class CompletionPrompt {
 	private final float temperature;
 	private final String promptString;
-	private final Object[] promptArgs;
+	private final Map<String, Object> promptArgs;
 
-	public CompletionPrompt(float temperature, String promptString, Object... promptArgs) {
+	public CompletionPrompt(float temperature, String promptString, Map<String, Object> promptArgs) {
 		this.temperature = temperature;
 		this.promptString = promptString;
 		this.promptArgs = promptArgs;
@@ -19,11 +26,13 @@ public class CompletionPrompt {
 		return promptString;
 	}
 
-	public Object[] getPromptArgs() {
+	public Map<String, Object> getPromptArgs() {
 		return promptArgs;
 	}
 
 	public String compile() {
-		return String.format(promptString, promptArgs);
+		Template tmpl = Mustache.compiler().compile(StringUtils.stripToEmpty(promptString));
+		String markdown = tmpl.execute(promptArgs);
+		return markdown;
 	}
 }

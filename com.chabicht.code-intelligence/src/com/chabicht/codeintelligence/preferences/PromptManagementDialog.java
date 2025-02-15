@@ -1,16 +1,18 @@
 package com.chabicht.codeintelligence.preferences;
 
+import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.core.databinding.AggregateValidationStatus;
-import org.eclipse.core.databinding.Binding;
 import org.eclipse.core.databinding.DataBindingContext;
 import org.eclipse.core.databinding.UpdateValueStrategy;
 import org.eclipse.core.databinding.beans.typed.BeanProperties;
@@ -18,7 +20,6 @@ import org.eclipse.core.databinding.conversion.Converter;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
 import org.eclipse.core.runtime.IStatus;
-import org.eclipse.core.runtime.Status;
 import org.eclipse.jface.databinding.fieldassist.ControlDecorationSupport;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
@@ -29,7 +30,6 @@ import org.eclipse.jface.text.TextViewer;
 import org.eclipse.jface.viewers.ComboViewer;
 import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.browser.Browser;
 import org.eclipse.swt.browser.ProgressAdapter;
 import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.custom.SashForm;
@@ -41,6 +41,7 @@ import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.layout.RowLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
@@ -53,25 +54,35 @@ import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.themes.ITheme;
 
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.apiclient.AiModel;
+import com.chabicht.code_intelligence.chat.ChatComponent;
+import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.Role;
+import com.chabicht.code_intelligence.model.DefaultPrompts;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.google.gson.JsonSyntaxException;
 import com.samskivert.mustache.Mustache;
 import com.samskivert.mustache.Template;
 
 public class PromptManagementDialog extends Dialog {
-	private static final String UNASSIGNED = "<Unassigned>";
 	private DataBindingContext m_bindingContext;
+	private final ScheduledExecutorService scheduler;
+
+	private static final String UNASSIGNED = "<Unassigned>";
 	private Text txtPresetName;
 	private Text txtModel;
 	private Font textEditorFont;
 	private PromptTemplate prompt;
 
 	private static final Map<String, Object> COMPLETION_DEMO_DATA = consCompletionDemoData();
-	private Browser bPreview;
+	private Composite preview;
 	private StyledText stPrompt;
 	private ComboViewer cvType;
 	private ComboViewer cvConnection;
 	private Button btnEnabled;
+	private Composite cmpSashRight;
 
 	private Parser markdownParser = Parser.builder().build();
 	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
@@ -86,6 +97,8 @@ public class PromptManagementDialog extends Dialog {
 	protected PromptManagementDialog(Shell parentShell, List<AiApiConnection> connections, PromptTemplate prompt) {
 		super(parentShell);
 		this.prompt = prompt;
+
+		this.scheduler = Executors.newScheduledThreadPool(1);
 
 		ITheme theme = PlatformUI.getWorkbench().getThemeManager().getCurrentTheme();
 		textEditorFont = theme.getFontRegistry().get("org.eclipse.jface.textfont");
@@ -158,6 +171,17 @@ public class PromptManagementDialog extends Dialog {
 		txtModel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
 
 		Button btnChoose = new Button(composite, SWT.NONE);
+		btnChoose.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				List<AiModel> modelsFromConn = connectionForName(prompt.getConnectionName()).getApiClient().getModels();
+				ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), modelsFromConn);
+				if (dialog.open() == ModelSelectionDialog.OK) {
+					AiModel model = dialog.getSelectedModel();
+					prompt.setModelId(model.getId());
+				}
+			}
+		});
 		btnChoose.setText("Choose...");
 
 		SashForm sashForm = new SashForm(composite, SWT.NONE);
@@ -179,80 +203,147 @@ public class PromptManagementDialog extends Dialog {
 		btnResetPrompt.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				switch (prompt.getType()) {
-				case CHAT:
-					prompt.setPrompt(DefaultPrompts.CHAT_PROMPT);
-					break;
-				default:
-					prompt.setPrompt(DefaultPrompts.INSTRUCT_PROMPT);
-					break;
-				}
+				resetPrompt();
 			}
 		});
 		btnResetPrompt.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
 		btnResetPrompt.setText("Reset to default");
-		prompt.addPropertyChangeListener("prompt", e -> {
-			updatePromptPreview((String) e.getNewValue());
-		});
 
-		Composite cmpSashRight = new Composite(sashForm, SWT.NONE);
+		cmpSashRight = new Composite(sashForm, SWT.NONE);
 		GridLayout gl_cmpSashRight = new GridLayout(1, false);
 		gl_cmpSashRight.marginWidth = 0;
 		gl_cmpSashRight.marginHeight = 0;
 		gl_cmpSashRight.horizontalSpacing = 0;
 		cmpSashRight.setLayout(gl_cmpSashRight);
 
-		bPreview = new Browser(cmpSashRight, SWT.BORDER);
-		bPreview.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		createPreview();
 		sashForm.setWeights(new int[] { 1, 1 });
+		new Label(composite, SWT.NONE);
+		new Label(composite, SWT.NONE);
+		new Label(composite, SWT.NONE);
+		new Label(composite, SWT.NONE);
+		new Label(composite, SWT.NONE);
+		new Label(composite, SWT.NONE);
+		new Label(composite, SWT.NONE);
 
-		btnEnabled = new Button(composite, SWT.CHECK);
-		btnEnabled.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 9, 1));
+		Composite composite_1 = new Composite(composite, SWT.NONE);
+		RowLayout rl_composite_1 = new RowLayout(SWT.HORIZONTAL);
+		rl_composite_1.marginTop = 0;
+		rl_composite_1.marginRight = 0;
+		rl_composite_1.marginLeft = 0;
+		rl_composite_1.marginBottom = 0;
+		composite_1.setLayout(rl_composite_1);
+		composite_1.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 2, 1));
+
+		btnEnabled = new Button(composite_1, SWT.CHECK);
 		btnEnabled.setText("enabled");
+
+		btnUseByDefault = new Button(composite_1, SWT.CHECK);
+		btnUseByDefault.setText("Use by default");
 
 		init();
 		m_bindingContext = initDataBindings();
+		initErrorHandling();
 		initListeners();
 
+		parent.addDisposeListener(e -> disposeListeners());
+
 		return composite;
+	}
+
+	private void createPreview() {
+		if (preview != null) {
+			preview.dispose();
+			preview = null;
+		}
+		if (PromptType.INSTRUCT.equals(prompt.getType())) {
+			preview = new InstructPreview(cmpSashRight, SWT.BORDER);
+			updatePromptPreview();
+		} else {
+			preview = new ChatComponent(cmpSashRight, SWT.BORDER);
+			ChatComponent cc = (ChatComponent) preview;
+			ProgressAdapter listener = new ProgressAdapter() {
+				@Override
+				public void completed(ProgressEvent event) {
+					updatePromptPreview();
+					cc.removeProgressListener(this);
+				}
+			};
+			cc.addProgressListener(listener);
+		}
+		preview.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		cmpSashRight.layout();
 	}
 
 	private void init() {
 		promptTypesList.add(PromptType.INSTRUCT);
 		promptTypesList.add(PromptType.CHAT);
 
-		updatePromptPreview(prompt.getPrompt());
+		updatePromptPreview();
 	}
+
+	private PropertyChangeListener promptTypeListener = e -> {
+		createPreview();
+		chatConversation = null;
+		resetPrompt();
+	};
+
+	private PropertyChangeListener promptChangeListener = e -> {
+		updatePromptPreview();
+	};
 
 	private void initListeners() {
+		prompt.addPropertyChangeListener("prompt", promptChangeListener);
+		prompt.addPropertyChangeListener("type", promptTypeListener);
 	}
 
-	private void updatePromptPreview(String prompt) {
-		Template tmpl = Mustache.compiler().compile(StringUtils.stripToEmpty(prompt));
-		String markdown = tmpl.execute(COMPLETION_DEMO_DATA);
-		String html = markdownRenderer.render(markdownParser.parse(markdown));
-		int scrollPosition = getPreviewScrollPosition();
-		bPreview.setText(html);
-		scrollPreviewTo(scrollPosition);
+	private void disposeListeners() {
+		prompt.removePropertyChangeListener("prompt", promptChangeListener);
+		prompt.removePropertyChangeListener("type", promptTypeListener);
+		scheduler.shutdown();
 	}
 
-	private int getPreviewScrollPosition() {
-		Object result = bPreview.evaluate("return window.pageYOffset;");
-		int scrollPosition = 0;
-		if (result instanceof Number) {
-			scrollPosition = ((Number) result).intValue();
-		}
-		return scrollPosition;
-	}
+	ChatConversation chatConversation;
+	private Button btnUseByDefault;
 
-	private void scrollPreviewTo(int scrollPosition) {
-		bPreview.addProgressListener(new ProgressAdapter() {
-			@Override
-			public void completed(ProgressEvent event) {
-				bPreview.execute("window.scrollTo(0, " + scrollPosition + ");");
-				bPreview.removeProgressListener(this);
+	private void updatePromptPreview() {
+		if (PromptType.INSTRUCT.equals(prompt.getType())) {
+			if (preview instanceof InstructPreview instructPreview) {
+				Template tmpl = Mustache.compiler().compile(StringUtils.stripToEmpty(prompt.getPrompt()));
+				String markdown = tmpl.execute(COMPLETION_DEMO_DATA);
+				String html = markdownRenderer.render(markdownParser.parse(markdown));
+				instructPreview.setText(html);
 			}
-		});
+		} else if (PromptType.CHAT.equals(prompt.getType())) {
+			if (preview instanceof ChatComponent chat && chat.isReady()) {
+				try {
+					if (chatConversation == null) {
+						chatConversation = new ChatConversation();
+						chatConversation.addMessage(new ChatMessage(Role.SYSTEM, prompt.getPrompt()));
+						chatConversation.addMessage(new ChatMessage(Role.USER, "test"));
+						chatConversation.addMessage(new ChatMessage(Role.ASSISTANT,
+								"It seems like you're testing or checking something."
+										+ " Could you clarify what you need help with?"
+										+ " Whether it's a specific question, a problem to solve,"
+										+ " or just exploring, I'm here to assist!"));
+					} else {
+						chatConversation.getMessages().get(0).setContent(prompt.getPrompt());
+					}
+
+					for (ChatMessage msg : chatConversation.getMessages()) {
+						String html = markdownRenderer.render(markdownParser.parse(msg.getContent()));
+						String role = msg.getRole().name().toLowerCase();
+						if (chat.isMessageKnown(msg.getId())) {
+							chat.updateMessage(msg.getId(), html);
+						} else {
+							chat.addMessage(msg.getId(), role, html);
+						}
+					}
+				} catch (JsonSyntaxException e) {
+					// Notify user
+				}
+			}
+		}
 	}
 
 	@Override
@@ -263,13 +354,23 @@ public class PromptManagementDialog extends Dialog {
 	@Override
 	protected Point getInitialSize() {
 		Rectangle bounds = Display.getCurrent().getBounds();
-		return new Point(bounds.width - 100, bounds.height - 100);
+		return new Point(bounds.width - 300, bounds.height - 200);
 //		return new Point(1200, 800);
 	}
 
 	private static HashMap<String, Object> consCompletionDemoData() {
 		HashMap<String, Object> res = new HashMap<>();
-		res.put("recentEdits", List.of("Edit 1", "Edit 2", "Edit 3"));
+		res.put("recentEdits", List.of("```\nsystemPrompts.add(createNoTemplateSelection());\n```", //
+				"""
+						```
+						PromptTemplate res = new PromptTemplate();
+						res.setEnabled(true);
+						res.setUseByDefault(true);
+						res.setName("<None>");
+						return res;
+						```
+						""", //
+				"```\nres.setEnabled(true);\n```"));
 		res.put("code", """
 				List<Integer> numbers = List.of(1, 2, 3, 4, 5);
 				int evenSum = numbers.stream()
@@ -316,24 +417,26 @@ public class PromptManagementDialog extends Dialog {
 		}
 	}
 
+	private void initErrorHandling() {
+		m_bindingContext.getBindings().forEach(binding -> ControlDecorationSupport.create(binding, SWT.LEFT | SWT.TOP));
+		validationStatus = new AggregateValidationStatus(m_bindingContext, AggregateValidationStatus.MAX_SEVERITY);
+	}
+
+	private AiApiConnection connectionForName(String name) {
+		return connectionsList.stream().filter(conn -> conn.getName().equals(name)).findFirst().orElse(null);
+	}
+
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	protected DataBindingContext initDataBindings() {
 		DataBindingContext bindingContext = new DataBindingContext();
 		//
 		IObservableValue observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(txtPresetName);
 		IObservableValue stringValue = BeanProperties.value("name").observe(prompt);
-		Binding binding = bindingContext.bindValue(observeObserveStringWidget, stringValue,
-				new UpdateValueStrategy<String, String>().setAfterGetValidator(e -> {
-					if (StringUtils.isBlank(e)) {
-						return Status.error("Name must not be blank.");
-					}
-					return Status.OK_STATUS;
-				}), null);
-		ControlDecorationSupport.create(binding, SWT.TOP | SWT.LEFT);
-		//
-		observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(stPrompt);
-		stringValue = BeanProperties.value("prompt").observe(prompt);
 		bindingContext.bindValue(observeObserveStringWidget, stringValue, null, null);
+		//
+		IObservableValue observeObservePromptStringWidget = WidgetProperties.text(SWT.Modify).observe(stPrompt);
+		IObservableValue promptStringValue = BeanProperties.value("prompt").observe(prompt);
+		bindingContext.bindValue(observeObservePromptStringWidget, promptStringValue, null, null);
 		//
 		IObservableValue observeSelectionBtnEnabledObserveWidget = WidgetProperties.widgetSelection()
 				.observe(btnEnabled);
@@ -350,40 +453,19 @@ public class PromptManagementDialog extends Dialog {
 		strategy.setConverter(new ApiConnectionToStringConverter());
 		UpdateValueStrategy strategy_1 = new UpdateValueStrategy();
 		strategy_1.setConverter(new StringToApiConnectionConverter());
-		binding = bindingContext.bindValue(observeSingleSelectionCvConnection, connectionNamePromptObserveValue,
-				strategy, strategy_1);
-		ControlDecorationSupport.create(binding, SWT.TOP | SWT.LEFT);
+		bindingContext.bindValue(observeSingleSelectionCvConnection, connectionNamePromptObserveValue, strategy,
+				strategy_1);
 		//
 		IObservableValue observeTextTxtModelObserveWidget = WidgetProperties.text(SWT.FocusOut).observe(txtModel);
 		IObservableValue modelIdPromptObserveValue = BeanProperties.value("modelId").observe(prompt);
-		binding = bindingContext.bindValue(observeTextTxtModelObserveWidget, modelIdPromptObserveValue,
-				new UpdateValueStrategy<String, String>().setBeforeSetValidator(e -> {
-					if (StringUtils.isNotBlank(e)) {
-						if (validModelNames.isEmpty()) {
-							return Status.error("No API connection selected.");
-						}
-						boolean present = false;
-						for (String validName : validModelNames) {
-							if (StringUtils.equals(validName, e)) {
-								present = true;
-								break;
-							}
-						}
-						if (!present) {
-							return Status.error("Model ID is not valid for the selected provider.");
-						}
-					}
-					return Status.OK_STATUS;
-				}), null);
-		ControlDecorationSupport.create(binding, SWT.TOP | SWT.LEFT);
+		bindingContext.bindValue(observeTextTxtModelObserveWidget, modelIdPromptObserveValue, null, null);
 		//
-
-		validationStatus = new AggregateValidationStatus(bindingContext, AggregateValidationStatus.MAX_SEVERITY);
-		validationStatus.addValueChangeListener(e -> {
-			IStatus status = e.diff.getNewValue();
-			getButton(IDialogConstants.OK_ID).setEnabled(status.isOK());
-		});
-
+		IObservableValue observeSelectionBtnUseByDefaultObserveWidget = WidgetProperties.widgetSelection()
+				.observe(btnUseByDefault);
+		IObservableValue useByDefaultPromptObserveValue = BeanProperties.value("useByDefault").observe(prompt);
+		bindingContext.bindValue(observeSelectionBtnUseByDefaultObserveWidget, useByDefaultPromptObserveValue, null,
+				null);
+		//
 		return bindingContext;
 	}
 
@@ -396,7 +478,14 @@ public class PromptManagementDialog extends Dialog {
 		return button;
 	}
 
-	private AiApiConnection connectionForName(String name) {
-		return connectionsList.stream().filter(conn -> conn.getName().equals(name)).findFirst().orElse(null);
+	private void resetPrompt() {
+		switch (prompt.getType()) {
+		case CHAT:
+			prompt.setPrompt(DefaultPrompts.CHAT_SYSTEM_PROMPT);
+			break;
+		default:
+			prompt.setPrompt(DefaultPrompts.INSTRUCT_PROMPT);
+			break;
+		}
 	}
 }
