@@ -3,18 +3,14 @@ package com.chabicht.codeintelligence.preferences;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.databinding.observable.list.WritableList;
-import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.StringButtonFieldEditor;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.layout.FillLayout;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
-import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Group;
 import org.eclipse.ui.IWorkbench;
@@ -23,8 +19,6 @@ import org.eclipse.ui.IWorkbenchPreferencePage;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
-import com.chabicht.code_intelligence.model.PromptTemplate;
-import com.chabicht.code_intelligence.model.PromptType;
 
 /**
  * This class represents a preference page that is contributed to the
@@ -64,7 +58,8 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		Composite innerCompletion = new Composite(grpCompletion, SWT.NONE);
 		innerCompletion.setLayout(new GridLayout());
 
-		addField(new CompletionModelFieldEditor(PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", innerCompletion));
+		CompletionModelFieldEditor completionFieldEditor = new CompletionModelFieldEditor(PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", innerCompletion);
+		addField(completionFieldEditor);
 
 		Group grpChat = new Group(getFieldEditorParent(), SWT.NONE);
 		grpChat.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
@@ -76,28 +71,35 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		Composite innerChat = new Composite(grpChat, SWT.NONE);
 		innerChat.setLayout(new GridLayout());
 
-		addField(new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:", innerChat));
+		ChatModelFieldEditor chatFieldEditor = new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:", innerChat);
+		addField(chatFieldEditor);
 
 		addField(new BooleanFieldEditor(PreferenceConstants.DEBUG_LOG_PROMPTS, "Log prompts to Error Log",
 				getFieldEditorParent()));
 
-		Button btnManagePrompts = new Button(getFieldEditorParent(), SWT.NONE);
-		btnManagePrompts.setLayoutData(new GridData(SWT.RIGHT, SWT.BOTTOM, false, false, 3, 1));
-		btnManagePrompts.setText("Manage Prompts...");
-		btnManagePrompts.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
-			PromptTemplate pt = new PromptTemplate();
-			pt.setType(PromptType.INSTRUCT);
-			String currentCompletionModel = getPreferenceStore().getString(PreferenceConstants.COMPLETION_MODEL_NAME);
-			if (StringUtils.isNotBlank(currentCompletionModel)) {
-				int indexOfSlash = currentCompletionModel.indexOf("/");
-				pt.setConnectionName(currentCompletionModel.substring(0, indexOfSlash));
-				pt.setModelId(currentCompletionModel.substring(indexOfSlash) + 1);
-			}
-			pt.setPrompt(COMPLETION_PROMPT_TEMPLATE);
-			if (new PromptManagementDialog(getShell(), connections, pt).open() == Dialog.OK) {
-				// ...
-			}
-		}));
+		
+		addField(new PromptTemplateFieldEditor(PreferenceConstants.PRMPT_TEMPLATES, "&Prompt Templates:",
+				getFieldEditorParent(), connections, completionFieldEditor::getStringValue,
+				chatFieldEditor::getStringValue));
+		
+		
+//		Button btnManagePrompts = new Button(getFieldEditorParent(), SWT.NONE);
+//		btnManagePrompts.setLayoutData(new GridData(SWT.RIGHT, SWT.BOTTOM, false, false, 3, 1));
+//		btnManagePrompts.setText("Manage Prompts...");
+//		btnManagePrompts.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
+//			PromptTemplate pt = new PromptTemplate();
+//			pt.setType(PromptType.INSTRUCT);
+//			String currentCompletionModel = getPreferenceStore().getString(PreferenceConstants.COMPLETION_MODEL_NAME);
+//			if (StringUtils.isNotBlank(currentCompletionModel)) {
+//				int indexOfSlash = currentCompletionModel.indexOf("/");
+//				pt.setConnectionName(currentCompletionModel.substring(0, indexOfSlash));
+//				pt.setModelId(currentCompletionModel.substring(indexOfSlash) + 1);
+//			}
+//			pt.setPrompt(COMPLETION_PROMPT_TEMPLATE);
+//			if (new PromptManagementDialog(getShell(), connections, pt).open() == Dialog.OK) {
+//				// ...
+//			}
+//		}));
 	}
 
 	/*

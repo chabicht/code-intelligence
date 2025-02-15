@@ -1,17 +1,25 @@
 package com.chabicht.codeintelligence.preferences;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.StringUtils;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
+import org.eclipse.core.databinding.AggregateValidationStatus;
+import org.eclipse.core.databinding.Binding;
 import org.eclipse.core.databinding.DataBindingContext;
 import org.eclipse.core.databinding.UpdateValueStrategy;
-import org.eclipse.core.databinding.beans.typed.PojoProperties;
+import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.conversion.Converter;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Status;
+import org.eclipse.jface.databinding.fieldassist.ControlDecorationSupport;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
 import org.eclipse.jface.databinding.viewers.typed.ViewerProperties;
@@ -26,6 +34,8 @@ import org.eclipse.swt.browser.ProgressAdapter;
 import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.custom.SashForm;
 import org.eclipse.swt.custom.StyledText;
+import org.eclipse.swt.events.SelectionAdapter;
+import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.Rectangle;
@@ -49,11 +59,19 @@ import com.samskivert.mustache.Mustache;
 import com.samskivert.mustache.Template;
 
 public class PromptManagementDialog extends Dialog {
+	private static final String UNASSIGNED = "<Unassigned>";
 	private DataBindingContext m_bindingContext;
 	private Text txtPresetName;
 	private Text txtModel;
 	private Font textEditorFont;
 	private PromptTemplate prompt;
+
+	private static final Map<String, Object> COMPLETION_DEMO_DATA = consCompletionDemoData();
+	private Browser bPreview;
+	private StyledText stPrompt;
+	private ComboViewer cvType;
+	private ComboViewer cvConnection;
+	private Button btnEnabled;
 
 	private Parser markdownParser = Parser.builder().build();
 	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
@@ -61,14 +79,20 @@ public class PromptManagementDialog extends Dialog {
 	private WritableList<PromptType> promptTypesList = new WritableList<>();
 	private WritableList<AiApiConnection> connectionsList = new WritableList<>();
 
-	protected PromptManagementDialog(Shell parentShell, WritableList<AiApiConnection> connections,
-			PromptTemplate prompt) {
+	private final List<String> validModelNames = new ArrayList<>();
+
+	private IObservableValue<IStatus> validationStatus;
+
+	protected PromptManagementDialog(Shell parentShell, List<AiApiConnection> connections, PromptTemplate prompt) {
 		super(parentShell);
 		this.prompt = prompt;
 
 		ITheme theme = PlatformUI.getWorkbench().getThemeManager().getCurrentTheme();
 		textEditorFont = theme.getFontRegistry().get("org.eclipse.jface.textfont");
-		this.connectionsList.addAll(connections);
+		AiApiConnection dummy = new AiApiConnection();
+		dummy.setName(UNASSIGNED);
+		this.connectionsList.add(dummy);
+		connections.stream().filter(AiApiConnection::isEnabled).forEach(connectionsList::add);
 	}
 
 	@Override
@@ -152,6 +176,19 @@ public class PromptManagementDialog extends Dialog {
 		stPrompt.setFont(textEditorFont);
 
 		Button btnResetPrompt = new Button(cmpSashLeft, SWT.NONE);
+		btnResetPrompt.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				switch (prompt.getType()) {
+				case CHAT:
+					prompt.setPrompt(DefaultPrompts.CHAT_PROMPT);
+					break;
+				default:
+					prompt.setPrompt(DefaultPrompts.INSTRUCT_PROMPT);
+					break;
+				}
+			}
+		});
 		btnResetPrompt.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
 		btnResetPrompt.setText("Reset to default");
 		prompt.addPropertyChangeListener("prompt", e -> {
@@ -169,6 +206,10 @@ public class PromptManagementDialog extends Dialog {
 		bPreview.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
 		sashForm.setWeights(new int[] { 1, 1 });
 
+		btnEnabled = new Button(composite, SWT.CHECK);
+		btnEnabled.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 9, 1));
+		btnEnabled.setText("enabled");
+
 		init();
 		m_bindingContext = initDataBindings();
 		initListeners();
@@ -184,11 +225,10 @@ public class PromptManagementDialog extends Dialog {
 	}
 
 	private void initListeners() {
-
 	}
 
 	private void updatePromptPreview(String prompt) {
-		Template tmpl = Mustache.compiler().compile(prompt);
+		Template tmpl = Mustache.compiler().compile(StringUtils.stripToEmpty(prompt));
 		String markdown = tmpl.execute(COMPLETION_DEMO_DATA);
 		String html = markdownRenderer.render(markdownParser.parse(markdown));
 		int scrollPosition = getPreviewScrollPosition();
@@ -227,12 +267,6 @@ public class PromptManagementDialog extends Dialog {
 //		return new Point(1200, 800);
 	}
 
-	private static final Map<String, Object> COMPLETION_DEMO_DATA = consCompletionDemoData();
-	private Browser bPreview;
-	private StyledText stPrompt;
-	private ComboViewer cvType;
-	private ComboViewer cvConnection;
-
 	private static HashMap<String, Object> consCompletionDemoData() {
 		HashMap<String, Object> res = new HashMap<>();
 		res.put("recentEdits", List.of("Edit 1", "Edit 2", "Edit 3"));
@@ -245,33 +279,6 @@ public class PromptManagementDialog extends Dialog {
 		return res;
 	}
 
-	protected DataBindingContext initDataBindings() {
-		DataBindingContext bindingContext = new DataBindingContext();
-		//
-		IObservableValue<String> observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(txtPresetName);
-		IObservableValue<String> stringValue = PojoProperties.value("name", String.class).observe(prompt);
-		bindingContext.bindValue(observeObserveStringWidget, stringValue, null, null);
-		//
-		IObservableValue<PromptType> observeSingleSelectionCvType = ViewerProperties.singleSelection(PromptType.class)
-				.observe(cvType);
-		IObservableValue<PromptType> promptTypeValue = PojoProperties.value("type", PromptType.class).observe(prompt);
-		bindingContext.bindValue(observeSingleSelectionCvType, promptTypeValue, null, null);
-		//
-		IObservableValue<AiApiConnection> observeSingleSelection = ViewerProperties
-				.singleSelection(AiApiConnection.class).observe(cvConnection);
-		stringValue = PojoProperties.value("connectionName", String.class)
-				.observe(prompt);
-		bindingContext.bindValue(observeSingleSelection, stringValue,
-				new UpdateValueStrategy<AiApiConnection, String>().setConverter(new ApiConnectionToStringConverter()),
-				new UpdateValueStrategy<String, AiApiConnection>().setConverter(new StringToApiConnectionConverter()));
-		//
-		observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(stPrompt);
-		stringValue = PojoProperties.value("prompt", String.class).observe(prompt);
-		bindingContext.bindValue(observeObserveStringWidget, stringValue, null, null);
-		//
-		return bindingContext;
-	}
-
 	private final class ApiConnectionToStringConverter extends Converter<AiApiConnection, String> {
 		private ApiConnectionToStringConverter() {
 			super(AiApiConnection.class, String.class);
@@ -279,6 +286,17 @@ public class PromptManagementDialog extends Dialog {
 
 		@Override
 		public String convert(AiApiConnection fromObject) {
+			if (UNASSIGNED.equals(fromObject.getName())) {
+				prompt.setModelId(null);
+				validModelNames.clear();
+				return null;
+			}
+
+			List<String> modelNames = fromObject.getApiClient().getModels().stream().map(m -> m.getId())
+					.collect(Collectors.toList());
+			validModelNames.clear();
+			validModelNames.addAll(modelNames);
+
 			return fromObject == null ? "Default" : fromObject.getName();
 		}
 	}
@@ -291,8 +309,94 @@ public class PromptManagementDialog extends Dialog {
 		@Override
 		public AiApiConnection convert(String fromObject) {
 			String connectionName = (String) fromObject;
-			return connectionsList.stream().filter(conn -> conn.getName().equals(connectionName)).findFirst()
-					.orElse(null);
+			if (StringUtils.isBlank(connectionName)) {
+				connectionName = UNASSIGNED;
+			}
+			return connectionForName(connectionName);
 		}
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	protected DataBindingContext initDataBindings() {
+		DataBindingContext bindingContext = new DataBindingContext();
+		//
+		IObservableValue observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(txtPresetName);
+		IObservableValue stringValue = BeanProperties.value("name").observe(prompt);
+		Binding binding = bindingContext.bindValue(observeObserveStringWidget, stringValue,
+				new UpdateValueStrategy<String, String>().setAfterGetValidator(e -> {
+					if (StringUtils.isBlank(e)) {
+						return Status.error("Name must not be blank.");
+					}
+					return Status.OK_STATUS;
+				}), null);
+		ControlDecorationSupport.create(binding, SWT.TOP | SWT.LEFT);
+		//
+		observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(stPrompt);
+		stringValue = BeanProperties.value("prompt").observe(prompt);
+		bindingContext.bindValue(observeObserveStringWidget, stringValue, null, null);
+		//
+		IObservableValue observeSelectionBtnEnabledObserveWidget = WidgetProperties.widgetSelection()
+				.observe(btnEnabled);
+		IObservableValue enabledPromptObserveValue = BeanProperties.value("enabled").observe(prompt);
+		bindingContext.bindValue(observeSelectionBtnEnabledObserveWidget, enabledPromptObserveValue, null, null);
+		//
+		IObservableValue observeSingleSelectionCvType = ViewerProperties.singleSelection().observe(cvType);
+		IObservableValue typePromptObserveValue = BeanProperties.value("type").observe(prompt);
+		bindingContext.bindValue(observeSingleSelectionCvType, typePromptObserveValue, null, null);
+		//
+		IObservableValue observeSingleSelectionCvConnection = ViewerProperties.singleSelection().observe(cvConnection);
+		IObservableValue connectionNamePromptObserveValue = BeanProperties.value("connectionName").observe(prompt);
+		UpdateValueStrategy strategy = new UpdateValueStrategy();
+		strategy.setConverter(new ApiConnectionToStringConverter());
+		UpdateValueStrategy strategy_1 = new UpdateValueStrategy();
+		strategy_1.setConverter(new StringToApiConnectionConverter());
+		binding = bindingContext.bindValue(observeSingleSelectionCvConnection, connectionNamePromptObserveValue,
+				strategy, strategy_1);
+		ControlDecorationSupport.create(binding, SWT.TOP | SWT.LEFT);
+		//
+		IObservableValue observeTextTxtModelObserveWidget = WidgetProperties.text(SWT.FocusOut).observe(txtModel);
+		IObservableValue modelIdPromptObserveValue = BeanProperties.value("modelId").observe(prompt);
+		binding = bindingContext.bindValue(observeTextTxtModelObserveWidget, modelIdPromptObserveValue,
+				new UpdateValueStrategy<String, String>().setBeforeSetValidator(e -> {
+					if (StringUtils.isNotBlank(e)) {
+						if (validModelNames.isEmpty()) {
+							return Status.error("No API connection selected.");
+						}
+						boolean present = false;
+						for (String validName : validModelNames) {
+							if (StringUtils.equals(validName, e)) {
+								present = true;
+								break;
+							}
+						}
+						if (!present) {
+							return Status.error("Model ID is not valid for the selected provider.");
+						}
+					}
+					return Status.OK_STATUS;
+				}), null);
+		ControlDecorationSupport.create(binding, SWT.TOP | SWT.LEFT);
+		//
+
+		validationStatus = new AggregateValidationStatus(bindingContext, AggregateValidationStatus.MAX_SEVERITY);
+		validationStatus.addValueChangeListener(e -> {
+			IStatus status = e.diff.getNewValue();
+			getButton(IDialogConstants.OK_ID).setEnabled(status.isOK());
+		});
+
+		return bindingContext;
+	}
+
+	@Override
+	protected Button createButton(Composite parent, int id, String label, boolean defaultButton) {
+		Button button = super.createButton(parent, id, label, defaultButton);
+		if (IDialogConstants.OK_ID == id) {
+			button.setEnabled(validationStatus.getValue().isOK());
+		}
+		return button;
+	}
+
+	private AiApiConnection connectionForName(String name) {
+		return connectionsList.stream().filter(conn -> conn.getName().equals(name)).findFirst().orElse(null);
 	}
 }

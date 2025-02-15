@@ -14,7 +14,11 @@ import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
+import org.eclipse.jface.text.Document;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.ITextSelection;
+import org.eclipse.jface.text.TextViewer;
+import org.eclipse.jface.text.TextViewerUndoManager;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.swt.SWT;
@@ -38,7 +42,6 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
-import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
@@ -63,9 +66,10 @@ public class ChatView extends ViewPart {
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
 
-	private Text txtUserInput;
-
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
+
+	private TextViewer tvUserInput;
+	private IDocument userInput;
 
 	private Font buttonSymbolFont;
 	private Image paperclipImage;
@@ -123,11 +127,9 @@ public class ChatView extends ViewPart {
 				StringBuilder attachments = new StringBuilder();
 				if (!message.getContext().isEmpty()) {
 					for (MessageContext ctx : message.getContext()) {
-						attachments.append(String.format(
-								"<span class=\"attachment-container\">"
-										+ "<span class=\"attachment-icon\">&#128206;</span>"
-										+ "<span class=\"tooltip\">%s</span>" + "</span>",
-								ctx.getLabel()));
+						attachments.append(String.format("<span class=\"attachment-container\">"
+								+ "<span class=\"attachment-icon\">&#128206;</span>"
+								+ "<span class=\"tooltip\">%s</span>" + "</span>", ctx.getLabel()));
 					}
 				}
 				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
@@ -172,7 +174,7 @@ public class ChatView extends ViewPart {
 		gl_composite.horizontalSpacing = 0;
 		composite.setLayout(gl_composite);
 
-		bChat = new Browser(composite, SWT.NONE);
+		bChat = new Browser(composite, SWT.BORDER);
 		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
 		bChat.setText(CHAT_TEMPLATE);
 
@@ -202,19 +204,24 @@ public class ChatView extends ViewPart {
 		cmpAttachments.setLayout(layoutCmpAttachments);
 		new Label(composite, SWT.NONE);
 
-		txtUserInput = new Text(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
-		txtUserInput.addKeyListener(new KeyAdapter() {
-			@Override
-			public void keyReleased(KeyEvent e) {
-				if ((e.stateMask & SWT.CTRL) > 0 && (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR)) {
-					e.doit = false;
-					sendMessageOrAbortChat();
-				}
-			}
-		});
-		GridData gd_txtUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1);
-		gd_txtUserInput.heightHint = 80;
-		txtUserInput.setLayoutData(gd_txtUserInput);
+//		txtUserInput = new Text(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
+//		txtUserInput.addKeyListener(new KeyAdapter() {
+//			@Override
+//			public void keyReleased(KeyEvent e) {
+//				if ((e.stateMask & SWT.CTRL) > 0 && (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR)) {
+//					e.doit = false;
+//					sendMessageOrAbortChat();
+//				}
+//			}
+//		});
+//		GridData gd_txtUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1);
+//		gd_txtUserInput.heightHint = 80;
+//		txtUserInput.setLayoutData(gd_txtUserInput);
+
+		tvUserInput = new TextViewer(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
+		GridData gridData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+		gridData.heightHint = 80;
+		tvUserInput.getTextWidget().setLayoutData(gridData);
 
 		btnSend = new Button(composite, SWT.NONE);
 		btnSend.addSelectionListener(new SelectionAdapter() {
@@ -233,7 +240,46 @@ public class ChatView extends ViewPart {
 		btnSend.setFont(buttonSymbolFont);
 		conversation.addListener(chatListener);
 
+		initUserInputControl();
 		initListeners();
+	}
+
+	private void initUserInputControl() {
+		userInput = new Document();
+		tvUserInput.setDocument(userInput);
+
+		TextViewerUndoManager undoManager = new TextViewerUndoManager(50);
+		tvUserInput.setUndoManager(undoManager);
+		undoManager.connect(tvUserInput);
+
+		tvUserInput.getTextWidget().addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyReleased(KeyEvent e) {
+				if ((e.stateMask & SWT.CTRL) != 0) {
+					switch (e.keyCode) {
+					case SWT.CR:
+					case SWT.KEYPAD_CR:
+						sendMessageOrAbortChat();
+						e.doit = false;
+						break;
+					case 'z':
+					case 'Z':
+						if (undoManager.undoable()) {
+							undoManager.undo();
+						}
+						e.doit = false;
+						break;
+					case 'y':
+					case 'Y':
+						if (undoManager.redoable()) {
+							undoManager.redo();
+						}
+						e.doit = false;
+						break;
+					}
+				}
+			}
+		});
 	}
 
 	private void initListeners() {
@@ -283,8 +329,8 @@ public class ChatView extends ViewPart {
 
 	@Override
 	public void setFocus() {
-		if (txtUserInput != null && !txtUserInput.isDisposed()) {
-			txtUserInput.setFocus();
+		if (tvUserInput != null && tvUserInput.getTextWidget() != null && !tvUserInput.getTextWidget().isDisposed()) {
+			tvUserInput.getTextWidget().setFocus();
 		}
 	}
 
@@ -300,7 +346,7 @@ public class ChatView extends ViewPart {
 
 			connection = null;
 		} else {
-			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
+			ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
 
 			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
 					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
@@ -309,7 +355,7 @@ public class ChatView extends ViewPart {
 
 			conversation.addMessage(chatMessage);
 			connection.chat(conversation);
-			txtUserInput.setText("");
+			userInput.set("");
 
 			// Set text to "⏹️"
 			btnSend.setText("\u23F9");
@@ -329,7 +375,7 @@ public class ChatView extends ViewPart {
 				for (int i = 0; i < messages.size(); i++) {
 					ChatMessage msg = messages.get(i);
 					if (messageUuid.equals(msg.getId())) {
-						txtUserInput.setText(msg.getContent());
+						userInput.set(msg.getContent());
 						getExternallyAddedContext().addAll(msg.getContext());
 						break;
 					} else {
@@ -371,9 +417,7 @@ public class ChatView extends ViewPart {
 	}
 
 	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
-			int start,
-			int end,
-			String selectedText) {
+			int start, int end, String selectedText) {
 		boolean duplicate = false;
 		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, selectedText);
 		for (MessageContext ctx : chatMessage.getContext()) {
@@ -396,7 +440,7 @@ public class ChatView extends ViewPart {
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
 		bChat.setText(CHAT_TEMPLATE);
-		txtUserInput.setText("");
+		userInput.set("");
 	}
 
 	/**

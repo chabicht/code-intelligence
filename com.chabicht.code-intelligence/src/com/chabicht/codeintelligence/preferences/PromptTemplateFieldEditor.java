@@ -3,8 +3,10 @@ package com.chabicht.codeintelligence.preferences;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
@@ -26,17 +28,17 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Table;
 
+import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
 /**
  * A field editor for managing PromptTemplates.
  */
 public class PromptTemplateFieldEditor extends FieldEditor {
 
-	private List templates;
+	private WritableList<PromptTemplate> templates;
 	private TableViewer tableViewer;
 	private Composite buttonBox;
 	private Button addButton;
@@ -44,31 +46,44 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 	private Button removeButton;
 	private Button upButton;
 	private Button downButton;
+	private List<AiApiConnection> apiConnections;
+	private Supplier<String> instructModelIdGetter;
+	private Supplier<String> chatModelIdGetter;
 
 	/**
 	 * ◦Constructs a PromptTemplateFieldEditor. ◦ ◦@param name the property name
 	 * ◦@param labelText the label to display ◦@param parent the parent composite
 	 * ◦@param templates the list of PromptTemplate objects to manage
+	 * 
+	 * @wbp.parser.entryPoint
 	 */
-	public PromptTemplateFieldEditor(String name, String labelText, Composite parent, List templates) {
+	public PromptTemplateFieldEditor(String name, String labelText, Composite parent,
+			List<AiApiConnection> apiConnections, Supplier<String> instructModelIdGetter,
+			Supplier<String> chatModelIdGetter) {
 		super(name, labelText, parent);
-		this.templates = templates;
+		this.apiConnections = apiConnections;
+		this.instructModelIdGetter = instructModelIdGetter;
+		this.chatModelIdGetter = chatModelIdGetter;
 	}
 
 	@Override
 	protected void adjustForNumColumns(int numColumns) {
-		Control labelControl = getLabelControl();
-		GridData gd = (GridData) labelControl.getLayoutData();
-		gd.horizontalSpan = numColumns;
-		GridData tableGD = (GridData) tableViewer.getTable().getLayoutData(); // leave one column for the button box.
-		tableGD.horizontalSpan = numColumns - 1;
+		Control control = getLabelControl();
+		if (control != null) {
+			((GridData) control.getLayoutData()).horizontalSpan = numColumns;
+		}
+		((GridData) tableViewer.getTable().getLayoutData()).horizontalSpan = numColumns - 1;
 	}
 
 	@Override
-	protected void doFillIntoGrid(Composite parent, int numColumns) { // Add the label control Control control =
-																		// getLabelControl(parent); GridData gridData =
-																		// new GridData(); gridData.horizontalSpan =
-																		// numColumns; control.setLayoutData(gridData);
+	protected void doFillIntoGrid(Composite parent, int numColumns) {
+		// Align Label control.
+		Control control = getLabelControl(parent);
+		GridData gd = new GridData();
+		gd.horizontalSpan = numColumns;
+		gd.verticalAlignment = SWT.TOP;
+		control.setLayoutData(gd);
+
 		// Create the table viewer control
 		tableViewer = createTableViewer(parent);
 		GridData tableData = new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL);
@@ -227,9 +242,14 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 
 	private void addNewTemplate() {
 		PromptTemplate template = new PromptTemplate();
-		// Optionally set defaults here.
+		template.setType(PromptType.INSTRUCT);
+		template.setPrompt(DefaultPrompts.INSTRUCT_PROMPT);
+		String providerModelString = instructModelIdGetter.get();
+		String[] providerModelArray = providerModelString.split("/");
+		template.setConnectionName(providerModelArray[0]);
+		template.setModelId(providerModelArray[1]);
 		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(),
-				/* Pass relevant connection list if needed */ Collections.emptyList(), template);
+				apiConnections, template);
 		if (dialog.open() == Dialog.OK) {
 			templates.add(template);
 			tableViewer.setInput(templates);
@@ -244,7 +264,7 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		}
 		PromptTemplate template = (PromptTemplate) selection.getFirstElement();
 		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(),
-				Collections.emptyList(), template);
+				apiConnections, template);
 		if (dialog.open() == Dialog.OK) {
 			tableViewer.refresh();
 		}
@@ -278,15 +298,9 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 
 	@Override
 	protected void doLoad() { // Retrieve the stored JSON value from the preference store.
-		String value = getPreferenceStore().getString(getPreferenceName());
-		templates.clear();
-		if (!StringUtils.isEmpty(value)) {
-			Type listType = new TypeToken<List>() {
-			}.getType();
-			List loadedTemplates = new Gson().fromJson(value, listType);
-			templates.addAll(loadedTemplates);
-			tableViewer.setInput(templates);
-		}
+		this.templates = new WritableList<PromptTemplate>(Activator.getDefault().loadPromptTemplates(),
+				PromptTemplate.class);
+		tableViewer.setInput(templates);
 	}
 
 	@Override
@@ -296,7 +310,7 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 
 	@Override
 	protected void doStore() {
-		getPreferenceStore().setValue(getPreferenceName(), new Gson().toJson(templates));
+		Activator.getDefault().savePromptTemplates(templates);
 	}
 
 	@Override
