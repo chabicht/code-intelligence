@@ -58,31 +58,9 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		Composite innerCompletion = new Composite(grpCompletion, SWT.NONE);
 		innerCompletion.setLayout(new GridLayout());
 
-		addField(new StringButtonFieldEditor(PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", innerCompletion) {
-			@Override
-			protected String changePressed() {
-				List<AiModel> models = new ArrayList<>();
-				for (AiApiConnection conn : connections) {
-					if (conn.isEnabled()) {
-						try {
-							List<AiModel> modelsFromConn = conn.getApiClient().getModels();
-							modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
-							models.addAll(modelsFromConn);
-						} catch (RuntimeException e) {
-							Activator.logError(
-									"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
-						}
-					}
-				}
-				ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
-				String res = null;
-				if (dialog.open() == ModelSelectionDialog.OK) {
-					AiModel model = dialog.getSelectedModel();
-					res = model.getApiConnection().getName() + "/" + model.getId();
-				}
-				return res;
-			}
-		});
+		CompletionModelFieldEditor completionFieldEditor = new CompletionModelFieldEditor(
+				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", innerCompletion);
+		addField(completionFieldEditor);
 
 		Group grpChat = new Group(getFieldEditorParent(), SWT.NONE);
 		grpChat.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
@@ -94,32 +72,13 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		Composite innerChat = new Composite(grpChat, SWT.NONE);
 		innerChat.setLayout(new GridLayout());
 
-		addField(new StringButtonFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:", innerChat) {
+		ChatModelFieldEditor chatFieldEditor = new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
+				innerChat);
+		addField(chatFieldEditor);
 
-			@Override
-			protected String changePressed() {
-				List<AiModel> models = new ArrayList<>();
-				for (AiApiConnection conn : connections) {
-					if (conn.isEnabled()) {
-						try {
-							List<AiModel> modelsFromConn = conn.getApiClient().getModels();
-							modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
-							models.addAll(modelsFromConn);
-						} catch (RuntimeException e) {
-							Activator.logError(
-									"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
-						}
-					}
-				}
-				ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
-				String res = null;
-				if (dialog.open() == ModelSelectionDialog.OK) {
-					AiModel model = dialog.getSelectedModel();
-					res = model.getApiConnection().getName() + "/" + model.getId();
-				}
-				return res;
-			}
-		});
+		addField(new PromptTemplateFieldEditor(PreferenceConstants.PRMPT_TEMPLATES, "&Prompt Templates:",
+				getFieldEditorParent(), connections, completionFieldEditor::getStringValue,
+				chatFieldEditor::getStringValue));
 
 		addField(new BooleanFieldEditor(PreferenceConstants.DEBUG_LOG_PROMPTS, "Log prompts to Error Log",
 				getFieldEditorParent()));
@@ -133,4 +92,63 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 	public void init(IWorkbench workbench) {
 	}
 
+	private final class CompletionModelFieldEditor extends StringButtonFieldEditor {
+		private CompletionModelFieldEditor(String name, String labelText, Composite parent) {
+			super(name, labelText, parent);
+		}
+
+		@Override
+		protected String changePressed() {
+			List<AiModel> models = new ArrayList<>();
+			for (AiApiConnection conn : connections) {
+				if (conn.isEnabled()) {
+					try {
+						List<AiModel> modelsFromConn = conn.getApiClient().getModels();
+						modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
+						models.addAll(modelsFromConn);
+					} catch (RuntimeException e) {
+						Activator.logError(
+								"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
+					}
+				}
+			}
+			ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
+			String res = null;
+			if (dialog.open() == ModelSelectionDialog.OK) {
+				AiModel model = dialog.getSelectedModel();
+				res = model.getApiConnection().getName() + "/" + model.getId();
+			}
+			return res;
+		}
+	}
+
+	private final class ChatModelFieldEditor extends StringButtonFieldEditor {
+		private ChatModelFieldEditor(String name, String labelText, Composite parent) {
+			super(name, labelText, parent);
+		}
+
+		@Override
+		protected String changePressed() {
+			List<AiModel> models = new ArrayList<>();
+			for (AiApiConnection conn : connections) {
+				if (conn.isEnabled()) {
+					try {
+						List<AiModel> modelsFromConn = conn.getApiClient().getModels();
+						modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
+						models.addAll(modelsFromConn);
+					} catch (RuntimeException e) {
+						Activator.logError(
+								"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
+					}
+				}
+			}
+			ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
+			String res = null;
+			if (dialog.open() == ModelSelectionDialog.OK) {
+				AiModel model = dialog.getSelectedModel();
+				res = model.getApiConnection().getName() + "/" + model.getId();
+			}
+			return res;
+		}
+	}
 }

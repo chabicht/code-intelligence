@@ -1,6 +1,6 @@
 # Code Intelligence
 
-This Eclipse plugin provides AI code completion and reasoning in a chat view.
+This Eclipse plugin enhances the Java Development Tools (JDT) with AI code completion and reasoning in a chat view.
 
 # Usage
 
@@ -91,6 +91,10 @@ Here you can add connections to different API providers and select the model you
 The model is identified by `[Connection Name]/[Model ID]`, so assuming your OpenAI connection was named *OpenAI*, to use GPT-4o-Mini, you would enter `OpenAI/gpt-4o-mini`.
 
 Clicking on *Change...* opens a dialog where you can select a model from the enabled connections.
+
+## Prompt Templates
+
+For an intro to writing custom prompts, see [PROMPT-TEMPLATES.md](PROMPT-TEMPLATES.md).
 
 # Customizing code completion behaviour
 

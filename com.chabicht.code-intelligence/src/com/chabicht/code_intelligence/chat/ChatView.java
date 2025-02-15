@@ -1,20 +1,27 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.core.databinding.observable.list.IListChangeListener;
 import org.eclipse.core.databinding.observable.list.ListDiffEntry;
 import org.eclipse.core.databinding.observable.list.WritableList;
+import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
+import org.eclipse.jface.text.Document;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.ITextSelection;
+import org.eclipse.jface.text.TextViewer;
+import org.eclipse.jface.text.TextViewerUndoManager;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.swt.SWT;
@@ -38,7 +45,6 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
-import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
@@ -55,6 +61,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
+import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatView extends ViewPart {
@@ -63,16 +70,19 @@ public class ChatView extends ViewPart {
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
 
-	private Text txtUserInput;
+	private final ChatSettings settings = new ChatSettings();
 
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
+
+	private ChatComponent chat;
+
+	private TextViewer tvUserInput;
+	private IDocument userInput;
 
 	private Font buttonSymbolFont;
 	private Image paperclipImage;
 
-	private ChatConversation conversation = new ChatConversation();
-
-	private Browser bChat;
+	private ChatConversation conversation;
 
 	private Parser markdownParser = Parser.builder().build();
 	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
@@ -112,8 +122,7 @@ public class ChatView extends ViewPart {
 			String messageHtml = markdownRenderer.render(markdownParser.parse(messageContent));
 			String combinedHtml = thinkHtml + messageHtml;
 			Display.getDefault().asyncExec(() -> {
-				bChat.execute(String.format("updateMessage('%s', '%s');", message.getId(),
-						escapeForJavaScript(combinedHtml)));
+				chat.updateMessage(message.getId(), combinedHtml);
 			});
 		}
 
@@ -123,17 +132,14 @@ public class ChatView extends ViewPart {
 				StringBuilder attachments = new StringBuilder();
 				if (!message.getContext().isEmpty()) {
 					for (MessageContext ctx : message.getContext()) {
-						attachments.append(String.format(
-								"<span class=\"attachment-container\">"
-										+ "<span class=\"attachment-icon\">&#128206;</span>"
-										+ "<span class=\"tooltip\">%s</span>" + "</span>",
-								ctx.getLabel()));
+						attachments.append(String.format("<span class=\"attachment-container\">"
+								+ "<span class=\"attachment-icon\">&#128206;</span>"
+								+ "<span class=\"tooltip\">%s</span>" + "</span>", ctx.getLabel()));
 					}
 				}
 				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
 				String combinedHtml = messageHtml + "\n" + attachments.toString();
-				bChat.execute(String.format("addMessage('%s', '%s', '%s');", message.getId(),
-						message.getRole().name().toLowerCase(), escapeForJavaScript(combinedHtml)));
+				chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), combinedHtml);
 			});
 		}
 
@@ -168,13 +174,12 @@ public class ChatView extends ViewPart {
 	public void createPartControl(Composite parent) {
 		composite = new Composite(parent, SWT.NONE);
 		GridLayout gl_composite = new GridLayout(2, false);
+		gl_composite.marginHeight = 0;
 		gl_composite.marginWidth = 0;
-		gl_composite.horizontalSpacing = 0;
 		composite.setLayout(gl_composite);
 
-		bChat = new Browser(composite, SWT.NONE);
-		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
-		bChat.setText(CHAT_TEMPLATE);
+		chat = new ChatComponent(composite, SWT.BORDER);
+		chat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
 
 		Button btnClear = new Button(composite, SWT.NONE);
 		btnClear.addSelectionListener(new SelectionAdapter() {
@@ -202,19 +207,35 @@ public class ChatView extends ViewPart {
 		cmpAttachments.setLayout(layoutCmpAttachments);
 		new Label(composite, SWT.NONE);
 
-		txtUserInput = new Text(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
-		txtUserInput.addKeyListener(new KeyAdapter() {
+		tvUserInput = new TextViewer(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
+		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false);
+		gridDataTvUserInput.verticalSpan = 2;
+		gridDataTvUserInput.heightHint = 80;
+		tvUserInput.getTextWidget().setLayoutData(gridDataTvUserInput);
+
+		btnSettings = new Button(composite, SWT.NONE);
+		btnSettings.addSelectionListener(new SelectionAdapter() {
 			@Override
-			public void keyReleased(KeyEvent e) {
-				if ((e.stateMask & SWT.CTRL) > 0 && (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR)) {
-					e.doit = false;
-					sendMessageOrAbortChat();
+			public void widgetSelected(SelectionEvent e) {
+				ChatSettingsDialog dlg = new ChatSettingsDialog(Display.getCurrent().getActiveShell(), settings);
+				if (dlg.open() == Dialog.OK) {
+					try {
+						BeanUtils.copyProperties(settings, dlg.getSettings());
+					} catch (IllegalAccessException | InvocationTargetException ex) {
+						Activator.logError(ex.getMessage(), ex);
+					}
 				}
 			}
 		});
-		GridData gd_txtUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1);
-		gd_txtUserInput.heightHint = 80;
-		txtUserInput.setLayoutData(gd_txtUserInput);
+		GridData gd_btnSettings = new GridData(SWT.RIGHT, SWT.TOP, false, false, 1, 1);
+		gd_btnSettings.widthHint = 40;
+		gd_btnSettings.heightHint = 40;
+		btnSettings.setLayoutData(gd_btnSettings);
+		btnSettings.setText("\u2699");
+		btnSettings.setFont(buttonSymbolFont);
+		GridData gridData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+		gridData.verticalSpan = 2;
+		gridData.heightHint = 80;
 
 		btnSend = new Button(composite, SWT.NONE);
 		btnSend.addSelectionListener(new SelectionAdapter() {
@@ -231,9 +252,65 @@ public class ChatView extends ViewPart {
 		// Set text to "▶️"
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
-		conversation.addListener(chatListener);
 
+		init();
+		initUserInputControl();
 		initListeners();
+
+		conversation = createNewChatConversation();
+		conversation.addListener(chatListener);
+	}
+
+	private void init() {
+		String defaultModel = Activator.getDefault().getPreferenceStore()
+				.getString(PreferenceConstants.CHAT_MODEL_NAME);
+		settings.setModel(defaultModel);
+
+		String[] split = defaultModel.split("/");
+		String connectionName = split[0];
+		String modelId = split[1];
+		Activator
+				.getDefault().loadPromptTemplates().stream().filter(pt -> PromptType.CHAT.equals(pt.getType())
+						&& pt.isUseByDefault() && pt.isApplicable(connectionName, modelId))
+				.findFirst().ifPresent(settings::setPromptTemplate);
+	}
+
+	private void initUserInputControl() {
+		userInput = new Document();
+		tvUserInput.setDocument(userInput);
+
+		TextViewerUndoManager undoManager = new TextViewerUndoManager(50);
+		tvUserInput.setUndoManager(undoManager);
+		undoManager.connect(tvUserInput);
+
+		tvUserInput.getTextWidget().addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyReleased(KeyEvent e) {
+				if ((e.stateMask & SWT.CTRL) != 0) {
+					switch (e.keyCode) {
+					case SWT.CR:
+					case SWT.KEYPAD_CR:
+						sendMessageOrAbortChat();
+						e.doit = false;
+						break;
+					case 'z':
+					case 'Z':
+						if (undoManager.undoable()) {
+							undoManager.undo();
+						}
+						e.doit = false;
+						break;
+					case 'y':
+					case 'Y':
+						if (undoManager.redoable()) {
+							undoManager.redo();
+						}
+						e.doit = false;
+						break;
+					}
+				}
+			}
+		});
 	}
 
 	private void initListeners() {
@@ -256,7 +333,8 @@ public class ChatView extends ViewPart {
 		externallyAddedContext.addListChangeListener(listChangeListener);
 		composite.addDisposeListener(e -> ChatView.externallyAddedContext.removeListChangeListener(listChangeListener));
 
-		bChat.addProgressListener(ProgressListener.completedAdapter(event -> {
+		chat.addProgressListener(ProgressListener.completedAdapter(event -> {
+			final Browser bChat = chat.getBrowser();
 			final BrowserFunction function = new OnClickFunction(bChat, "elementClicked");
 			bChat.execute(ONCLICK_LISTENER);
 			bChat.addLocationListener(new LocationAdapter() {
@@ -283,14 +361,14 @@ public class ChatView extends ViewPart {
 
 	@Override
 	public void setFocus() {
-		if (txtUserInput != null && !txtUserInput.isDisposed()) {
-			txtUserInput.setFocus();
+		if (tvUserInput != null && tvUserInput.getTextWidget() != null && !tvUserInput.getTextWidget().isDisposed()) {
+			tvUserInput.getTextWidget().setFocus();
 		}
 	}
 
 	private void sendMessageOrAbortChat() {
 		if (connection == null) {
-			connection = ConnectionFactory.forChat();
+			connection = ConnectionFactory.forChat(settings.getModel());
 		}
 		if (connection.isChatPending()) {
 			connection.abortChat();
@@ -300,7 +378,7 @@ public class ChatView extends ViewPart {
 
 			connection = null;
 		} else {
-			ChatMessage chatMessage = new ChatMessage(Role.USER, txtUserInput.getText());
+			ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
 
 			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
 					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
@@ -309,7 +387,7 @@ public class ChatView extends ViewPart {
 
 			conversation.addMessage(chatMessage);
 			connection.chat(conversation);
-			txtUserInput.setText("");
+			userInput.set("");
 
 			// Set text to "⏹️"
 			btnSend.setText("\u23F9");
@@ -329,7 +407,7 @@ public class ChatView extends ViewPart {
 				for (int i = 0; i < messages.size(); i++) {
 					ChatMessage msg = messages.get(i);
 					if (messageUuid.equals(msg.getId())) {
-						txtUserInput.setText(msg.getContent());
+						userInput.set(msg.getContent());
 						getExternallyAddedContext().addAll(msg.getContext());
 						break;
 					} else {
@@ -371,9 +449,7 @@ public class ChatView extends ViewPart {
 	}
 
 	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
-			int start,
-			int end,
-			String selectedText) {
+			int start, int end, String selectedText) {
 		boolean duplicate = false;
 		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, selectedText);
 		for (MessageContext ctx : chatMessage.getContext()) {
@@ -392,53 +468,21 @@ public class ChatView extends ViewPart {
 			connection = null;
 		}
 		conversation.removeListener(chatListener);
-		conversation = new ChatConversation();
+		conversation = createNewChatConversation();
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
-		bChat.setText(CHAT_TEMPLATE);
-		txtUserInput.setText("");
+		chat.reset();
+		userInput.set("");
 	}
 
-	/**
-	 * Escapes a string for safe use in a JavaScript literal.
-	 *
-	 * @param input the original string to be escaped
-	 * @return a string where characters that might break a JS literal are escaped
-	 */
-	public static String escapeForJavaScript(String input) {
-		if (input == null) {
-			return "";
+	private ChatConversation createNewChatConversation() {
+		ChatConversation res = new ChatConversation();
+
+		if (settings.getPromptTemplate() != null) {
+			res.addMessage(new ChatMessage(Role.SYSTEM, settings.getPromptTemplate().getPrompt()));
 		}
-		StringBuilder escaped = new StringBuilder();
-		for (int i = 0; i < input.length(); i++) {
-			char c = input.charAt(i);
-			switch (c) {
-			case '\\':
-				escaped.append("\\\\");
-				break;
-			case '"':
-				escaped.append("\\\"");
-				break;
-			case '\'':
-				escaped.append("\\'");
-				break;
-			case '`':
-				escaped.append("\\`");
-				break;
-			case '\n':
-				escaped.append("\\n");
-				break;
-			case '\r':
-				escaped.append("\\r");
-				break;
-			case '\t':
-				escaped.append("\\t");
-				break;
-			default:
-				escaped.append(c);
-			}
-		}
-		return escaped.toString();
+
+		return res;
 	}
 
 	private static List<MessageContext> getExternallyAddedContext() {
@@ -680,4 +724,5 @@ public class ChatView extends ViewPart {
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
 			+ "if (e) {var target = e.target || e.srcElement; " + "var elementId = target.id ? target.id : 'no-id';"
 			+ "elementClicked(elementId);}}";
+	private Button btnSettings;
 }
