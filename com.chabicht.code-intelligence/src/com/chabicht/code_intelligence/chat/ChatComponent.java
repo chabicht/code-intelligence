@@ -4,21 +4,34 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
+import org.eclipse.jface.resource.ColorDescriptor;
+import org.eclipse.jface.resource.ColorRegistry;
+import org.eclipse.jface.resource.JFaceResources;
+import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.browser.Browser;
 import org.eclipse.swt.browser.LocationListener;
 import org.eclipse.swt.browser.ProgressListener;
+import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.graphics.RGB;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
+import org.eclipse.ui.PlatformUI;
+import org.eclipse.ui.themes.ITheme;
+import org.eclipse.ui.themes.IThemeManager;
 
 public class ChatComponent extends Composite {
 	private Browser bChat;
 	private final Set<UUID> knownMessages = new HashSet<>();
 	private boolean ready = false;
+	private LocalResourceManager rm;
 
 	public ChatComponent(Composite parent, int style) {
 		super(parent, style);
+
+		rm = new LocalResourceManager(JFaceResources.getResources());
+
 		GridLayout gridLayout = new GridLayout(1, false);
 		gridLayout.marginWidth = 0;
 		gridLayout.marginHeight = 0;
@@ -26,10 +39,37 @@ public class ChatComponent extends Composite {
 
 		bChat = new Browser(this, SWT.NONE);
 		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
-		bChat.setText(CHAT_TEMPLATE);
+		bChat.setText(getHtml());
 		bChat.addProgressListener(ProgressListener.completedAdapter(e -> {
 			ready = true;
 		}));
+	}
+
+	private String getHtml() {
+		Color bgColor = getTextBackgroundColor();
+		String bgColorString = toCss(bgColor);
+		Color fgColor = rm.create(ColorDescriptor
+				.createFrom(new RGB(255 - bgColor.getRed(), 255 - bgColor.getGreen(), 255 - bgColor.getBlue())));
+		String fgColorString = toCss(fgColor);
+		Color bubbleColor = rm.create(interpolate(bgColor, fgColor, 95));
+		String bubbleColorString = toCss(bubbleColor);
+		Color bubbleBorderColor = rm.create(interpolate(bgColor, fgColor, 75));
+		String bubbleBorderColorString = toCss(bubbleBorderColor);
+		return CHAT_TEMPLATE.replaceAll("\\{\\{\\{background_color\\}\\}\\}", bgColorString)
+				.replaceAll("\\{\\{\\{foreground_color\\}\\}\\}", fgColorString)
+				.replaceAll("\\{\\{\\{bubble_color\\}\\}\\}", bubbleColorString)
+				.replaceAll("\\{\\{\\{bubble_border_color\\}\\}\\}", bubbleBorderColorString);
+	}
+
+	private ColorDescriptor interpolate(Color bgColor, Color fgColor, int weight) {
+		return ColorDescriptor
+				.createFrom(new RGB(bgColor.getRed() * weight / 100+ fgColor.getRed() * (100 - weight) / 100,
+						bgColor.getGreen() * weight / 100+ fgColor.getGreen() * (100 - weight) / 100,
+						bgColor.getBlue() * weight / 100 + fgColor.getBlue() * (100 - weight) / 100));
+	}
+
+	private String toCss(Color color) {
+		return String.format("#%x%x%x", color.getRed(), color.getGreen(), color.getBlue());
 	}
 
 	public boolean isReady() {
@@ -70,7 +110,7 @@ public class ChatComponent extends Composite {
 	}
 
 	public void reset() {
-		bChat.setText(CHAT_TEMPLATE);
+		bChat.setText(getHtml());
 		knownMessages.clear();
 	}
 
@@ -124,6 +164,14 @@ public class ChatComponent extends Composite {
 		return escaped.toString();
 	}
 
+	private Color getTextBackgroundColor() {
+		IThemeManager themeManager = PlatformUI.getWorkbench().getThemeManager();
+		ITheme currentTheme = themeManager.getCurrentTheme();
+		ColorRegistry colorRegistry = currentTheme.getColorRegistry();
+		String backgroundColorKey = "org.eclipse.ui.workbench.ACTIVE_TAB_BG_END";
+		return colorRegistry.get(backgroundColorKey);
+	}
+
 	private String CHAT_TEMPLATE = """
 			<!DOCTYPE html>
 			<meta http-equiv="X-UA-Compatible" content="IE=edge" />
@@ -134,6 +182,8 @@ public class ChatComponent extends Composite {
 				  margin: 0;
 				  padding: 0;
 				  font-family: "Helvetica", Sans-Serif;
+				  color: {{{foreground_color}}};
+			      background-color: {{{background_color}}};
 				}
 
 			    /* The main container uses flex layout in column direction */
@@ -145,7 +195,7 @@ public class ChatComponent extends Composite {
 			      margin: 0;
 			      padding: 10px;
 			      box-sizing: border-box;
-			      background-color: #ffffff;
+			      background-color: {{{background_color}}};
 				  overflow-y: hidden;
 				  overflow-x: auto;
 			    }
@@ -153,33 +203,31 @@ public class ChatComponent extends Composite {
 			    /* General message bubble styling */
 			    .message {
 			      width: 80vw;       /* The message bubble will be 80% of the viewport width */
-			      border: 1px solid #ccc;
+			      border: 1px solid {{{bubble_border_color}}};
 			      border-radius: 10px;
 			      padding: 10px;
 			      margin: 5px 0;
 			      box-sizing: border-box;
 				  overflow: auto;
+			      background-color: {{{bubble_color}}};
 			    }
 
 			    /* Message from "system": align bubbles center*/
 			    .from-system {
 			      width: calc(100vw - 20px);
 			      align-self: center;
-			      background-color: #ffffff;
 			    }
 
 			    /* Message from "me": align bubbles to the right */
 			    .from-me {
 			      max-width: 800px;  /* Optionally set a max width for larger screens */
 			      align-self: flex-start;
-			      background-color: #ededed;
 			    }
 
 			    /* Message from "them": align bubbles to the left */
 			    .from-them {
 			      max-width: 800px;  /* Optionally set a max width for larger screens */
 			      align-self: flex-end;
-			      background-color: #ededed;
 			    }
 
 				/* Style for the details element */
@@ -212,7 +260,7 @@ public class ChatComponent extends Composite {
 				/* The attachment icon styling */
 				.attachment-icon {
 				  font-size: 16px; /* Adjust the size as needed */
-				  color: #555;
+				  color: {{{foreground_color}}};
 				  cursor: default; /* No pointer so it just indicates information */
 				}
 
@@ -220,8 +268,8 @@ public class ChatComponent extends Composite {
 				.attachment-container .tooltip {
 				  visibility: hidden;
 				  width: 400px; /* Adjust width as needed */
-				  background-color: #000;
-				  color: #fff;
+				  background-color: {{{background_color}}};
+				  color: {{{foreground_color}}};
 				  text-align: center;
 				  padding: 5px;
 				  border-radius: 4px;
