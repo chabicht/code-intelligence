@@ -19,7 +19,9 @@ import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.conversion.Converter;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
+import org.eclipse.core.databinding.validation.IValidator;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Status;
 import org.eclipse.jface.databinding.fieldassist.ControlDecorationSupport;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
@@ -420,6 +422,9 @@ public class PromptManagementDialog extends Dialog {
 	private void initErrorHandling() {
 		m_bindingContext.getBindings().forEach(binding -> ControlDecorationSupport.create(binding, SWT.LEFT | SWT.TOP));
 		validationStatus = new AggregateValidationStatus(m_bindingContext, AggregateValidationStatus.MAX_SEVERITY);
+		validationStatus.addValueChangeListener(e -> {
+			getButton(IDialogConstants.OK_ID).setEnabled(e.diff.getNewValue().isOK());
+		});
 	}
 
 	private AiApiConnection connectionForName(String name) {
@@ -432,7 +437,8 @@ public class PromptManagementDialog extends Dialog {
 		//
 		IObservableValue observeObserveStringWidget = WidgetProperties.text(SWT.Modify).observe(txtPresetName);
 		IObservableValue stringValue = BeanProperties.value("name").observe(prompt);
-		bindingContext.bindValue(observeObserveStringWidget, stringValue, null, null);
+		bindingContext.bindValue(observeObserveStringWidget, stringValue,
+				new UpdateValueStrategy<String, String>().setAfterGetValidator(STRING_NOT_EMPTY_VALIDATOR), null);
 		//
 		IObservableValue observeObservePromptStringWidget = WidgetProperties.text(SWT.Modify).observe(stPrompt);
 		IObservableValue promptStringValue = BeanProperties.value("prompt").observe(prompt);
@@ -488,4 +494,14 @@ public class PromptManagementDialog extends Dialog {
 			break;
 		}
 	}
+
+	private final static IValidator<String> STRING_NOT_EMPTY_VALIDATOR = new IValidator<>() {
+		@Override
+		public IStatus validate(String value) {
+			if (StringUtils.isBlank(value)) {
+				return Status.error("String must not be blank.");
+			}
+			return Status.OK_STATUS;
+		}
+	};
 }

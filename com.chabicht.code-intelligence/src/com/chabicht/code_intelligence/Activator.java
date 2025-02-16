@@ -6,7 +6,6 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Type;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -92,13 +91,12 @@ public class Activator extends AbstractUIPlugin {
 	public List<PromptTemplate> loadPromptTemplates() {
 		try {
 			Location configLocation = getConfigLocation();
-			File parentDirectory = new File(new File(configLocation.getURL().toURI()), getBundle().getSymbolicName());
+			File parentDirectory = new File(new File(configLocation.getURL().getFile()), getBundle().getSymbolicName());
 			try {
 				if (!parentDirectory.exists()) {
 					parentDirectory.mkdirs();
 				}
-				File promptTemplatesFile1 = new File(parentDirectory, "prompt-templates.json");
-				File promptTemplatesFile = promptTemplatesFile1;
+				File promptTemplatesFile = new File(parentDirectory, "prompt-templates.json");
 
 				if (promptTemplatesFile.canRead()) {
 					TypeToken<List<PromptTemplate>> typeListPromptTemplate = new TypeToken<List<PromptTemplate>>() {
@@ -110,7 +108,7 @@ public class Activator extends AbstractUIPlugin {
 			} finally {
 				configLocation.release();
 			}
-		} catch (IOException | URISyntaxException e) {
+		} catch (IOException e) {
 			throw new RuntimeException(e);
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
@@ -121,13 +119,12 @@ public class Activator extends AbstractUIPlugin {
 	public void savePromptTemplates(List<PromptTemplate> promptTemplates) {
 		try {
 			Location configLocation = getConfigLocation();
-			File parentDirectory = new File(new File(configLocation.getURL().toURI()), getBundle().getSymbolicName());
+			File parentDirectory = new File(new File(configLocation.getURL().getFile()), getBundle().getSymbolicName());
 			try {
 				if (!parentDirectory.exists()) {
 					parentDirectory.mkdirs();
 				}
-				File promptTemplatesFile1 = new File(parentDirectory, "prompt-templates.json");
-				File promptTemplatesFile = promptTemplatesFile1;
+				File promptTemplatesFile = new File(parentDirectory, "prompt-templates.json");
 
 				try (FileWriter writer = new FileWriter(promptTemplatesFile)) {
 					new Gson().toJson(promptTemplates, writer);
@@ -135,7 +132,7 @@ public class Activator extends AbstractUIPlugin {
 			} finally {
 				configLocation.release();
 			}
-		} catch (IOException | JsonIOException | URISyntaxException e) {
+		} catch (IOException | JsonIOException e) {
 			throw new RuntimeException(e);
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
@@ -144,7 +141,7 @@ public class Activator extends AbstractUIPlugin {
 
 	private Location getConfigLocation() throws InterruptedException, IOException {
 		Location configLocation = Platform.getConfigurationLocation();
-		if (configLocation == null) {
+		if (configLocation == null || configLocation.isReadOnly()) {
 			configLocation = Platform.getUserLocation();
 			while (!configLocation.lock()) {
 				Thread.sleep(1000);
