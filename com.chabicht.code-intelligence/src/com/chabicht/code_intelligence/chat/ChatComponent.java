@@ -308,6 +308,32 @@ public class ChatComponent extends Composite {
 				  filter: alpha(opacity=100);
 				}
 
+				/* Container for the code block and copy button */
+				.code-block {
+				  position: relative;
+				  margin: 10px 0;
+				}
+				
+				/* Style for the copy button */
+				.copy-button {
+				  position: absolute;
+				  top: 10px;
+				  right: 10px;
+				  background-color: transparent;
+				  border: 1px solid {{{foreground_color}}};
+				  color: {{{foreground_color}}};
+				  cursor: pointer;
+				  font-size: 12px;
+				  padding: 5px;
+				  border-radius: 4px;
+				}
+				
+				/* Adjust the code block to have some padding to avoid the button overlapping the text */
+				.code-block code {
+				  display: block;
+				  padding: 15px;
+				  overflow: auto;
+				}
 			  </style>
 			</head>
 			<body>
@@ -344,7 +370,10 @@ public class ChatComponent extends Composite {
 			  // Set the uuid as the element's id for future reference
 			  div.id = uuid;
 			  div.innerHTML = content;
-
+			
+			  // Process code blocks to add copy buttons
+			  processCodeBlocks(div);
+			
 			  // If the message is from the user, add the edit icon
 			  if (role === "user") {
 			    var editSpan = document.createElement("span");
@@ -376,11 +405,108 @@ public class ChatComponent extends Composite {
 			  var message = document.getElementById(uuid);
 			  if (message) {
 			    message.innerHTML = updatedContent;
+			
+			    // Process code blocks to add copy buttons
+			    processCodeBlocks(message);
 			  }
 
 			  var bottom = document.getElementById("bottom");
 			  bottom.scrollIntoView(true);
 			}
+			
+			/**
+			 * Processes code blocks within a container to add copy buttons.
+			 * @param {HTMLElement} container - The container element to search for code blocks.
+			 */
+			function processCodeBlocks(container) {
+			  var codeBlocks = container.getElementsByTagName('code');
+			  // Convert HTMLCollection to array to avoid issues when modifying the DOM
+			  var codeBlocksArray = Array.prototype.slice.call(codeBlocks);
+			
+			  for (var i = 0; i < codeBlocksArray.length; i++) {
+			    var codeBlock = codeBlocksArray[i];
+			
+			    // Skip if already processed
+			    if (codeBlock.parentNode.className.indexOf('code-block') !== -1) {
+			      continue;
+			    }
+			
+			    // Create a container div for the code block and copy button
+			    var codeContainer = document.createElement('div');
+			    codeContainer.className = 'code-block';
+			
+			    // Create the copy button
+			    var copyButton = document.createElement('button');
+			    copyButton.className = 'copy-button';
+			    copyButton.innerText = 'Copy';
+			
+			    // Insert the code block and the copy button into the container
+			    codeBlock.parentNode.insertBefore(codeContainer, codeBlock);
+			    codeContainer.appendChild(copyButton);
+			    codeContainer.appendChild(codeBlock);
+			
+			    // Attach click event to the copy button
+			    attachCopyEvent(copyButton, codeBlock);
+			  }
+			}
+			
+			/**
+			 * Attaches a click event to the copy button to copy code content.
+			 * @param {HTMLElement} button - The copy button element.
+			 * @param {HTMLElement} codeBlock - The code block element.
+			 */
+			function attachCopyEvent(button, codeBlock) {
+			  button.onclick = function() {
+			    copyCodeToClipboard(codeBlock);
+			  };
+			}
+			
+			/**
+			 * Copies code content to clipboard (compatible with IE11).
+			 * @param {HTMLElement} codeElement - The code element whose content to copy.
+			 */
+			function copyCodeToClipboard(codeElement) {
+			  var text = codeElement.innerText || codeElement.textContent;
+			
+			  var textarea = document.createElement('textarea');
+			  textarea.value = text;
+			
+			  // Make the textarea off-screen
+			  textarea.style.position = 'fixed';
+			  textarea.style.top = '-1000px';
+			  textarea.style.left = '-1000px';
+			
+			  document.body.appendChild(textarea);
+			  textarea.select();
+			
+			  try {
+			    var successful = document.execCommand('copy');
+			    if (successful) {
+			      alert('Code copied to clipboard.');
+			    } else {
+			      alert('Unable to copy code.');
+			    }
+			  } catch (err) {
+			    alert('Copy feature is not supported in this browser.');
+			  }
+			
+			  document.body.removeChild(textarea);
+			}
+			
+			/**
+			 * Processes existing messages to add copy buttons to code blocks.
+			 */
+			function processExistingMessages() {
+			  var messages = document.getElementsByClassName('message');
+			  for (var i = 0; i < messages.length; i++) {
+			    processCodeBlocks(messages[i]);
+			  }
+			}
+			
+			// Call the function after the page loads
+			window.onload = function() {
+			  processExistingMessages();
+			};
 			</script>
 
 			</body>

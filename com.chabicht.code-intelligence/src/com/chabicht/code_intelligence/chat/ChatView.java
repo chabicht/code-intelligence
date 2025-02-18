@@ -14,6 +14,7 @@ import org.eclipse.core.databinding.observable.list.IListChangeListener;
 import org.eclipse.core.databinding.observable.list.ListDiffEntry;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.dialogs.Dialog;
+import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
@@ -40,6 +41,7 @@ import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.layout.RowData;
 import org.eclipse.swt.layout.RowLayout;
+import org.eclipse.swt.program.Program;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
@@ -267,13 +269,17 @@ public class ChatView extends ViewPart {
 				.getString(PreferenceConstants.CHAT_MODEL_NAME);
 		settings.setModel(defaultModel);
 
-		String[] split = defaultModel.split("/");
-		String connectionName = split[0];
-		String modelId = split[1];
-		Activator
-				.getDefault().loadPromptTemplates().stream().filter(pt -> PromptType.CHAT.equals(pt.getType())
-						&& pt.isUseByDefault() && pt.isApplicable(connectionName, modelId))
-				.findFirst().ifPresent(settings::setPromptTemplate);
+		if (StringUtils.isNotBlank(defaultModel)) {
+			String[] split = defaultModel.split("/");
+			if (split.length == 2) {
+				String connectionName = split[0];
+				String modelId = split[1];
+				Activator.getDefault().loadPromptTemplates().stream()
+						.filter(pt -> PromptType.CHAT.equals(pt.getType()) && pt.isUseByDefault()
+								&& pt.isApplicable(connectionName, modelId))
+						.findFirst().ifPresent(settings::setPromptTemplate);
+			}
+		}
 	}
 
 	private void initUserInputControl() {
@@ -338,14 +344,31 @@ public class ChatView extends ViewPart {
 			final Browser bChat = chat.getBrowser();
 			final BrowserFunction function = new OnClickFunction(bChat, "elementClicked");
 			bChat.execute(ONCLICK_LISTENER);
-			bChat.addLocationListener(new LocationAdapter() {
-				@Override
-				public void changed(LocationEvent event) {
-					bChat.removeLocationListener(this);
-					function.dispose();
-				}
-			});
+//			bChat.addLocationListener(new LocationAdapter() {
+//				@Override
+//				public void changed(LocationEvent event) {
+//					bChat.removeLocationListener(this);
+//					function.dispose();
+//				}
+//			});
 		}));
+
+	    // Add this LocationListener to intercept link clicks
+	    chat.addLocationListener(new LocationAdapter() {
+	        @Override
+	        public void changing(LocationEvent event) {
+	            String url = event.location;
+	            if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+	                // Prevent navigation within the embedded browser
+	                event.doit = false;
+
+	                // Open the link in the default system browser
+	                if(MessageDialog.openConfirm(Display.getCurrent().getActiveShell(), "Open Hyperlink?", String.format("Do you want to open the link to %s in the system's default browser?", url))) {
+						Program.launch(url);
+					}
+	            }
+	        }
+	    });
 	}
 
 	private void removeAttachmentLabel(MessageContext ctx) {
