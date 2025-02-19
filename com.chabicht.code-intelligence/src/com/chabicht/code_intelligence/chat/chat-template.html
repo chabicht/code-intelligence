@@ -244,7 +244,7 @@ function updateMessage(uuid, updatedContent) {
  * @param {HTMLElement} container - The container element to search for code blocks.
  */
 function processCodeBlocks(container) {
-  var codeBlocks = container.getElementsByTagName('code');
+  var codeBlocks = Array.from(container.getElementsByTagName('code')).filter(code => code.parentElement.tagName.toLowerCase() === 'pre');
   // Convert HTMLCollection to array to avoid issues when modifying the DOM
   var codeBlocksArray = Array.prototype.slice.call(codeBlocks);
 
