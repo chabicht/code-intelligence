@@ -306,9 +306,7 @@ function copyCodeToClipboard(codeElement) {
 
   try {
     var successful = document.execCommand('copy');
-    if (successful) {
-      alert('Code copied to clipboard.');
-    } else {
+    if (!successful) {
       alert('Unable to copy code.');
     }
   } catch (err) {
