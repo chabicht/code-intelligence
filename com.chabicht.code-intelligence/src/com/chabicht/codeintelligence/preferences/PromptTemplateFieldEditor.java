@@ -249,8 +249,8 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		String[] providerModelArray = providerModelString.split("/");
 		template.setConnectionName(providerModelArray[0]);
 		template.setModelId(providerModelArray[1]);
-		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(),
-				apiConnections, template);
+		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(), apiConnections,
+				template);
 		if (dialog.open() == Dialog.OK) {
 			templates.add(template);
 			tableViewer.setInput(templates);
@@ -264,8 +264,8 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 			return;
 		}
 		PromptTemplate template = (PromptTemplate) selection.getFirstElement();
-		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(),
-				apiConnections, template);
+		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(), apiConnections,
+				template);
 		if (dialog.open() == Dialog.OK) {
 			tableViewer.refresh();
 		}

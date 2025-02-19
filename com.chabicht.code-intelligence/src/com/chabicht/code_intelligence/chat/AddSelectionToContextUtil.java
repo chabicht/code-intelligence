@@ -71,7 +71,7 @@ public class AddSelectionToContextUtil {
 				String ancestor = getFileOrTypeName(sre);
 				ISourceRange sourceRange = sre.getSourceRange();
 				String source = sre.getSource();
-				if(StringUtils.isNotBlank(source)) {
+				if (StringUtils.isNotBlank(source)) {
 					ChatView.addContext(new MessageContext(ancestor, RangeType.OFFSET, sourceRange.getOffset(),
 							sourceRange.getOffset() + sourceRange.getLength(), source));
 				} else {
@@ -104,11 +104,10 @@ public class AddSelectionToContextUtil {
 			try {
 				AtomicInteger lines = new AtomicInteger(0);
 				StringBuilder content = new StringBuilder(1025);
-				IOUtils.lineIterator(new BufferedInputStream(f.getContents()), f.getCharset())
-						.forEachRemaining(l -> {
-							lines.incrementAndGet();
-							content.append(l).append("\n");
-						});
+				IOUtils.lineIterator(new BufferedInputStream(f.getContents()), f.getCharset()).forEachRemaining(l -> {
+					lines.incrementAndGet();
+					content.append(l).append("\n");
+				});
 				ChatView.addContext(new MessageContext(name, 1, lines.get(), content.toString()));
 			} catch (CoreException e) {
 				Activator.logError("Could not read file " + name, e);
@@ -132,8 +131,8 @@ public class AddSelectionToContextUtil {
 					StringBuilder sb = new StringBuilder();
 					sb.append(severity == 2 ? "Error" : "Warning").append(" on line ").append(lineNumber)
 							.append(" in document ").append(file.getName()).append(": ").append(message).append("\n");
-					sb.append("Lines ").append(startLine).append(" to ").append(endLine)
-							.append(" of the document:\n").append(context).append("\n");
+					sb.append("Lines ").append(startLine).append(" to ").append(endLine).append(" of the document:\n")
+							.append(context).append("\n");
 
 					ChatView.addContext(new MessageContext(file.getName(), startLine, endLine, sb.toString()) {
 						@Override

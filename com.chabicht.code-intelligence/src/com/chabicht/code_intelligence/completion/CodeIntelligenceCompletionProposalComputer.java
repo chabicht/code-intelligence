@@ -139,8 +139,7 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 	private PromptTemplate selectPromptToUse() {
 		return Activator.getDefault().loadPromptTemplates().stream()
 				.filter(pt -> PromptType.INSTRUCT.equals(pt.getType()) && pt.isEnabled() && pt.isUseByDefault())
-				.findFirst()
-				.orElseGet(() -> defaultPromptTemplate());
+				.findFirst().orElseGet(() -> defaultPromptTemplate());
 	}
 
 	private PromptTemplate defaultPromptTemplate() {

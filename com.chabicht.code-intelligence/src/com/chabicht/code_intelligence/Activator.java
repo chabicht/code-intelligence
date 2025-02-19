@@ -1,5 +1,8 @@
 package com.chabicht.code_intelligence;
 
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -42,6 +45,8 @@ public class Activator extends AbstractUIPlugin {
 
 	// The shared instance
 	private static Activator plugin;
+
+	private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
 
 	/**
 	 * The constructor
@@ -152,5 +157,25 @@ public class Activator extends AbstractUIPlugin {
 			configLocation = Platform.getUserLocation();
 		}
 		return configLocation;
+	}
+
+	public void triggerConfigChangeNotification() {
+		pcs.firePropertyChange("configuration", null, "");
+	}
+
+	public void addPropertyChangeListener(PropertyChangeListener listener) {
+		pcs.addPropertyChangeListener(listener);
+	}
+
+	public void addPropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+		pcs.addPropertyChangeListener(propertyName, listener);
+	}
+
+	public void removePropertyChangeListener(PropertyChangeListener listener) {
+		pcs.removePropertyChangeListener(listener);
+	}
+
+	public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
+		pcs.removePropertyChangeListener(propertyName, listener);
 	}
 }

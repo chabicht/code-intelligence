@@ -151,4 +151,11 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 			return res;
 		}
 	}
+
+	@Override
+	public boolean performOk() {
+		boolean ok = super.performOk();
+		Activator.getDefault().triggerConfigChangeNotification();
+		return ok;
+	}
 }

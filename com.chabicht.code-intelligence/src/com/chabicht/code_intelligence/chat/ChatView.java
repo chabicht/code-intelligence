@@ -67,8 +67,10 @@ import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatView extends ViewPart {
-	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>");
-	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>");
+	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>|<\\|begin_of_thought\\|>");
+	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>|<\\|end_of_thought\\|>");
+	private static final Pattern PATTERN_TAGS_TO_REMOVE = Pattern
+			.compile("<\\|begin_of_solution\\|>|<\\|end_of_solution\\|>");
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
 
@@ -105,21 +107,24 @@ public class ChatView extends ViewPart {
 
 			String thinkContent = "";
 			String messageContent = message.getContent();
+			boolean endOfThinkingReached = false;
 			if (thinkStartMatcher.find()) {
 				if (thinkEndMatcher.find()) {
 					int endPosition = thinkEndMatcher.start();
 					thinkContent = messageContent.substring(thinkStartMatcher.end(), endPosition);
-					messageContent = messageContent.substring(endPosition);
+					messageContent = messageContent.substring(thinkEndMatcher.end());
+					endOfThinkingReached = true;
 				} else {
 					thinkContent = messageContent.substring(thinkStartMatcher.end());
 					messageContent = "";
 				}
 			}
+			messageContent = PATTERN_TAGS_TO_REMOVE.matcher(messageContent).replaceAll("");
 
 			String thinkHtml = "";
 			if (StringUtils.isNotBlank(thinkContent)) {
-				thinkHtml = String.format(
-						"<details><summary>Thinking...</summary><blockquote>%s</blockquote></details>",
+				thinkHtml = String.format("<details%s><summary>%s</summary><blockquote>%s</blockquote></details>",
+						endOfThinkingReached ? "" : " open", endOfThinkingReached ? "Thoughts" : "Thinking...",
 						markdownRenderer.render(markdownParser.parse(thinkContent)));
 			}
 			String messageHtml = markdownRenderer.render(markdownParser.parse(messageContent));
@@ -321,6 +326,11 @@ public class ChatView extends ViewPart {
 	}
 
 	private void initListeners() {
+		Activator.getDefault().addPropertyChangeListener("configuration", e -> {
+			// Reset settings, e.g. the chat model.
+			init();
+		});
+
 		IListChangeListener<? super MessageContext> listChangeListener = e -> {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
@@ -353,22 +363,23 @@ public class ChatView extends ViewPart {
 //			});
 		}));
 
-	    // Add this LocationListener to intercept link clicks
-	    chat.addLocationListener(new LocationAdapter() {
-	        @Override
-	        public void changing(LocationEvent event) {
-	            String url = event.location;
-	            if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-	                // Prevent navigation within the embedded browser
-	                event.doit = false;
+		// Add this LocationListener to intercept link clicks
+		chat.addLocationListener(new LocationAdapter() {
+			@Override
+			public void changing(LocationEvent event) {
+				String url = event.location;
+				if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+					// Prevent navigation within the embedded browser
+					event.doit = false;
 
-	                // Open the link in the default system browser
-	                if(MessageDialog.openConfirm(Display.getCurrent().getActiveShell(), "Open Hyperlink?", String.format("Do you want to open the link to %s in the system's default browser?", url))) {
+					// Open the link in the default system browser
+					if (MessageDialog.openConfirm(Display.getCurrent().getActiveShell(), "Open Hyperlink?", String
+							.format("Do you want to open the link to %s in the system's default browser?", url))) {
 						Program.launch(url);
 					}
-	            }
-	        }
-	    });
+				}
+			}
+		});
 	}
 
 	private void removeAttachmentLabel(MessageContext ctx) {
@@ -421,8 +432,8 @@ public class ChatView extends ViewPart {
 	public void editChat(String messageUuidString) {
 		Display.getDefault().syncExec(() -> {
 			UUID messageUuid = UUID.fromString(messageUuidString);
-			getExternallyAddedContext().clear();
 			if (connection == null || !connection.isChatPending()) {
+				getExternallyAddedContext().clear();
 				ChatConversation oldConvo = conversation;
 
 				clearChat();

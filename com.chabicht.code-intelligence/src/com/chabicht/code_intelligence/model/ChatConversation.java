@@ -62,8 +62,8 @@ public class ChatConversation {
 
 		public boolean isDuplicate(MessageContext other) {
 			if (other != null && StringUtils.equals(this.getFileName(), other.getFileName())
-					&& this.getRangeType().equals(other.getRangeType())
-					&& this.getStart() == other.getStart() && this.getEnd() == other.getEnd()) {
+					&& this.getRangeType().equals(other.getRangeType()) && this.getStart() == other.getStart()
+					&& this.getEnd() == other.getEnd()) {
 				return true;
 			}
 			return false;
