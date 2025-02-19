@@ -22,6 +22,7 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 
+import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -184,13 +185,8 @@ public class ApiConnectionFieldEditor extends FieldEditor {
 	protected void doLoad() {
 		String value = getPreferenceStore().getString(getPreferenceName());
 		connections.clear();
-		if (!StringUtils.isEmpty(value)) {
-			Type listType = new TypeToken<List<AiApiConnection>>() {
-			}.getType();
-			List<AiApiConnection> connectionsList = new Gson().fromJson(value, listType);
-			connections.addAll(connectionsList);
-			tableViewer.setInput(connections);
-		}
+		connections.addAll(Activator.getDefault().loadApiConnections());
+		tableViewer.setInput(connections);
 	}
 
 	@Override
@@ -200,7 +196,7 @@ public class ApiConnectionFieldEditor extends FieldEditor {
 
 	@Override
 	protected void doStore() {
-		getPreferenceStore().setValue(getPreferenceName(), new Gson().toJson(connections));
+		Activator.getDefault().saveApiConnections(connections);
 	}
 
 	@Override

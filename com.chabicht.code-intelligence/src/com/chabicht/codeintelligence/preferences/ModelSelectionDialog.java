@@ -14,6 +14,7 @@ import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
@@ -52,8 +53,8 @@ public class ModelSelectionDialog extends Dialog {
 		tableViewer = new TableViewer(composite, SWT.BORDER | SWT.FULL_SELECTION);
 		table = tableViewer.getTable();
 		GridData gd_table = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1);
-		gd_table.widthHint = 603;
-		gd_table.heightHint = 300;
+		gd_table.widthHint = 753;
+		gd_table.heightHint = 500;
 		table.setLayoutData(gd_table);
 		table.setHeaderVisible(true);
 
@@ -71,7 +72,7 @@ public class ModelSelectionDialog extends Dialog {
 
 		TableViewerColumn tableViewerColumn_1 = new TableViewerColumn(tableViewer, SWT.NONE);
 		TableColumn tblclmnModelId = tableViewerColumn_1.getColumn();
-		tblclmnModelId.setWidth(200);
+		tblclmnModelId.setWidth(250);
 		tblclmnModelId.setText("Model ID");
 		tableViewerColumn_1.setLabelProvider(new ColumnLabelProvider() {
 			@Override
@@ -82,7 +83,7 @@ public class ModelSelectionDialog extends Dialog {
 
 		TableViewerColumn tableViewerColumn_2 = new TableViewerColumn(tableViewer, SWT.NONE);
 		TableColumn tblclmnModelName = tableViewerColumn_2.getColumn();
-		tblclmnModelName.setWidth(200);
+		tblclmnModelName.setWidth(300);
 		tblclmnModelName.setText("Model Name");
 		tableViewerColumn_2.setLabelProvider(new ColumnLabelProvider() {
 			@Override
@@ -100,6 +101,11 @@ public class ModelSelectionDialog extends Dialog {
 		tableViewer.setInput(models);
 
 		return composite;
+	}
+
+	@Override
+	protected boolean isResizable() {
+		return true;
 	}
 
 	@Override

@@ -1,12 +1,15 @@
 package com.chabicht.code_intelligence;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.commons.io.IOUtils;
@@ -29,6 +32,10 @@ import com.google.gson.reflect.TypeToken;
  * The activator class controls the plug-in life cycle
  */
 public class Activator extends AbstractUIPlugin {
+
+	private static final String PROMPT_TEMPLATES_FILE = "prompt-templates.json";
+
+	private static final String API_CONNECTIONS_FILE = "api-connections.json";
 
 	// The plug-in ID
 	public static final String PLUGIN_ID = "com.chabicht.code-intelligence"; //$NON-NLS-1$
@@ -88,64 +95,72 @@ public class Activator extends AbstractUIPlugin {
 		}
 	}
 
-	public List<PromptTemplate> loadPromptTemplates() {
-		try {
-			Location configLocation = getConfigLocation();
-			File parentDirectory = new File(new File(configLocation.getURL().getFile()), getBundle().getSymbolicName());
-			try {
-				if (!parentDirectory.exists()) {
-					parentDirectory.mkdirs();
-				}
-				File promptTemplatesFile = new File(parentDirectory, "prompt-templates.json");
+	public List<AiApiConnection> loadApiConnections() {
+		TypeToken typeToken = new TypeToken<List<AiApiConnection>>() {
+		};
+		return readFile(API_CONNECTIONS_FILE, typeToken);
+	}
 
-				if (promptTemplatesFile.canRead()) {
-					TypeToken<List<PromptTemplate>> typeListPromptTemplate = new TypeToken<List<PromptTemplate>>() {
-					};
-					try (BufferedReader reader = IOUtils.buffer(new FileReader(promptTemplatesFile))) {
-						return new Gson().fromJson(reader, typeListPromptTemplate);
-					}
-				}
-			} finally {
-				configLocation.release();
-			}
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		}
-		return new ArrayList<>();
+	public void saveApiConnections(List<AiApiConnection> apiConnections) {
+		writeFile(API_CONNECTIONS_FILE, apiConnections);
+	}
+
+	public List<PromptTemplate> loadPromptTemplates() {
+		TypeToken typeToken = new TypeToken<List<PromptTemplate>>() {
+		};
+		return readFile(PROMPT_TEMPLATES_FILE, typeToken);
 	}
 
 	public void savePromptTemplates(List<PromptTemplate> promptTemplates) {
-		try {
-			Location configLocation = getConfigLocation();
-			File parentDirectory = new File(new File(configLocation.getURL().getFile()), getBundle().getSymbolicName());
-			try {
-				if (!parentDirectory.exists()) {
-					parentDirectory.mkdirs();
-				}
-				File promptTemplatesFile = new File(parentDirectory, "prompt-templates.json");
+		writeFile(PROMPT_TEMPLATES_FILE, promptTemplates);
+	}
 
-				try (FileWriter writer = new FileWriter(promptTemplatesFile)) {
-					new Gson().toJson(promptTemplates, writer);
+	private <T> List<T> readFile(String filename, TypeToken<List<T>> token) {
+		try {
+			File parentDirectory = getConfigLocationAsFile();
+			File file = new File(parentDirectory, filename);
+
+			if (!file.exists()) {
+				return Collections.emptyList();
+			} else {
+				try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+					Type listType = token.getType();
+					List<T> res = new Gson().fromJson(reader, listType);
+
+					return res;
 				}
-			} finally {
-				configLocation.release();
 			}
 		} catch (IOException | JsonIOException e) {
 			throw new RuntimeException(e);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
 		}
 	}
 
-	private Location getConfigLocation() throws InterruptedException, IOException {
+	private <T> void writeFile(String filename, List<T> items) {
+		try {
+			File parentDirectory = getConfigLocationAsFile();
+			File file = new File(parentDirectory, filename);
+
+			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+				new Gson().toJson(items, writer);
+			}
+		} catch (IOException | JsonIOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	private File getConfigLocationAsFile() throws IOException {
+		Location configLocation = getConfigLocation();
+		File parentDirectory = new File(new File(configLocation.getURL().getFile()), getBundle().getSymbolicName());
+		if (!parentDirectory.exists()) {
+			parentDirectory.mkdirs();
+		}
+		return parentDirectory;
+	}
+
+	private Location getConfigLocation() throws IOException {
 		Location configLocation = Platform.getConfigurationLocation();
 		if (configLocation == null || configLocation.isReadOnly()) {
 			configLocation = Platform.getUserLocation();
-			while (!configLocation.lock()) {
-				Thread.sleep(1000);
-			}
 		}
 		return configLocation;
 	}
