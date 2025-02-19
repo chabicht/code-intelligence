@@ -1,7 +1,9 @@
 package com.chabicht.codeintelligence.preferences;
 
 import java.util.Arrays;
+import java.util.Map;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.databinding.DataBindingContext;
 import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.observable.list.WritableList;
@@ -28,6 +30,8 @@ import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
 
 public class AiApiConnectionEditDialog extends Dialog {
+	private final static Map<ApiType, String> DEFAULT_URLS = initDefaultConnectionUrls();
+
 	private Text txtName;
 	private Text txtBaseUri;
 	private Text txtApiKey;
@@ -109,19 +113,44 @@ public class AiApiConnectionEditDialog extends Dialog {
 		cvType.setInput(apiTypes);
 
 		initDataBinding();
+		initListeners();
 
 		return composite;
 	}
 
+	private void initListeners() {
+		model.addPropertyChangeListener("type", e -> {
+			ApiType type = (ApiType) e.getNewValue();
+
+			txtBaseUri.setEnabled(!ApiType.GEMINI.equals(type));
+
+			presetBaseUri(type);
+		});
+		if (StringUtils.isBlank(model.getBaseUri())) {
+			presetBaseUri(model.getType());
+		}
+	}
+
+	private void presetBaseUri(ApiType type) {
+		String baseUri = model.getBaseUri();
+		if (StringUtils.isBlank(baseUri) || DEFAULT_URLS.values().contains(baseUri)) {
+			if (DEFAULT_URLS.keySet().contains(type)) {
+				txtBaseUri.setText(DEFAULT_URLS.get(type));
+			} else {
+				txtBaseUri.setText("");
+			}
+		}
+	}
+
 	private void initDataBinding() {
 		bindingContext = new DataBindingContext();
-		bindingContext.bindValue(WidgetProperties.text().observe(txtName),
+		bindingContext.bindValue(WidgetProperties.text(SWT.Modify).observe(txtName),
 				BeanProperties.value("name", String.class).observe(model));
 		bindingContext.bindValue(ViewerProperties.singleSelection().observe(cvType),
 				BeanProperties.value("type").observe(model));
-		bindingContext.bindValue(WidgetProperties.text().observe(txtBaseUri),
+		bindingContext.bindValue(WidgetProperties.text(SWT.Modify).observe(txtBaseUri),
 				BeanProperties.value("baseUri", String.class).observe(model));
-		bindingContext.bindValue(WidgetProperties.text().observe(txtApiKey),
+		bindingContext.bindValue(WidgetProperties.text(SWT.Modify).observe(txtApiKey),
 				BeanProperties.value("apiKey", String.class).observe(model));
 		bindingContext.bindValue(WidgetProperties.buttonSelection().observe(btnEnabled),
 				BeanProperties.value("enabled", Boolean.class).observe(model));
@@ -132,5 +161,10 @@ public class AiApiConnectionEditDialog extends Dialog {
 		bindingContext.updateModels();
 
 		super.okPressed();
+	}
+
+	private static Map<ApiType, String> initDefaultConnectionUrls() {
+		return Map.of(ApiType.OLLAMA, "http://localhost:11434", ApiType.OPENAI, "https://api.openai.com/v1",
+				ApiType.ANTHROPIC, "https://api.anthropic.com/v1");
 	}
 }
