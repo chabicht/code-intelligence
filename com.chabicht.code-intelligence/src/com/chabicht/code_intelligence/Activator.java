@@ -84,17 +84,6 @@ public class Activator extends AbstractUIPlugin {
 		getDefault().getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
 	}
 
-	public List<AiApiConnection> loadConnections() {
-		String json = getPreferenceStore().getString(PreferenceConstants.API_CONNECTION_DATA);
-		if (StringUtils.isEmpty(json)) {
-			return new ArrayList<>();
-		} else {
-			Type listType = new TypeToken<List<AiApiConnection>>() {
-			}.getType();
-			return new Gson().fromJson(json, listType);
-		}
-	}
-
 	public List<AiApiConnection> loadApiConnections() {
 		TypeToken typeToken = new TypeToken<List<AiApiConnection>>() {
 		};

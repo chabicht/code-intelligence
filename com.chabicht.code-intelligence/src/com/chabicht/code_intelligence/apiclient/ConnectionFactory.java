@@ -12,14 +12,7 @@ import com.google.gson.reflect.TypeToken;
 
 public class ConnectionFactory {
 	public static List<AiApiConnection> getApis() {
-		String connections = Activator.getDefault().getPreferenceStore()
-				.getString(PreferenceConstants.API_CONNECTION_DATA);
-		if (StringUtils.isBlank(connections)) {
-			return Collections.emptyList();
-		} else {
-			return new Gson().fromJson(connections, new TypeToken<List<AiApiConnection>>() {
-			}.getType());
-		}
+		return Activator.getDefault().loadApiConnections();
 	}
 
 	public static AiModelConnection forCompletions() {

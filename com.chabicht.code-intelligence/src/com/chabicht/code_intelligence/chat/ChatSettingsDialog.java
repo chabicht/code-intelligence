@@ -92,7 +92,7 @@ public class ChatSettingsDialog extends Dialog {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
 				List<AiModel> models = new ArrayList<>();
-				List<AiApiConnection> connections = Activator.getDefault().loadConnections();
+				List<AiApiConnection> connections = Activator.getDefault().loadApiConnections();
 				for (AiApiConnection conn : connections) {
 					if (conn.isEnabled()) {
 						try {

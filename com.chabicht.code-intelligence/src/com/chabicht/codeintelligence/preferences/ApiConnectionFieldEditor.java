@@ -62,7 +62,7 @@ public class ApiConnectionFieldEditor extends FieldEditor {
 		gd.verticalAlignment = GridData.FILL;
 		gd.horizontalSpan = numColumns - 1;
 		gd.grabExcessHorizontalSpace = true;
-		gd.heightHint = 100;
+		gd.heightHint = 200;
 		tableViewer.getTable().setLayoutData(gd);
 
 		buttonBox = getButtonBoxControl(parent);
