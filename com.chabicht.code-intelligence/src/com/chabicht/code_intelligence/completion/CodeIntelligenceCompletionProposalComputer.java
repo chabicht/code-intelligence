@@ -158,9 +158,16 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 	private String createLastEdits() {
 		StringBuilder sb = new StringBuilder();
 		for (String edit : LastEditsDocumentListener.getInstance().getLastEdits()) {
-			sb.append("```\n").append(edit).append("```\n\n");
+			int lineCount = countLines(edit);
+			if (lineCount < 50) {
+				sb.append("```\n").append(edit).append("```\n\n");
+			}
 		}
 		return sb.toString();
+	}
+
+	private int countLines(String currentChunkText) {
+		return currentChunkText.split("\r\n|\r|\n").length;
 	}
 
 	@Override

@@ -31,7 +31,7 @@ public class CompletionPrompt {
 	}
 
 	public String compile() {
-		Template tmpl = Mustache.compiler().compile(StringUtils.stripToEmpty(promptString));
+		Template tmpl = Mustache.compiler().escapeHTML(false).compile(StringUtils.stripToEmpty(promptString));
 		String markdown = tmpl.execute(promptArgs);
 		return markdown;
 	}

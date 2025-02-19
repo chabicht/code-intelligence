@@ -311,7 +311,8 @@ public class PromptManagementDialog extends Dialog {
 	private void updatePromptPreview() {
 		if (PromptType.INSTRUCT.equals(prompt.getType())) {
 			if (preview instanceof InstructPreview instructPreview) {
-				Template tmpl = Mustache.compiler().compile(StringUtils.stripToEmpty(prompt.getPrompt()));
+				Template tmpl = Mustache.compiler().escapeHTML(false)
+						.compile(StringUtils.stripToEmpty(prompt.getPrompt()));
 				String markdown = tmpl.execute(COMPLETION_DEMO_DATA);
 				String html = markdownRenderer.render(markdownParser.parse(markdown));
 				instructPreview.setText(html);

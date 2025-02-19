@@ -168,7 +168,10 @@ public class DocumentEditAggregator {
 					int start = document.getLineOffset(currentChunk.startLine);
 					int end = document.getLineOffset(currentChunk.endLine + 1) - 1;
 					String currentChunkText = document.get(start, end - start);
-					listener.getLastEdits().add(currentChunkText);
+					int lineCount = countLines(currentChunkText);
+					if (lineCount < 50) {
+						listener.getLastEdits().add(currentChunkText);
+					}
 				}
 			} catch (BadLocationException e) {
 				System.err.println(e);
@@ -176,6 +179,10 @@ public class DocumentEditAggregator {
 			}
 		}
 		currentChunk = null;
+	}
+
+	private int countLines(String currentChunkText) {
+		return currentChunkText.split("\r\n|\r|\n").length;
 	}
 
 	/**
