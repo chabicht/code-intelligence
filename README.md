@@ -2,6 +2,17 @@
 
 This Eclipse plugin enhances the Java Development Tools (JDT) with AI code completion and reasoning in a chat view.
 
+## Installation
+
+The update site is hosted on [https://chabicht.github.io/code-intelligence/update-site/](https://chabicht.github.io/code-intelligence/update-site/).
+
+In Eclipse, open *Help* -> *Install New Software...*.  
+In the dialog, click on *Add...* and enter the new repository information. For *Location*, use the URL above.  
+
+![Screenshot: Add Repository](images/add-repository.png)
+
+**Make sure the "Contact all update sites" box is checked, some dependencies are hosted in the Eclipse update site.**
+
 # Usage
 
 ## Completion
@@ -33,15 +44,6 @@ You also can right-click on several Java code items such as files, classes, fiel
 ![Screenshot: Adding search results as context](images/add-context-search.png)
 
 It's important to be careful with the amount of context you add. Depending on the model used too much information can easily overwhelm the model or become expensive in terms of API fees.
-
-## Installation
-
-The update site is hosted on [https://chabicht.github.io/code-intelligence/update-site/](https://chabicht.github.io/code-intelligence/update-site/).
-
-In Eclipse, open *Help* -> *Install New Software...*.  
-In the dialog, click on *Add...* and enter the new repository information. For *Location*, use the URL above.  
-
-![Screenshot: Add Repository](images/image.png)
 
 # Configuration
 
