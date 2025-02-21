@@ -11,7 +11,7 @@ In the dialog, click on *Add...* and enter the new repository information. For *
 
 ![Screenshot: Add Repository](images/add-repository.png)
 
-**Make sure the "Contact all update sites" box is checked, some dependencies are hosted in the Eclipse update site.**
+**Make sure the "Contact all update sites" box is checked, some dependencies are hosted in the update site of your Eclipse distribution.**
 
 # Usage
 
