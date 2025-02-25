@@ -5,6 +5,7 @@ import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.R
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -40,6 +41,7 @@ import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.layout.RowData;
@@ -417,6 +419,15 @@ public class ChatView extends ViewPart {
 			connection = null;
 		} else {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
+
+			String consoleSelection = ConsolePageParticipant.getSelectedText();
+			if (StringUtils.isNotBlank(consoleSelection)) {
+				Point selectionRange = Optional.ofNullable(ConsolePageParticipant.getSelectionRange())
+						.orElse(new Point(0, 0));
+				String consoleName = Optional.ofNullable(ConsolePageParticipant.getConsoleName()).orElse("Console Log");
+				externallyAddedContext.add(new MessageContext(consoleName, RangeType.OFFSET,
+						selectionRange.x, selectionRange.x + selectionRange.y, consoleSelection));
+			}
 
 			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
 					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
