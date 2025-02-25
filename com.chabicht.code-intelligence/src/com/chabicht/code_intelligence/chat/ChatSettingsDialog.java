@@ -9,6 +9,8 @@ import org.eclipse.core.databinding.DataBindingContext;
 import org.eclipse.core.databinding.UpdateValueStrategy;
 import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.conversion.Converter;
+import org.eclipse.core.databinding.conversion.text.NumberToStringConverter;
+import org.eclipse.core.databinding.conversion.text.StringToNumberConverter;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
@@ -28,6 +30,8 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Text;
@@ -53,6 +57,9 @@ public class ChatSettingsDialog extends Dialog {
 	private final WritableList<PromptTemplate> systemPrompts = new WritableList<>();
 	private ComboViewer cvSystemPrompt;
 	private Text txtModel;
+	private Text txtReasoningBudgetTokens;
+
+	private Button btnEnabled;
 
 	protected ChatSettingsDialog(Shell parentShell, ChatSettings settings) {
 		super(parentShell);
@@ -124,6 +131,24 @@ public class ChatSettingsDialog extends Dialog {
 		cvSystemPrompt = new ComboViewer(composite, SWT.NONE);
 		Combo cbSystemPrompt = cvSystemPrompt.getCombo();
 		cbSystemPrompt.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
+		
+		Group grpReasoning = new Group(composite, SWT.NONE);
+		grpReasoning.setLayout(new GridLayout(2, false));
+		GridData gd_grpReasoning = new GridData(SWT.FILL, SWT.CENTER, false, false, 3, 1);
+		gd_grpReasoning.widthHint = 75;
+		grpReasoning.setLayoutData(gd_grpReasoning);
+		grpReasoning.setText("Reasoning");
+		
+		btnEnabled = new Button(grpReasoning, SWT.CHECK);
+		btnEnabled.setText("enabled");
+		new Label(grpReasoning, SWT.NONE);
+		
+		Label lblBudgetTokens = new Label(grpReasoning, SWT.NONE);
+		lblBudgetTokens.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
+		lblBudgetTokens.setText("Budget tokens:");
+		
+		txtReasoningBudgetTokens = new Text(grpReasoning, SWT.BORDER);
+		txtReasoningBudgetTokens.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
 		cvSystemPrompt.setLabelProvider(new LabelProvider() {
 			@Override
 			public String getText(Object element) {
@@ -151,6 +176,23 @@ public class ChatSettingsDialog extends Dialog {
 			pts.stream().filter(pt -> PromptType.CHAT.equals(pt.getType()) && pt.isEnabled())
 					.forEach(systemPrompts::add);
 		}
+		settings.addPropertyChangeListener("model", e -> {
+			if (e.getNewValue() instanceof String newString) {
+				updateReasoningEnablement(newString);
+			}
+		});
+		updateReasoningEnablement(settings.getModel());
+	}
+
+	private void updateReasoningEnablement(String modelId) {
+		Display.getDefault().syncExec(() -> {
+			boolean supportsReasoning = modelId.contains("claude-3-7");
+			if (!supportsReasoning) {
+				btnEnabled.setSelection(false);
+			}
+			btnEnabled.setEnabled(supportsReasoning);
+			txtReasoningBudgetTokens.setEnabled(supportsReasoning);
+		});
 	}
 
 	private static PromptTemplate createNoTemplateSelection() {
@@ -188,6 +230,20 @@ public class ChatSettingsDialog extends Dialog {
 		IObservableValue modelSettingsObserveValue = BeanProperties.value("model").observe(settings);
 		bindingContext.bindValue(observeTextTxtModelObserveWidget, modelSettingsObserveValue, null, null);
 		//
+		IObservableValue observeButtonEnabledWidget = WidgetProperties.buttonSelection().observe(btnEnabled);
+		IObservableValue reasoningEnabledSettingsObserveValue = BeanProperties.value("reasoningEnabled")
+				.observe(settings);
+		bindingContext.bindValue(observeButtonEnabledWidget, reasoningEnabledSettingsObserveValue, null, null);
+		//
+		IObservableValue observeTextTxtReasoningBudgetTokensObserveWidget = org.eclipse.jface.databinding.swt.typed.WidgetProperties
+				.text(org.eclipse.swt.SWT.Modify).observe(txtReasoningBudgetTokens);
+		IObservableValue reasoningBudgetTokensSettingsObserveValue = BeanProperties.value("reasoningTokens")
+				.observe(settings);
+		bindingContext.bindValue(observeTextTxtReasoningBudgetTokensObserveWidget,
+				reasoningBudgetTokensSettingsObserveValue,
+				new UpdateValueStrategy().setConverter(StringToNumberConverter.toInteger(true)),
+				new UpdateValueStrategy().setConverter(NumberToStringConverter.fromInteger(true)));
+
 		return bindingContext;
 	}
 
@@ -197,5 +253,4 @@ public class ChatSettingsDialog extends Dialog {
 		res.x = 720;
 		return res;
 	}
-
 }

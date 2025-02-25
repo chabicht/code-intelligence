@@ -1,7 +1,9 @@
 package com.chabicht.code_intelligence.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -36,6 +38,10 @@ public class ChatConversation {
 		public String getShorthand() {
 			return shorthand;
 		}
+	}
+
+	public static enum ChatOption {
+		REASONING_ENABLED, REASONING_BUDGET_TOKENS;
 	}
 
 	/**
@@ -165,6 +171,7 @@ public class ChatConversation {
 	}
 
 	private final List<ChatMessage> messages = new ArrayList<>();
+	private final Map<ChatOption, Object> options = new HashMap<>();
 
 	// --- Notification mechanism added below ---
 
@@ -261,6 +268,10 @@ public class ChatConversation {
 	 */
 	public List<ChatMessage> getMessages() {
 		return messages;
+	}
+
+	public Map<ChatOption, Object> getOptions() {
+		return options;
 	}
 
 	@Override

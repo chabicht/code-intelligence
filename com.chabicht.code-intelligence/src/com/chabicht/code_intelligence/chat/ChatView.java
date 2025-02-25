@@ -1,5 +1,8 @@
 package com.chabicht.code_intelligence.chat;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.UUID;
@@ -419,6 +422,9 @@ public class ChatView extends ViewPart {
 					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
+
+			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
+			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
 
 			conversation.addMessage(chatMessage);
 			connection.chat(conversation);

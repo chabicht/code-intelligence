@@ -1,5 +1,8 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -8,13 +11,17 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
@@ -22,6 +29,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 
 public class AnthropicApiClient implements IAiApiClient {
@@ -105,7 +113,6 @@ public class AnthropicApiClient implements IAiApiClient {
 	public void performChat(String modelName, ChatConversation chat) {
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
-		req.addProperty("max_tokens", 1024);
 		req.addProperty("stream", true);
 
 		JsonArray messages = new JsonArray();
@@ -127,6 +134,18 @@ public class AnthropicApiClient implements IAiApiClient {
 			messages.add(jsonMsg);
 		}
 		req.add("messages", messages);
+
+		Map<ChatOption, Object> options = chat.getOptions();
+		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
+			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);
+			req.addProperty("max_tokens", 8192 + reasoningBudgetTokens);
+			JsonObject thinking = new JsonObject();
+			req.add("thinking", thinking);
+			thinking.add("type", new JsonPrimitive("enabled"));
+			thinking.add("budget_tokens", new JsonPrimitive(reasoningBudgetTokens));
+		} else {
+			req.addProperty("max_tokens", 8192);
+		}
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
@@ -150,28 +169,48 @@ public class AnthropicApiClient implements IAiApiClient {
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
 				if (response.statusCode() >= 200 && response.statusCode() < 300) {
-					String currentEvent = null;
+					AtomicReference<String> currentEvent = new AtomicReference<>("");
+					AtomicBoolean thinkingStarted = new AtomicBoolean(false);
 
-					for (String line : response.body().toList()) {
+					response.body().forEach(line -> {
 						if (line == null || line.isEmpty()) {
-							continue;
+							return;
 						}
 
 						if (line.startsWith("event: ")) {
-							currentEvent = line.substring("event: ".length()).trim();
+							currentEvent.set(line.substring("event: ".length()).trim());
 						} else if (line.startsWith("data: ")) {
 							String data = line.substring("data: ".length()).trim();
 
 							try {
 								JsonObject jsonResponse = JsonParser.parseString(data).getAsJsonObject();
 
-								switch (currentEvent) {
+								switch (currentEvent.get()) {
 								case "content_block_delta":
 									JsonObject delta = jsonResponse.getAsJsonObject("delta");
-									if (delta.get("type").getAsString().equals("text_delta")) {
+									String deltaType = delta.get("type").getAsString();
+
+									if (deltaType.equals("text_delta")) {
+										if (thinkingStarted.get()) {
+											assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
+											thinkingStarted.set(false);
+										}
 										String text = delta.get("text").getAsString();
 										assistantMessage.setContent(assistantMessage.getContent() + text);
 										chat.notifyMessageUpdated(assistantMessage);
+									} else if (deltaType.equals("thinking_delta")) {
+										if (!thinkingStarted.get()) {
+											assistantMessage.setContent(assistantMessage.getContent() + "\n<think>\n");
+											thinkingStarted.set(true);
+										}
+										// Handle thinking delta
+										String thinking = delta.get("thinking").getAsString();
+										assistantMessage.setContent(assistantMessage.getContent() + thinking);
+										chat.notifyMessageUpdated(assistantMessage);
+									} else if (deltaType.equals("signature_delta")) {
+										// Handle signature delta for thinking content
+										// This signals the end of a thinking block
+										// No additional action required here
 									}
 									break;
 
@@ -179,8 +218,6 @@ public class AnthropicApiClient implements IAiApiClient {
 									// Handle end of message
 									break;
 
-								case "message_start":
-								case "content_block_start":
 								case "content_block_stop":
 								case "message_delta":
 								case "ping":
@@ -194,17 +231,18 @@ public class AnthropicApiClient implements IAiApiClient {
 								Activator.logError("Error parsing stream chunk: " + data, e);
 							}
 						}
-					}
+					});
 				} else {
-					Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+					Activator.logError("Streaming chat failed with status: " + response.statusCode() + "\n"
+							+ response.body().collect(Collectors.joining()), null);
 				}
 			} finally {
 				chat.notifyChatResponseFinished(assistantMessage);
 				asyncRequest = null;
 			}
 		}).exceptionally(e -> {
-			Activator.logError("Exception during streaming chat", e);
-			return null;
+		    Activator.logError("Exception during streaming chat", e);
+		    return null;
 		});
 	}
 

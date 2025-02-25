@@ -75,5 +75,13 @@
                menubarPath="additions">
          </action>
       </objectContribution>
+   </extension>
+   <extension
+         point="org.eclipse.ui.console.consolePageParticipants">
+      <consolePageParticipant
+            class="com.chabicht.code_intelligence.chat.ConsolePageParticipant"
+            id="com.chabicht.code-intelligence.consolePageParticipant">
+         <enablement></enablement>
+      </consolePageParticipant>
    </extension>     
 </plugin>
