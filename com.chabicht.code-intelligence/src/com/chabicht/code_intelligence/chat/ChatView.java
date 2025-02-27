@@ -192,7 +192,9 @@ public class ChatView extends ViewPart {
 		composite.setLayout(gl_composite);
 
 		chat = new ChatComponent(composite, SWT.BORDER);
-		chat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		GridData gd_chat = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2);
+		gd_chat.heightHint = 336;
+		chat.setLayoutData(gd_chat);
 
 		Button btnClear = new Button(composite, SWT.NONE);
 		btnClear.addSelectionListener(new SelectionAdapter() {
@@ -208,7 +210,23 @@ public class ChatView extends ViewPart {
 		btnClear.setToolTipText("Clear conversation");
 		// Broom 🧹
 		btnClear.setText("\uD83E\uDDF9");
+		btnClear.setToolTipText("Clear Chat");
 		btnClear.setFont(buttonSymbolFont);
+
+		btnHistory = new Button(composite, SWT.NONE);
+		btnHistory.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+			}
+		});
+		GridData gd_btnHistory = new GridData(SWT.LEFT, SWT.TOP, false, false, 1, 1);
+		gd_btnHistory.widthHint = 40;
+		gd_btnHistory.heightHint = 40;
+		btnHistory.setLayoutData(gd_btnHistory);
+		// Scroll 📜
+		btnHistory.setText("\uD83D\uDCDC");
+		btnHistory.setToolTipText("Recent Conversations");
+		btnHistory.setFont(buttonSymbolFont);
 
 		cmpAttachments = new Composite(composite, SWT.NONE);
 		GridData gd_cmpAttachments = new GridData(SWT.FILL, SWT.FILL, false, false, 1, 1);
@@ -571,4 +589,5 @@ public class ChatView extends ViewPart {
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
 			+ "if (e) {var target = e.target || e.srcElement; " + "var elementId = target.id ? target.id : 'no-id';"
 			+ "elementClicked(elementId);}}";
+	private Button btnHistory;
 }

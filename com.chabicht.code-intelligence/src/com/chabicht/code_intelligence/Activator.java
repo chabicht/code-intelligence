@@ -1,6 +1,5 @@
 package com.chabicht.code_intelligence;
 
-import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.io.BufferedReader;
@@ -11,12 +10,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
@@ -25,8 +22,9 @@ import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
-import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.reflect.TypeToken;
@@ -39,6 +37,8 @@ public class Activator extends AbstractUIPlugin {
 	private static final String PROMPT_TEMPLATES_FILE = "prompt-templates.json";
 
 	private static final String API_CONNECTIONS_FILE = "api-connections.json";
+
+	public static final String CHAT_HISTORY_FILE = "chat-history.json";
 
 	// The plug-in ID
 	public static final String PLUGIN_ID = "com.chabicht.code-intelligence"; //$NON-NLS-1$
@@ -89,6 +89,7 @@ public class Activator extends AbstractUIPlugin {
 		getDefault().getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
 	}
 
+	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public List<AiApiConnection> loadApiConnections() {
 		TypeToken typeToken = new TypeToken<List<AiApiConnection>>() {
 		};
@@ -99,6 +100,7 @@ public class Activator extends AbstractUIPlugin {
 		writeFile(API_CONNECTIONS_FILE, apiConnections);
 	}
 
+	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public List<PromptTemplate> loadPromptTemplates() {
 		TypeToken typeToken = new TypeToken<List<PromptTemplate>>() {
 		};
@@ -107,6 +109,52 @@ public class Activator extends AbstractUIPlugin {
 
 	public void savePromptTemplates(List<PromptTemplate> promptTemplates) {
 		writeFile(PROMPT_TEMPLATES_FILE, promptTemplates);
+	}
+
+	public List<ChatHistoryEntry> loadChatHistory() {
+		TypeToken<List<ChatHistoryEntry>> typeToken = new TypeToken<List<ChatHistoryEntry>>() {
+		};
+		List<ChatHistoryEntry> history = readFile(CHAT_HISTORY_FILE, typeToken);
+		return history != null ? history : new ArrayList<>();
+	}
+
+	public void saveChatHistory(List<ChatHistoryEntry> history) {
+		writeFile(CHAT_HISTORY_FILE, history);
+	}
+
+	public void addOrUpdateChatHistory(ChatConversation conversation) {
+		if (conversation == null) {
+			return;
+		}
+
+		List<ChatHistoryEntry> history = loadChatHistory();
+		boolean updated = false;
+
+		// Check if the conversation has a conversation ID
+		UUID conversationId = conversation.getConversationId();
+		if (conversationId == null) {
+			// Assign a new ID if it doesn't have one
+			conversationId = UUID.randomUUID();
+			conversation.setConversationId(conversationId);
+		}
+
+		// Check if conversation is already in history
+		for (ChatHistoryEntry entry : history) {
+			if (entry.getConversation() != null && conversationId.equals(entry.getConversation().getConversationId())) {
+				// Update the existing entry
+				entry.updateFromConversation(conversation);
+				updated = true;
+				break;
+			}
+		}
+
+		// If not found, add as new entry
+		if (!updated) {
+			ChatHistoryEntry newEntry = new ChatHistoryEntry(conversation);
+			history.add(0, newEntry); // Add at beginning of list
+		}
+
+		saveChatHistory(history);
 	}
 
 	private <T> List<T> readFile(String filename, TypeToken<List<T>> token) {

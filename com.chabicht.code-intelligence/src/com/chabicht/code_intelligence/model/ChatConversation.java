@@ -170,6 +170,7 @@ public class ChatConversation {
 		}
 	}
 
+	private UUID conversationId;
 	private final List<ChatMessage> messages = new ArrayList<>();
 	private final Map<ChatOption, Object> options = new HashMap<>();
 
@@ -272,6 +273,14 @@ public class ChatConversation {
 
 	public Map<ChatOption, Object> getOptions() {
 		return options;
+	}
+
+	public UUID getConversationId() {
+		return conversationId;
+	}
+
+	public void setConversationId(UUID conversationId) {
+		this.conversationId = conversationId;
 	}
 
 	@Override
