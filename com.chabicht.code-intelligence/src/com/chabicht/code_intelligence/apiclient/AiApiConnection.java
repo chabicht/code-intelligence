@@ -8,7 +8,7 @@ import com.chabicht.code_intelligence.model.DefaultPrompts;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
-		OPENAI("OpenAI"), OLLAMA("Ollama"), ANTHROPIC("Anthropic"), GEMINI("Gemini"), XAI("x.ai");
+		OPENAI("OpenAI"), OLLAMA("Ollama"), ANTHROPIC("Anthropic"), GEMINI("Gemini"), XAI("X.ai");
 
 		private ApiType(String label) {
 			this.label = label;

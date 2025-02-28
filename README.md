@@ -88,6 +88,14 @@ Here you can add connections to different API providers and select the model you
 - For the *Base URI*, use `https://api.anthropic.com/v1`.
 - You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
 
+## X.ai/Grok connection settings
+
+![Screenshot: X.ai configuration](images/xai.png)
+
+- Use *Type* X.ai.
+- For the *Base URI*, use `https://api.x.ai/v1`.
+- You have to create an API key in the [X.ai Console settings](https://console.x.ai/).  
+
 ## Model selection
 
 The model is identified by `[Connection Name]/[Model ID]`, so assuming your OpenAI connection was named *OpenAI*, to use GPT-4o-Mini, you would enter `OpenAI/gpt-4o-mini`.
