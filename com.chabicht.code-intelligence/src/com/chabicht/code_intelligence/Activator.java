@@ -26,6 +26,7 @@ import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonIOException;
@@ -122,6 +123,11 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	public void saveChatHistory(List<ChatHistoryEntry> history) {
+		// Limit the size of the history if preference is set.
+		int limit = getPreferenceStore().getInt(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT);
+		if (limit > 0 && history.size() > limit) {
+			history = history.subList(0, limit);
+		}
 		writeFile(CHAT_HISTORY_FILE, history);
 	}
 

@@ -10,5 +10,6 @@ public class PreferenceConstants {
 	public static final String CHAT_MODEL_NAME = "chatModelName";
 	public static final String DEBUG_LOG_PROMPTS = "debugLogPrompts";
 	public static final String PRMPT_TEMPLATES = "promptTemplates";
+	public static final String CHAT_HISTORY_SIZE_LIMIT = "chatHistorySizeLimit";
 
 }
