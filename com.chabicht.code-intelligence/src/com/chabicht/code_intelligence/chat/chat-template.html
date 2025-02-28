@@ -77,42 +77,74 @@
 	.attachment-icon {
 	  font-size: 16px;
 	  color: #333333;
-	  cursor: default;
+	  cursor: pointer;
 	}
 
-	.attachment-container .tooltip {
-	  visibility: hidden;
-	  width: 400px;
+	.tooltip {
+	  display: none;
+	  width: max-content;
+	  max-width: 300px;
 	  background-color: #FFFFFF;
 	  color: #333333;
-	  text-align: center;
-	  padding: 5px;
+	  text-align: left;
+	  padding: 8px 10px;
 	  border-radius: 4px;
+	  border: 1px solid #E0E0E0;
+	  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+	  z-index: 100;
+	  
+	  /* Positioning relative to container */
 	  position: absolute;
-	  z-index: 1;
-	  bottom: 125%;
-	  left: 50%;
-	  margin-left: -20px;
-	  opacity: 0;
-	  filter: alpha(opacity=0);
+	  bottom: 30px;
+	  left: 0;
 	}
 
-	/* Continue replacing all other instances as well */
-    
-	.copy-button {
+	/* Tooltip arrow */
+	.tooltip::after {
+	  content: "";
 	  position: absolute;
-	  top: 10px;
-	  right: 10px;
-	  background-color: transparent;
-	  border: 1px solid #333333;
+	  top: 100%;
+	  left: 10px;
+	  border-width: 5px;
+	  border-style: solid;
+	  border-color: #FFFFFF transparent transparent transparent;
+	}
+
+	.attachment-container:hover .tooltip {
+	  display: block;
+	}
+	
+	.code-block {
+	  position: relative;
+	  margin: 1em 0;
+	  border: 1px solid #E0E0E0;
+	  border-radius: 6px;
+	  overflow: hidden;
+	}
+
+	.code-block-header {
+	  display: flex;
+	  justify-content: flex-end;
+	  padding: 5px;
+	  background-color: #f5f5f5;
+	  border-bottom: 1px solid #E0E0E0;
+	}
+
+	.copy-button {
+	  background-color: #FFFFFF;
+	  border: 1px solid #cccccc;
 	  color: #333333;
 	  cursor: pointer;
 	  font-size: 12px;
-	  padding: 5px;
+	  padding: 3px 8px;
 	  border-radius: 4px;
 	}
 
-    /* Rest of the HTML/script remains unchanged */
+	.code-block pre {
+	  margin: 0;
+	  padding: 10px;
+	  overflow: auto;
+	}
   </style>
 </head>
 <body>
@@ -198,34 +230,40 @@ function updateMessage(uuid, updatedContent) {
  * @param {HTMLElement} container - The container element to search for code blocks.
  */
 function processCodeBlocks(container) {
-  var codeBlocks = Array.from(container.getElementsByTagName('code')).filter(code => code.parentElement.tagName.toLowerCase() === 'pre');
-  // Convert HTMLCollection to array to avoid issues when modifying the DOM
-  var codeBlocksArray = Array.prototype.slice.call(codeBlocks);
-
-  for (var i = 0; i < codeBlocksArray.length; i++) {
-    var codeBlock = codeBlocksArray[i];
-
+  var preElements = container.getElementsByTagName('pre');
+  
+  for (var i = 0; i < preElements.length; i++) {
+    var preElement = preElements[i];
+    var codeElement = preElement.querySelector('code');
+    
     // Skip if already processed
-    if (codeBlock.parentNode.className.indexOf('code-block') !== -1) {
+    if (preElement.parentNode.className.indexOf('code-block') !== -1) {
       continue;
     }
 
-    // Create a container div for the code block and copy button
-    var codeContainer = document.createElement('div');
-    codeContainer.className = 'code-block';
-
+    // Create wrapper container
+    var codeBlock = document.createElement('div');
+    codeBlock.className = 'code-block';
+    
+    // Create header for the copy button
+    var codeBlockHeader = document.createElement('div');
+    codeBlockHeader.className = 'code-block-header';
+    
     // Create the copy button
     var copyButton = document.createElement('button');
     copyButton.className = 'copy-button';
     copyButton.innerText = 'Copy';
-
-    // Insert the code block and the copy button into the container
-    codeBlock.parentNode.insertBefore(codeContainer, codeBlock);
-    codeContainer.appendChild(copyButton);
-    codeContainer.appendChild(codeBlock);
-
+    
+    // Add button to header
+    codeBlockHeader.appendChild(copyButton);
+    
+    // Insert the code block elements
+    preElement.parentNode.insertBefore(codeBlock, preElement);
+    codeBlock.appendChild(codeBlockHeader);
+    codeBlock.appendChild(preElement);
+    
     // Attach click event to the copy button
-    attachCopyEvent(copyButton, codeBlock);
+    attachCopyEvent(copyButton, codeElement || preElement);
   }
 }
 
