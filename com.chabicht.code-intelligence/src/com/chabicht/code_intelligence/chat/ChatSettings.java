@@ -7,7 +7,7 @@ public class ChatSettings extends Bean {
 	private String model;
 	private PromptTemplate promptTemplate;
 	private boolean reasoningEnabled;
-	private int reasoningTokens = 4096;
+	private int reasoningTokens = 8192;
 
 	public String getModel() {
 		return model;

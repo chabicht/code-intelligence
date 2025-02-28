@@ -186,8 +186,12 @@ public class ChatView extends ViewPart {
 
 	private void addCaptionForConversation() {
 		if (StringUtils.isBlank(conversation.getCaption())) {
-			conversation.setCaption(ConnectionFactory.forCompletions().caption(conversation.getMessages().stream()
-					.map(ChatMessage::getContent).collect(Collectors.joining("\n"))));
+			try {
+				conversation.setCaption(ConnectionFactory.forCompletions().caption(conversation.getMessages().stream()
+						.map(ChatMessage::getContent).collect(Collectors.joining("\n"))));
+			} catch (Exception e) {
+				Activator.logError(e.getMessage(), e);
+			}
 		}
 	}
 
