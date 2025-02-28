@@ -237,12 +237,20 @@ public class ChatView extends ViewPart {
 		btnHistory.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				ChatHistoryDialog dlg = new ChatHistoryDialog(getSite().getShell(),
-						Activator.getDefault().loadChatHistory());
+				List<ChatHistoryEntry> chatHistory = Activator.getDefault().loadChatHistory();
+				ChatHistoryDialog dlg = new ChatHistoryDialog(getSite().getShell(), chatHistory);
 				if (dlg.open() == Dialog.OK) {
 					ChatHistoryEntry entry = dlg.getSelectedEntry();
 					if (entry != null) {
-						replaceChat(entry.getConversation());
+						ChatConversation c = entry.getConversation();
+
+						// If "Reuse as New" was selected, clear the conversation ID
+						if (dlg.getResultMode() == ChatHistoryDialog.ResultMode.REUSE_AS_NEW) {
+							c.setConversationId(null);
+							c.setCaption(null);
+						}
+
+						replaceChat(c);
 					}
 				}
 			}
