@@ -293,6 +293,24 @@ public class AnthropicApiClient implements IAiApiClient {
 	}
 
 	@Override
+	public String caption(String modelName, String content) {
+		JsonObject req = new JsonObject();
+		req.addProperty("model", modelName);
+		req.addProperty("max_tokens", 1024); // You might want to make this configurable
+
+		JsonArray messages = new JsonArray();
+		JsonObject userMessage = new JsonObject();
+		userMessage.addProperty("role", "user");
+		userMessage.addProperty("content", content);
+		messages.add(userMessage);
+
+		req.add("messages", messages);
+
+		JsonObject res = performPost(JsonObject.class, "messages", req);
+		return res.get("content").getAsJsonArray().get(0).getAsJsonObject().get("text").getAsString();
+	}
+
+	@Override
 	public synchronized boolean isChatPending() {
 		return asyncRequest != null;
 	}

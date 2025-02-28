@@ -106,4 +106,19 @@ public interface DefaultPrompts {
 	static final String CHAT_SYSTEM_PROMPT = """
 			You're an expert Java programmer who helps the user with tasks regarding Java code and/or general programming tasks.
 			""";
+
+	static final String CAPTION_PROMPT = """
+			Create a short caption, about 3-6 words, for the content below:
+			===
+			{{content}}
+			===
+
+			Important instructions:
+			- If in doubt, the question or instruction in the first paragraph is more important than latter (answer) part.
+			- Respond with only the caption.
+			- No explanations, alternatives, etc.
+			- No formatting, just the words.
+
+			Caption:
+			""";
 }

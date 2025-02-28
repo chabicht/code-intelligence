@@ -4,10 +4,11 @@ import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.DefaultPrompts;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
-		OPENAI("OpenAI"), OLLAMA("Ollama"), ANTHROPIC("Anthropic"), GEMINI("Gemini");
+		OPENAI("OpenAI"), OLLAMA("Ollama"), ANTHROPIC("Anthropic"), GEMINI("Gemini"), XAI("x.ai");
 
 		private ApiType(String label) {
 			this.label = label;
@@ -87,6 +88,9 @@ public class AiApiConnection extends Bean {
 			case GEMINI:
 				apiClient = new GeminiApiClient(this);
 				break;
+			case XAI:
+				apiClient = new XAiApiClient(this);
+				break;
 			default:
 				throw new RuntimeException("Unsupported API type: " + type);
 			}
@@ -118,6 +122,14 @@ public class AiApiConnection extends Bean {
 
 	public boolean isChatPending() {
 		return apiClient == null ? false : apiClient.isChatPending();
+	}
+
+	public String caption(String modelName, String content) {
+		if (!enabled) {
+			throw new RuntimeException("API connection disabled!");
+		}
+
+		return getApiClient().caption(modelName, DefaultPrompts.CAPTION_PROMPT + content);
 	}
 
 }

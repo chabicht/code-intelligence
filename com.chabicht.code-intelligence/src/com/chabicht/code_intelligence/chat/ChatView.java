@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -34,6 +35,8 @@ import org.eclipse.swt.browser.Browser;
 import org.eclipse.swt.browser.BrowserFunction;
 import org.eclipse.swt.browser.LocationAdapter;
 import org.eclipse.swt.browser.LocationEvent;
+import org.eclipse.swt.browser.ProgressAdapter;
+import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.browser.ProgressListener;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
@@ -52,6 +55,8 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Menu;
+import org.eclipse.swt.widgets.MenuItem;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
@@ -68,6 +73,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
+import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
@@ -164,12 +170,26 @@ public class ChatView extends ViewPart {
 
 				connection = null;
 
+				addConversationToHistory();
+
 				if (isDebugPromptLoggingEnabled()) {
 					Activator.logInfo(conversation.toString());
 				}
 			});
 		}
 	};
+
+	private void addConversationToHistory() {
+		addCaptionForConversation();
+		Activator.getDefault().addOrUpdateChatHistory(conversation);
+	}
+
+	private void addCaptionForConversation() {
+		if (StringUtils.isBlank(conversation.getCaption())) {
+			conversation.setCaption(ConnectionFactory.forCompletions().caption(conversation.getMessages().stream()
+					.map(ChatMessage::getContent).collect(Collectors.joining("\n"))));
+		}
+	}
 
 	private boolean isDebugPromptLoggingEnabled() {
 		return Activator.getDefault().getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
@@ -192,7 +212,9 @@ public class ChatView extends ViewPart {
 		composite.setLayout(gl_composite);
 
 		chat = new ChatComponent(composite, SWT.BORDER);
-		chat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		GridData gd_chat = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2);
+		gd_chat.heightHint = 336;
+		chat.setLayoutData(gd_chat);
 
 		Button btnClear = new Button(composite, SWT.NONE);
 		btnClear.addSelectionListener(new SelectionAdapter() {
@@ -208,7 +230,31 @@ public class ChatView extends ViewPart {
 		btnClear.setToolTipText("Clear conversation");
 		// Broom 🧹
 		btnClear.setText("\uD83E\uDDF9");
+		btnClear.setToolTipText("Clear Chat");
 		btnClear.setFont(buttonSymbolFont);
+
+		btnHistory = new Button(composite, SWT.NONE);
+		btnHistory.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				ChatHistoryDialog dlg = new ChatHistoryDialog(getSite().getShell(),
+						Activator.getDefault().loadChatHistory());
+				if (dlg.open() == Dialog.OK) {
+					ChatHistoryEntry entry = dlg.getSelectedEntry();
+					if (entry != null) {
+						replaceChat(entry.getConversation());
+					}
+				}
+			}
+		});
+		GridData gd_btnHistory = new GridData(SWT.LEFT, SWT.TOP, false, false, 1, 1);
+		gd_btnHistory.widthHint = 40;
+		gd_btnHistory.heightHint = 40;
+		btnHistory.setLayoutData(gd_btnHistory);
+		// Scroll 📜
+		btnHistory.setText("\uD83D\uDCDC");
+		btnHistory.setToolTipText("Recent Conversations");
+		btnHistory.setFont(buttonSymbolFont);
 
 		cmpAttachments = new Composite(composite, SWT.NONE);
 		GridData gd_cmpAttachments = new GridData(SWT.FILL, SWT.FILL, false, false, 1, 1);
@@ -336,6 +382,20 @@ public class ChatView extends ViewPart {
 			init();
 		});
 
+		// Context menu for the message context labels
+		Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
+		MenuItem deleteItem = new MenuItem(contextMenu, SWT.NONE);
+		deleteItem.setText("Delete");
+		deleteItem.addListener(SWT.Selection, e -> {
+			if (e.widget == null && e.widget.isDisposed()) {
+				return;
+			}
+
+			if (e.widget.getData() instanceof MessageContext context) {
+				externallyAddedContext.remove(context);
+			}
+		});
+
 		IListChangeListener<? super MessageContext> listChangeListener = e -> {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
@@ -346,6 +406,13 @@ public class ChatView extends ViewPart {
 					l.setImage(paperclipImage);
 					RowData rd = new RowData(16, 25);
 					l.setLayoutData(rd);
+
+					l.addMenuDetectListener(event -> {
+						deleteItem.setData(l.getData());
+						contextMenu.setLocation(event.x, event.y);
+						contextMenu.setVisible(true);
+					});
+
 					cmpAttachments.layout();
 				} else {
 					removeAttachmentLabel(ctx);
@@ -416,6 +483,8 @@ public class ChatView extends ViewPart {
 			// Set text to "▶️"
 			btnSend.setText("\u25B6");
 
+			addConversationToHistory();
+
 			connection = null;
 		} else {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
@@ -425,8 +494,8 @@ public class ChatView extends ViewPart {
 				Point selectionRange = Optional.ofNullable(ConsolePageParticipant.getSelectionRange())
 						.orElse(new Point(0, 0));
 				String consoleName = Optional.ofNullable(ConsolePageParticipant.getConsoleName()).orElse("Console Log");
-				externallyAddedContext.add(new MessageContext(consoleName, RangeType.OFFSET,
-						selectionRange.x, selectionRange.x + selectionRange.y, consoleSelection));
+				externallyAddedContext.add(new MessageContext(consoleName, RangeType.OFFSET, selectionRange.x,
+						selectionRange.x + selectionRange.y, consoleSelection));
 			}
 
 			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
@@ -448,24 +517,30 @@ public class ChatView extends ViewPart {
 
 	public void editChat(String messageUuidString) {
 		Display.getDefault().syncExec(() -> {
+			// Treat the conversation as new history-wise.
+			conversation.setConversationId(null);
+
 			UUID messageUuid = UUID.fromString(messageUuidString);
 			if (connection == null || !connection.isChatPending()) {
 				getExternallyAddedContext().clear();
 				ChatConversation oldConvo = conversation;
 
-				clearChat();
-
 				List<ChatMessage> messages = oldConvo.getMessages();
-				for (int i = 0; i < messages.size(); i++) {
+				ChatMessage msgToEdit = null;
+				for (int i = messages.size() - 1; i >= 0; i--) {
 					ChatMessage msg = messages.get(i);
+					if (msgToEdit == null) {
+						messages.remove(i);
+					}
 					if (messageUuid.equals(msg.getId())) {
-						userInput.set(msg.getContent());
-						getExternallyAddedContext().addAll(msg.getContext());
-						break;
-					} else {
-						conversation.addMessage(msg);
+						msgToEdit = msg;
 					}
 				}
+
+				replaceChat(oldConvo);
+
+				userInput.set(msgToEdit.getContent());
+				getExternallyAddedContext().addAll(msgToEdit.getContext());
 			}
 		});
 	}
@@ -514,17 +589,40 @@ public class ChatView extends ViewPart {
 		}
 	}
 
-	private void clearChat() {
+	private void clearChatInternal(ChatConversation replacement) {
 		if (connection != null) {
 			connection.abortChat();
 			connection = null;
 		}
 		conversation.removeListener(chatListener);
-		conversation = createNewChatConversation();
+		conversation = replacement;
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
 		chat.reset();
 		userInput.set("");
+	}
+
+	private void clearChat() {
+		clearChatInternal(createNewChatConversation());
+	}
+
+	private void replaceChat(ChatConversation replacement) {
+		// No need to initialize, it will be overwritten anyway.
+		clearChatInternal(new ChatConversation());
+
+		conversation.getOptions().clear();
+		conversation.getOptions().putAll(replacement.getOptions());
+		conversation.setConversationId(replacement.getConversationId());
+		if (!replacement.getMessages().isEmpty()) {
+			ProgressAdapter listener = new ProgressAdapter() {
+				@Override
+				public void completed(ProgressEvent event) {
+					replacement.getMessages().forEach(conversation::addMessage);
+					chat.removeProgressListener(this);
+				}
+			};
+			chat.addProgressListener(listener);
+		}
 	}
 
 	private ChatConversation createNewChatConversation() {
@@ -571,4 +669,5 @@ public class ChatView extends ViewPart {
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
 			+ "if (e) {var target = e.target || e.srcElement; " + "var elementId = target.id ? target.id : 'no-id';"
 			+ "elementClicked(elementId);}}";
+	private Button btnHistory;
 }

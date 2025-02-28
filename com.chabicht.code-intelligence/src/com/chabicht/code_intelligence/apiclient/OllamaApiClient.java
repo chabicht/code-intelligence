@@ -242,6 +242,22 @@ public class OllamaApiClient implements IAiApiClient {
 	}
 
 	@Override
+	public String caption(String modelName, String content) {
+		JsonObject req = new JsonObject();
+		req.addProperty("model", modelName);
+		req.addProperty("prompt", content);
+		JsonObject options = new JsonObject();
+		options.addProperty("temperature", 1);
+		options.addProperty("num_ctx", 8192);
+		req.add("options", options);
+		req.addProperty("stream", false);
+
+		JsonObject res = performPost(JsonObject.class, "api/generate", req);
+
+		return res.get("response").getAsString();
+	}
+
+	@Override
 	public synchronized boolean isChatPending() {
 		return asyncRequest != null;
 	}

@@ -170,6 +170,8 @@ public class ChatConversation {
 		}
 	}
 
+	private UUID conversationId;
+	private String caption;
 	private final List<ChatMessage> messages = new ArrayList<>();
 	private final Map<ChatOption, Object> options = new HashMap<>();
 
@@ -245,19 +247,25 @@ public class ChatConversation {
 
 	public void notifyChatResponseFinished(ChatMessage message) {
 		for (ChatListener listener : listeners) {
-			listener.onChatResponseFinished(message);
+			if (listener != null) {
+				listener.onChatResponseFinished(message);
+			}
 		}
 	}
 
 	private void messageAdded(ChatMessage message) {
 		for (ChatListener listener : listeners) {
-			listener.onMessageAdded(message);
+			if (listener != null) {
+				listener.onMessageAdded(message);
+			}
 		}
 	}
 
 	private void messageUpdated(ChatMessage message) {
 		for (ChatListener listener : listeners) {
-			listener.onMessageUpdated(message);
+			if (listener != null) {
+				listener.onMessageUpdated(message);
+			}
 		}
 	}
 
@@ -272,6 +280,22 @@ public class ChatConversation {
 
 	public Map<ChatOption, Object> getOptions() {
 		return options;
+	}
+
+	public UUID getConversationId() {
+		return conversationId;
+	}
+
+	public void setConversationId(UUID conversationId) {
+		this.conversationId = conversationId;
+	}
+
+	public String getCaption() {
+		return caption;
+	}
+
+	public void setCaption(String caption) {
+		this.caption = caption;
 	}
 
 	@Override

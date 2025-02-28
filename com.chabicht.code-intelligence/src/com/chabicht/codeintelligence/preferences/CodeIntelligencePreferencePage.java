@@ -6,13 +6,15 @@ import java.util.List;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
+import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringButtonFieldEditor;
+import org.eclipse.jface.resource.FontDescriptor;
+import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.layout.FillLayout;
+import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.layout.GridData;
-import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.swt.widgets.Group;
+import org.eclipse.swt.widgets.Label;
 import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.IWorkbenchPreferencePage;
 
@@ -48,33 +50,34 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		addField(new ApiConnectionFieldEditor(PreferenceConstants.API_CONNECTION_DATA, "&API connections:",
 				getFieldEditorParent(), connections));
 
-		Group grpCompletion = new Group(getFieldEditorParent(), SWT.NONE);
-		grpCompletion.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
-		FillLayout grpCompletionLayout = new FillLayout();
-		grpCompletionLayout.marginHeight = 5;
-		grpCompletionLayout.marginWidth = 5;
-		grpCompletion.setLayout(grpCompletionLayout);
-		grpCompletion.setText("Completion");
-		Composite innerCompletion = new Composite(grpCompletion, SWT.NONE);
-		innerCompletion.setLayout(new GridLayout());
+		Font boldFont = JFaceResources.getResources().create(FontDescriptor.createFrom(getFont()).setStyle(SWT.BOLD));
+
+		Label lblCompletion = new Label(getFieldEditorParent(), SWT.NONE);
+		lblCompletion.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
+		lblCompletion.setText("Completion:");
+		lblCompletion.setFont(boldFont);
 
 		CompletionModelFieldEditor completionFieldEditor = new CompletionModelFieldEditor(
-				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", innerCompletion);
+				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent());
 		addField(completionFieldEditor);
 
-		Group grpChat = new Group(getFieldEditorParent(), SWT.NONE);
-		grpChat.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
-		FillLayout grpChatLayout = new FillLayout();
-		grpChatLayout.marginHeight = 5;
-		grpChatLayout.marginWidth = 5;
-		grpChat.setLayout(grpChatLayout);
-		grpChat.setText("Chat");
-		Composite innerChat = new Composite(grpChat, SWT.NONE);
-		innerChat.setLayout(new GridLayout());
+		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
+		Label lblChat = new Label(getFieldEditorParent(), SWT.NONE);
+		lblChat.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
+		lblChat.setText("Chat:");
+		lblChat.setFont(boldFont);
 
 		ChatModelFieldEditor chatFieldEditor = new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
-				innerChat);
+				getFieldEditorParent());
 		addField(chatFieldEditor);
+
+		IntegerFieldEditor integerEditor = new IntegerFieldEditor(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT,
+				"Max. &history items:", getFieldEditorParent());
+		addField(integerEditor);
+
+		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 
 		addField(new PromptTemplateFieldEditor(PreferenceConstants.PRMPT_TEMPLATES, "&Prompt Templates:",
 				getFieldEditorParent(), connections, completionFieldEditor::getStringValue,
