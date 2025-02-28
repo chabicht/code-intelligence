@@ -171,6 +171,7 @@ public class ChatConversation {
 	}
 
 	private UUID conversationId;
+	private String caption;
 	private final List<ChatMessage> messages = new ArrayList<>();
 	private final Map<ChatOption, Object> options = new HashMap<>();
 
@@ -287,6 +288,14 @@ public class ChatConversation {
 
 	public void setConversationId(UUID conversationId) {
 		this.conversationId = conversationId;
+	}
+
+	public String getCaption() {
+		return caption;
+	}
+
+	public void setCaption(String caption) {
+		this.caption = caption;
 	}
 
 	@Override

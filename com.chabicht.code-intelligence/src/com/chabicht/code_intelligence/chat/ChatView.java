@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -169,7 +170,7 @@ public class ChatView extends ViewPart {
 
 				connection = null;
 
-				Activator.getDefault().addOrUpdateChatHistory(conversation);
+				addConversationToHistory();
 
 				if (isDebugPromptLoggingEnabled()) {
 					Activator.logInfo(conversation.toString());
@@ -177,6 +178,18 @@ public class ChatView extends ViewPart {
 			});
 		}
 	};
+
+	private void addConversationToHistory() {
+		addCaptionForConversation();
+		Activator.getDefault().addOrUpdateChatHistory(conversation);
+	}
+
+	private void addCaptionForConversation() {
+		if (StringUtils.isBlank(conversation.getCaption())) {
+			conversation.setCaption(ConnectionFactory.forCompletions().caption(conversation.getMessages().stream()
+					.map(ChatMessage::getContent).collect(Collectors.joining("\n"))));
+		}
+	}
 
 	private boolean isDebugPromptLoggingEnabled() {
 		return Activator.getDefault().getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
@@ -470,7 +483,7 @@ public class ChatView extends ViewPart {
 			// Set text to "▶️"
 			btnSend.setText("\u25B6");
 
-			Activator.getDefault().addOrUpdateChatHistory(conversation);
+			addConversationToHistory();
 
 			connection = null;
 		} else {

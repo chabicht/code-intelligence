@@ -268,6 +268,25 @@ public class OpenAiApiClient implements IAiApiClient {
 	}
 
 	@Override
+	public String caption(String modelName, String content) {
+		JsonObject req = new JsonObject();
+		req.addProperty("model", modelName);
+		req.addProperty("temperature", 1);
+
+		JsonArray messages = new JsonArray();
+		JsonObject userMessage = new JsonObject();
+		userMessage.addProperty("role", "user");
+		userMessage.addProperty("content", content);
+		messages.add(userMessage);
+
+		req.add("messages", messages);
+
+		JsonObject res = performPost(JsonObject.class, "chat/completions", req);
+		return res.get("choices").getAsJsonArray().get(0).getAsJsonObject().get("message").getAsJsonObject()
+				.get("content").getAsString();
+	}
+
+	@Override
 	public synchronized boolean isChatPending() {
 		return asyncRequest != null;
 	}

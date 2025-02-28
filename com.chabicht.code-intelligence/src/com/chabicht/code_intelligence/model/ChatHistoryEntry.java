@@ -3,84 +3,91 @@ package com.chabicht.code_intelligence.model;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.apache.commons.lang3.StringUtils;
+
 public class ChatHistoryEntry {
 	private UUID id;
 	private String title;
 	private Instant createdAt;
 	private Instant updatedAt;
 	private ChatConversation conversation;
-    
-    public ChatHistoryEntry() {
-        this.id = UUID.randomUUID();
-        this.createdAt = Instant.now();
-        this.updatedAt = Instant.now();
-    }
-    
-    public ChatHistoryEntry(ChatConversation conversation) {
-        this();
-        this.conversation = conversation;
-        // Generate a title from the first user message
-        if (conversation != null && !conversation.getMessages().isEmpty()) {
-            for (ChatConversation.ChatMessage msg : conversation.getMessages()) {
-                if (msg.getRole() == ChatConversation.Role.USER) {
-                    String content = msg.getContent();
-                    this.title = content.length() > 30 ? content.substring(0, 27) + "..." : content;
-                    break;
-                }
-            }
-        }
-        if (this.title == null) {
-            this.title = "Chat from " + createdAt;
-        }
-    }
 
-    // Getters and setters
-    public UUID getId() {
-        return id;
-    }
+	public ChatHistoryEntry() {
+		this.id = UUID.randomUUID();
+		this.createdAt = Instant.now();
+		this.updatedAt = Instant.now();
+	}
 
-    public void setId(UUID id) {
-        this.id = id;
-    }
+	public ChatHistoryEntry(ChatConversation conversation) {
+		this();
+		this.conversation = conversation;
 
-    public String getTitle() {
-        return title;
-    }
+		if (StringUtils.isNotBlank(conversation.getCaption())) {
+			this.title = conversation.getCaption();
+		} else {
+			// Generate a title from the first user message
+			if (conversation != null && !conversation.getMessages().isEmpty()) {
+				for (ChatConversation.ChatMessage msg : conversation.getMessages()) {
+					if (msg.getRole() == ChatConversation.Role.USER) {
+						String content = msg.getContent();
+						this.title = content.length() > 30 ? content.substring(0, 27) + "..." : content;
+						break;
+					}
+				}
+			}
+			if (this.title == null) {
+				this.title = "Chat from " + createdAt;
+			}
+		}
+	}
 
-    public void setTitle(String title) {
-        this.title = title;
-    }
+	// Getters and setters
+	public UUID getId() {
+		return id;
+	}
 
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
+	public void setId(UUID id) {
+		this.id = id;
+	}
 
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
+	public String getTitle() {
+		return title;
+	}
 
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
+	public void setTitle(String title) {
+		this.title = title;
+	}
 
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
-    }
+	public Instant getCreatedAt() {
+		return createdAt;
+	}
 
-    public ChatConversation getConversation() {
-        return conversation;
-    }
+	public void setCreatedAt(Instant createdAt) {
+		this.createdAt = createdAt;
+	}
 
-    public void setConversation(ChatConversation conversation) {
-        this.conversation = conversation;
-    }
-    
-    public void updateFromConversation(ChatConversation conversation) {
-        this.conversation = conversation;
-        this.updatedAt = Instant.now();
-    }
-    
-    public int getMessageCount() {
-        return conversation != null ? conversation.getMessages().size() : 0;
-    }
+	public Instant getUpdatedAt() {
+		return updatedAt;
+	}
+
+	public void setUpdatedAt(Instant updatedAt) {
+		this.updatedAt = updatedAt;
+	}
+
+	public ChatConversation getConversation() {
+		return conversation;
+	}
+
+	public void setConversation(ChatConversation conversation) {
+		this.conversation = conversation;
+	}
+
+	public void updateFromConversation(ChatConversation conversation) {
+		this.conversation = conversation;
+		this.updatedAt = Instant.now();
+	}
+
+	public int getMessageCount() {
+		return conversation != null ? conversation.getMessages().size() : 0;
+	}
 }

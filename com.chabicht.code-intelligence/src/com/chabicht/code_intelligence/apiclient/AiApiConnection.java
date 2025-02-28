@@ -4,6 +4,7 @@ import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.DefaultPrompts;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
@@ -121,6 +122,14 @@ public class AiApiConnection extends Bean {
 
 	public boolean isChatPending() {
 		return apiClient == null ? false : apiClient.isChatPending();
+	}
+
+	public String caption(String modelName, String content) {
+		if (!enabled) {
+			throw new RuntimeException("API connection disabled!");
+		}
+
+		return getApiClient().caption(modelName, DefaultPrompts.CAPTION_PROMPT + content);
 	}
 
 }

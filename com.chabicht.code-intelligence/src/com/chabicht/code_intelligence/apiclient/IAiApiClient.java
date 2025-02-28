@@ -49,4 +49,9 @@ public interface IAiApiClient {
 
 	boolean isChatPending();
 
+	/**
+	 * Creates a short caption for e.g. a conversation.
+	 */
+	String caption(String modelName, String content);
+
 }

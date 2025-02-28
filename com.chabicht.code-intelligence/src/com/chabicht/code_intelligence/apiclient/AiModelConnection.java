@@ -29,6 +29,10 @@ public class AiModelConnection {
 		conn.performChat(modelName, chat);
 	}
 
+	public String caption(String content) {
+		return conn.caption(modelName, content);
+	}
+
 	public void abortChat() {
 		conn.abortChat();
 	}

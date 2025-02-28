@@ -112,6 +112,21 @@ public class GeminiApiClient implements IAiApiClient {
 	}
 
 	@Override
+	public String caption(String modelName, String content) {
+		JsonObject req = new JsonObject();
+		req.addProperty("model", modelName);
+		req.add("contents", createContentsArray(content));
+		JsonObject genConfig = new JsonObject();
+		genConfig.addProperty("temperature", 1);
+		req.add("generationConfig", genConfig);
+
+		JsonObject res = performPost(JsonObject.class, modelName + ":generateContent", req);
+		String completion = res.get("candidates").getAsJsonArray().get(0).getAsJsonObject().get("content")
+				.getAsJsonObject().get("parts").getAsJsonArray().get(0).getAsJsonObject().get("text").getAsString();
+		return completion;
+	}
+
+	@Override
 	public synchronized boolean isChatPending() {
 		return asyncRequest != null;
 	}
