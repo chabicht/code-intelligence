@@ -9,6 +9,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Type;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,7 +27,9 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonIOException;
+import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 
 /**
@@ -127,7 +130,7 @@ public class Activator extends AbstractUIPlugin {
 			return;
 		}
 
-		List<ChatHistoryEntry> history = loadChatHistory();
+		List<ChatHistoryEntry> history = new ArrayList<>(loadChatHistory());
 		boolean updated = false;
 
 		// Check if the conversation has a conversation ID
@@ -167,11 +170,13 @@ public class Activator extends AbstractUIPlugin {
 			} else {
 				try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
 					Type listType = token.getType();
-					List<T> res = new Gson().fromJson(reader, listType);
+					List<T> res = createGson().fromJson(reader, listType);
 
 					return res;
 				}
 			}
+		} catch (JsonSyntaxException e) {
+			return Collections.emptyList();
 		} catch (IOException | JsonIOException e) {
 			throw new RuntimeException(e);
 		}
@@ -183,11 +188,15 @@ public class Activator extends AbstractUIPlugin {
 			File file = new File(parentDirectory, filename);
 
 			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-				new Gson().toJson(items, writer);
+				createGson().toJson(items, writer);
 			}
 		} catch (IOException | JsonIOException e) {
 			throw new RuntimeException(e);
 		}
+	}
+
+	private Gson createGson() {
+		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter()).create();
 	}
 
 	private File getConfigLocationAsFile() throws IOException {

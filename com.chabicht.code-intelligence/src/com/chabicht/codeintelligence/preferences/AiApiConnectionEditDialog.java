@@ -15,7 +15,6 @@ import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.viewers.ComboViewer;
 import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
@@ -165,6 +164,6 @@ public class AiApiConnectionEditDialog extends Dialog {
 
 	private static Map<ApiType, String> initDefaultConnectionUrls() {
 		return Map.of(ApiType.OLLAMA, "http://localhost:11434", ApiType.OPENAI, "https://api.openai.com/v1",
-				ApiType.ANTHROPIC, "https://api.anthropic.com/v1");
+				ApiType.ANTHROPIC, "https://api.anthropic.com/v1", ApiType.XAI, "https://api.x.ai/v1");
 	}
 }

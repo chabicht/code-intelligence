@@ -246,19 +246,25 @@ public class ChatConversation {
 
 	public void notifyChatResponseFinished(ChatMessage message) {
 		for (ChatListener listener : listeners) {
-			listener.onChatResponseFinished(message);
+			if (listener != null) {
+				listener.onChatResponseFinished(message);
+			}
 		}
 	}
 
 	private void messageAdded(ChatMessage message) {
 		for (ChatListener listener : listeners) {
-			listener.onMessageAdded(message);
+			if (listener != null) {
+				listener.onMessageAdded(message);
+			}
 		}
 	}
 
 	private void messageUpdated(ChatMessage message) {
 		for (ChatListener listener : listeners) {
-			listener.onMessageUpdated(message);
+			if (listener != null) {
+				listener.onMessageUpdated(message);
+			}
 		}
 	}
 
