@@ -322,7 +322,8 @@ public class PromptManagementDialog extends Dialog {
 				try {
 					if (chatConversation == null) {
 						chatConversation = new ChatConversation();
-						chatConversation.addMessage(new ChatMessage(Role.SYSTEM, prompt.getPrompt()));
+						chatConversation.addMessage(new ChatMessage(Role.SYSTEM,
+								"<details open><summary>System Prompt</summary>" + prompt.getPrompt() + "</details>"));
 						chatConversation.addMessage(new ChatMessage(Role.USER, "test"));
 						chatConversation.addMessage(new ChatMessage(Role.ASSISTANT,
 								"It seems like you're testing or checking something."
