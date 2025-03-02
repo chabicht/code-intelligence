@@ -154,57 +154,71 @@
 <div id='bottom' style='visibility: hidden;'></div>
 
 <script>
+var autoScrollEnabled = true;
+
+function isScrolledToBottom() {
+  var bottomElement = document.getElementById("bottom");
+  var rect = bottomElement.getBoundingClientRect();
+  
+  // Check if bottom element is visible in the viewport
+  // or just below it (within a small margin of 50px)
+  return (rect.top <= window.innerHeight + 50);
+}
+
 /**
  * Adds a new message to the chat container.
  * @param {String} uuid - Unique identifier for the message.
  * @param {String} role - The role of the sender ("assistant" or "user").
  * @param {String} content - The HTML content of the message.
  */
-function addMessage(uuid, role, content) {
-  var container = document.getElementById("chat-container");
-  if (!container) {
-    return;
-  }
-  var div = document.createElement("div");
+ function addMessage(uuid, role, content) {
+	var container = document.getElementById("chat-container");
+	if (!container) {
+		return;
+	}
+	var div = document.createElement("div");
 
-  // Choose the correct CSS class based on the role
-  if (role === "assistant") {
-    div.className = "message from-them";
-  } else if (role === "user") {
-    div.className = "message from-me";
-  } else if (role === "system") {
-    div.className = "message from-system";
-  } else {
-    div.className = "message";
-  }
+	// Choose the correct CSS class based on the role
+	if (role === "assistant") {
+		div.className = "message from-them";
+	} else if (role === "user") {
+		div.className = "message from-me";
+	} else if (role === "system") {
+		div.className = "message from-system";
+	} else {
+		div.className = "message";
+	}
 
-  // Set the uuid as the element's id for future reference
-  div.id = uuid;
-  div.innerHTML = content;
+	// Set the uuid as the element's id for future reference
+	div.id = uuid;
+	div.innerHTML = content;
 
-  // Process code blocks to add copy buttons
-  processCodeBlocks(div);
+	// Process code blocks to add copy buttons
+	processCodeBlocks(div);
 
-  // If the message is from the user, add the edit icon
-  if (role === "user") {
-    var editSpan = document.createElement("span");
-    editSpan.id = "edit:" + uuid;
-    editSpan.innerHTML = "&#x1F58A;"; // pen emoji
-    editSpan.style.position = "absolute";
-    editSpan.style.bottom = "5px";
-    editSpan.style.right = "5px";
-    editSpan.style.cursor = "pointer";
-    editSpan.style.fontSize = "26px";
-    editSpan.style.fontWeight = "800";
+	// If the message is from the user, add the edit icon
+	if (role === "user") {
+		var editSpan = document.createElement("span");
+		editSpan.id = "edit:" + uuid;
+		editSpan.innerHTML = "&#x1F58A;"; // pen emoji
+		editSpan.style.position = "absolute";
+		editSpan.style.bottom = "5px";
+		editSpan.style.right = "5px";
+		editSpan.style.cursor = "pointer";
+		editSpan.style.fontSize = "26px";
+		editSpan.style.fontWeight = "800";
 
-    div.style.position = "relative";
-    div.appendChild(editSpan);
-  }
+		div.style.position = "relative";
+		div.appendChild(editSpan);
+	}
 
-  container.appendChild(div);
+	container.appendChild(div);
 
-  var bottom = document.getElementById("bottom");
-  bottom.scrollIntoView(true);
+	// Only scroll if auto-scroll is enabled
+	if (autoScrollEnabled) {
+		var bottom = document.getElementById("bottom");
+		bottom.scrollIntoView(true);
+	}
 }
 
 /**
@@ -212,17 +226,20 @@ function addMessage(uuid, role, content) {
  * @param {String} uuid - Unique identifier for the message to update.
  * @param {String} updatedContent - The new HTML content for the message.
  */
-function updateMessage(uuid, updatedContent) {
-  var message = document.getElementById(uuid);
-  if (message) {
-    message.innerHTML = updatedContent;
+ function updateMessage(uuid, updatedContent) {
+   var message = document.getElementById(uuid);
+   if (message) {
+     message.innerHTML = updatedContent;
 
-    // Process code blocks to add copy buttons
-    processCodeBlocks(message);
-  }
+     // Process code blocks to add copy buttons
+     processCodeBlocks(message);
+   }
 
-  var bottom = document.getElementById("bottom");
-  bottom.scrollIntoView(true);
+   // Only scroll if auto-scroll is enabled
+   if (autoScrollEnabled) {
+     var bottom = document.getElementById("bottom");
+     bottom.scrollIntoView(true);
+   }
 }
 
 /**
@@ -321,6 +338,14 @@ function processExistingMessages() {
 // Call the function after the page loads
 window.onload = function() {
   processExistingMessages();
+
+  // Initial check - are we at the bottom?
+  autoScrollEnabled = isScrolledToBottom();
+
+  // Listen for scroll events on the window
+  window.addEventListener('scroll', function() {
+    autoScrollEnabled = isScrolledToBottom();
+  });
 };
 </script>
 
