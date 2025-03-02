@@ -22,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
+import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
@@ -117,6 +118,11 @@ public class AnthropicApiClient implements IAiApiClient {
 
 		JsonArray messages = new JsonArray();
 		for (ChatConversation.ChatMessage msg : chat.getMessages()) {
+			if (Role.SYSTEM.equals(msg.getRole())) {
+				req.add("system", new JsonPrimitive(msg.getContent()));
+				continue;
+			}
+
 			JsonObject jsonMsg = new JsonObject();
 			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
 
@@ -218,7 +224,9 @@ public class AnthropicApiClient implements IAiApiClient {
 									// Handle end of message
 									break;
 
+								case "content_block_start":
 								case "content_block_stop":
+								case "message_start":
 								case "message_delta":
 								case "ping":
 									// These events can be handled if needed

@@ -4,6 +4,7 @@ import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.R
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -158,7 +159,15 @@ public class ChatView extends ViewPart {
 				}
 				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
 				String combinedHtml = messageHtml + "\n" + attachments.toString();
-				chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), combinedHtml);
+
+				if (Role.SYSTEM.equals(message.getRole())) {
+					combinedHtml = "<details><summary>System Prompt</summary>" + combinedHtml + "</details>";
+				}
+
+				final String finalHtml = combinedHtml;
+				Display.getDefault().asyncExec(() -> {
+					chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), finalHtml);
+				});
 			});
 		}
 
@@ -546,6 +555,7 @@ public class ChatView extends ViewPart {
 					}
 					if (messageUuid.equals(msg.getId())) {
 						msgToEdit = msg;
+						break;
 					}
 				}
 
@@ -612,6 +622,18 @@ public class ChatView extends ViewPart {
 		externallyAddedContext.clear();
 		chat.reset();
 		userInput.set("");
+
+		if (!replacement.getMessages().isEmpty()) {
+			ProgressAdapter listener = new ProgressAdapter() {
+				@Override
+				public void completed(ProgressEvent event) {
+					List<ChatMessage> messages = new ArrayList<>(replacement.getMessages());
+					messages.forEach(conversation::notifyMessageAdded);
+					chat.removeProgressListener(this);
+				}
+			};
+			chat.addProgressListener(listener);
+		}
 	}
 
 	private void clearChat() {
@@ -619,22 +641,11 @@ public class ChatView extends ViewPart {
 	}
 
 	private void replaceChat(ChatConversation replacement) {
-		// No need to initialize, it will be overwritten anyway.
-		clearChatInternal(new ChatConversation());
+		clearChatInternal(replacement);
 
 		conversation.getOptions().clear();
 		conversation.getOptions().putAll(replacement.getOptions());
 		conversation.setConversationId(replacement.getConversationId());
-		if (!replacement.getMessages().isEmpty()) {
-			ProgressAdapter listener = new ProgressAdapter() {
-				@Override
-				public void completed(ProgressEvent event) {
-					replacement.getMessages().forEach(conversation::addMessage);
-					chat.removeProgressListener(this);
-				}
-			};
-			chat.addProgressListener(listener);
-		}
 	}
 
 	private ChatConversation createNewChatConversation() {

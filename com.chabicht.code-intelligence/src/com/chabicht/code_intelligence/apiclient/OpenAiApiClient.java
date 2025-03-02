@@ -255,7 +255,8 @@ public class OpenAiApiClient implements IAiApiClient {
 						}
 					});
 				} else {
-					Activator.logError("Streaming chat failed with status: " + response.statusCode(), null);
+					Activator.logError("Streaming chat failed with status: " + response.statusCode() + "\n"
+							+ response.body().collect(Collectors.joining("\n")), null);
 				}
 			} finally {
 				chat.notifyChatResponseFinished(assistantMessage);

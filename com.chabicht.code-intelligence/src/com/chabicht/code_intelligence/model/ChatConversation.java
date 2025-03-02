@@ -233,7 +233,7 @@ public class ChatConversation {
 	 */
 	public void addMessage(ChatMessage message) {
 		messages.add(message);
-		messageAdded(message);
+		notifyMessageAdded(message);
 	}
 
 	/**
@@ -253,7 +253,7 @@ public class ChatConversation {
 		}
 	}
 
-	private void messageAdded(ChatMessage message) {
+	public void notifyMessageAdded(ChatMessage message) {
 		for (ChatListener listener : listeners) {
 			if (listener != null) {
 				listener.onMessageAdded(message);

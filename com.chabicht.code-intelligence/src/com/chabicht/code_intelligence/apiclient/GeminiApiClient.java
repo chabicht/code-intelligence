@@ -9,9 +9,13 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.StringUtils;
+
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
+import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.google.gson.Gson;
@@ -19,6 +23,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 public class GeminiApiClient implements IAiApiClient {
 	private final AiApiConnection apiConnection;
@@ -59,6 +64,14 @@ public class GeminiApiClient implements IAiApiClient {
 	@Override
 	public void performChat(String modelName, ChatConversation chat) {
 		JsonObject req = new JsonObject();
+		String systemPrompt = getSystemPrompt(chat);
+		if (StringUtils.isNoneBlank(systemPrompt)) {
+			JsonObject systemInstruction = new JsonObject();
+			JsonObject parts = new JsonObject();
+			parts.add("text", new JsonPrimitive(systemPrompt));
+			systemInstruction.add("parts", parts);
+			req.add("system_instruction", systemInstruction);
+		}
 		req.add("contents", createChatContentsArray(chat));
 
 		JsonObject genConfig = new JsonObject();
@@ -111,6 +124,19 @@ public class GeminiApiClient implements IAiApiClient {
 				});
 	}
 
+	private String getSystemPrompt(ChatConversation chat) {
+		String res = null;
+
+		for (ChatMessage msg : chat.getMessages()) {
+			if (Role.SYSTEM.equals(msg.getRole())) {
+				res = msg.getContent();
+				break;
+			}
+		}
+
+		return res;
+	}
+
 	@Override
 	public String caption(String modelName, String content) {
 		JsonObject req = new JsonObject();
@@ -154,6 +180,10 @@ public class GeminiApiClient implements IAiApiClient {
 	private JsonArray createChatContentsArray(ChatConversation chat) {
 		JsonArray messagesJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : chat.getMessages()) {
+			if (Role.SYSTEM.equals(msg.getRole())) {
+				continue;
+			}
+
 			JsonObject jsonMsg = new JsonObject();
 
 			// Convert role to lowercase. If your API expects "model" for assistant
