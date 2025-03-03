@@ -212,9 +212,6 @@ public class ChatConversation {
 	 */
 	public void addListener(ChatListener listener) {
 		listeners.add(listener);
-		for (ChatMessage msg : this.messages) {
-			listener.onMessageAdded(msg);
-		}
 	}
 
 	/**
