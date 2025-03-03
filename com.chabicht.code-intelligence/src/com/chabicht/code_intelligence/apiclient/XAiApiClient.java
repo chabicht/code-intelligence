@@ -146,6 +146,7 @@ public class XAiApiClient implements IAiApiClient {
         JsonObject req = new JsonObject();
         req.addProperty("model", modelName);
         req.addProperty("temperature", completionPrompt.getTemperature());
+		req.addProperty("max_tokens", Activator.getDefault().getMaxCompletionTokens());
 
         JsonArray messages = new JsonArray();
         JsonObject userMessage = new JsonObject();
@@ -161,7 +162,7 @@ public class XAiApiClient implements IAiApiClient {
     }
 
     @Override
-    public void performChat(String modelName, ChatConversation chat) {
+	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
         // Build the JSON array of messages from the conversation
         List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
         JsonArray messagesJson = new JsonArray();
@@ -187,6 +188,7 @@ public class XAiApiClient implements IAiApiClient {
         JsonObject req = new JsonObject();
         req.addProperty("model", modelName);
         req.addProperty("stream", true);
+		req.addProperty("max_tokens", maxResponseTokens);
         req.add("messages", messagesJson);
 
         // Add an empty assistant message to be updated as the stream progresses

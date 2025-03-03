@@ -241,4 +241,20 @@ public class Activator extends AbstractUIPlugin {
 	public void removePropertyChangeListener(String propertyName, PropertyChangeListener listener) {
 		pcs.removePropertyChangeListener(propertyName, listener);
 	}
+
+	public int getMaxCompletionTokens() {
+		int res = getPreferenceStore().getInt(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS);
+		if (res <= 0) {
+			res = 1024;
+		}
+		return res;
+	}
+
+	public int getMaxChatTokens() {
+		int res = getPreferenceStore().getInt(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS);
+		if (res <= 0) {
+			res = 8192;
+		}
+		return res;
+	}
 }

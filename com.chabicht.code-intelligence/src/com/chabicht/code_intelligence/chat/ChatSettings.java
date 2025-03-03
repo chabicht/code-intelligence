@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.chat;
 
+import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 
@@ -7,6 +8,7 @@ public class ChatSettings extends Bean {
 	private String model;
 	private PromptTemplate promptTemplate;
 	private boolean reasoningEnabled;
+	private int maxResponseTokens = Activator.getDefault().getMaxChatTokens();
 	private int reasoningTokens = 8192;
 
 	public String getModel() {
@@ -33,6 +35,15 @@ public class ChatSettings extends Bean {
 	public void setReasoningEnabled(boolean reasoningEnabled) {
 		propertyChangeSupport.firePropertyChange("reasoningEnabled", this.reasoningEnabled,
 				this.reasoningEnabled = reasoningEnabled);
+	}
+
+	public int getMaxResponseTokens() {
+		return maxResponseTokens;
+	}
+
+	public void setMaxResponseTokens(int maxTokens) {
+		propertyChangeSupport.firePropertyChange("maxResponseTokens", this.maxResponseTokens,
+				this.maxResponseTokens = maxTokens);
 	}
 
 	public int getReasoningTokens() {

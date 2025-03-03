@@ -106,12 +106,12 @@ public class AiApiConnection extends Bean {
 		return getApiClient().performCompletion(modelName, completionPrompt);
 	}
 
-	public void performChat(String modelName, ChatConversation chat) {
+	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		if (!enabled) {
 			throw new RuntimeException("API connection disabled!");
 		}
 
-		getApiClient().performChat(modelName, chat);
+		getApiClient().performChat(modelName, chat, maxResponseTokens);
 	}
 
 	public void abortChat() {

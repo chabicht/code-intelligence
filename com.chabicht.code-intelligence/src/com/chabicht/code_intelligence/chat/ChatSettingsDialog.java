@@ -61,6 +61,8 @@ public class ChatSettingsDialog extends Dialog {
 
 	private Button btnEnabled;
 
+	private Text txtChatCompletionMaxTokens;
+
 	protected ChatSettingsDialog(Shell parentShell, ChatSettings settings) {
 		super(parentShell);
 		ChatSettings clone;
@@ -123,6 +125,13 @@ public class ChatSettingsDialog extends Dialog {
 			}
 		});
 		btnChange.setText("Change...");
+
+		Label lblChatCompletionMaxTokens = new Label(composite, SWT.NONE);
+		lblChatCompletionMaxTokens.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
+		lblChatCompletionMaxTokens.setText("Max. response tokens:");
+
+		txtChatCompletionMaxTokens = new Text(composite, SWT.BORDER);
+		txtChatCompletionMaxTokens.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 
 		Label lblSystemPrompt = new Label(composite, SWT.NONE);
 		lblSystemPrompt.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
@@ -241,6 +250,15 @@ public class ChatSettingsDialog extends Dialog {
 				.observe(settings);
 		bindingContext.bindValue(observeTextTxtReasoningBudgetTokensObserveWidget,
 				reasoningBudgetTokensSettingsObserveValue,
+				new UpdateValueStrategy().setConverter(StringToNumberConverter.toInteger(true)),
+				new UpdateValueStrategy().setConverter(NumberToStringConverter.fromInteger(true)));
+
+		IObservableValue observeTextTxtChatCompletionMaxTokensObserveWidget = WidgetProperties.text(SWT.Modify)
+				.observe(txtChatCompletionMaxTokens);
+		IObservableValue maxResponseTokensSettingsObserveValue = BeanProperties.value("maxResponseTokens")
+				.observe(settings);
+		bindingContext.bindValue(observeTextTxtChatCompletionMaxTokensObserveWidget,
+				maxResponseTokensSettingsObserveValue,
 				new UpdateValueStrategy().setConverter(StringToNumberConverter.toInteger(true)),
 				new UpdateValueStrategy().setConverter(NumberToStringConverter.fromInteger(true)));
 

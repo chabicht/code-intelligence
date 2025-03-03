@@ -53,6 +53,7 @@ public class GeminiApiClient implements IAiApiClient {
 		req.add("contents", createContentsArray(completionPrompt.compile()));
 		JsonObject genConfig = new JsonObject();
 		genConfig.addProperty("temperature", completionPrompt.getTemperature());
+		genConfig.addProperty("maxOutputTokens", Activator.getDefault().getMaxChatTokens());
 		req.add("generationConfig", genConfig);
 
 		JsonObject res = performPost(JsonObject.class, modelName + ":generateContent", req);
@@ -62,7 +63,7 @@ public class GeminiApiClient implements IAiApiClient {
 	}
 
 	@Override
-	public void performChat(String modelName, ChatConversation chat) {
+	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		JsonObject req = new JsonObject();
 		String systemPrompt = getSystemPrompt(chat);
 		if (StringUtils.isNoneBlank(systemPrompt)) {
@@ -75,7 +76,8 @@ public class GeminiApiClient implements IAiApiClient {
 		req.add("contents", createChatContentsArray(chat));
 
 		JsonObject genConfig = new JsonObject();
-		genConfig.addProperty("temperature", 0.2); // You may parameterize this
+		genConfig.addProperty("temperature", 0.1);
+		genConfig.addProperty("maxOutputTokens", maxResponseTokens);
 		req.add("generationConfig", genConfig);
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(

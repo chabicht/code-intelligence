@@ -43,7 +43,7 @@ public interface IAiApiClient {
 	 * @param onChunk   a Consumer callback invoked with each new text chunk (may be
 	 *                  null)
 	 */
-	void performChat(String modelName, ChatConversation chat);
+	void performChat(String modelName, ChatConversation chat, int maxResponseTokens);
 
 	void abortChat();
 

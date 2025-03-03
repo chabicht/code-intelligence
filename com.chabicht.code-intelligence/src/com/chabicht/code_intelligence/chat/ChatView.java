@@ -528,7 +528,7 @@ public class ChatView extends ViewPart {
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
 
 			conversation.addMessage(chatMessage);
-			connection.chat(conversation);
+			connection.chat(conversation, settings.getMaxResponseTokens());
 			userInput.set("");
 
 			// Set text to "⏹️"

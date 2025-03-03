@@ -95,7 +95,7 @@ public class AnthropicApiClient implements IAiApiClient {
 	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
-		req.addProperty("max_tokens", 1024); // You might want to make this configurable
+		req.addProperty("max_tokens", Activator.getDefault().getMaxCompletionTokens());
 
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();
@@ -111,7 +111,7 @@ public class AnthropicApiClient implements IAiApiClient {
 	}
 
 	@Override
-	public void performChat(String modelName, ChatConversation chat) {
+	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
@@ -144,13 +144,13 @@ public class AnthropicApiClient implements IAiApiClient {
 		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
 			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);
-			req.addProperty("max_tokens", 8192 + reasoningBudgetTokens);
+			req.addProperty("max_tokens", maxResponseTokens + reasoningBudgetTokens);
 			JsonObject thinking = new JsonObject();
 			req.add("thinking", thinking);
 			thinking.add("type", new JsonPrimitive("enabled"));
 			thinking.add("budget_tokens", new JsonPrimitive(reasoningBudgetTokens));
 		} else {
-			req.addProperty("max_tokens", 8192);
+			req.addProperty("max_tokens", maxResponseTokens);
 		}
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(

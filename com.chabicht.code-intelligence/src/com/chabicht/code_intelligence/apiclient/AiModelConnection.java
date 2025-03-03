@@ -25,8 +25,8 @@ public class AiModelConnection {
 		return conn.performCompletion(modelName, completionPrompt);
 	}
 
-	public void chat(ChatConversation chat) {
-		conn.performChat(modelName, chat);
+	public void chat(ChatConversation chat, int maxResponseTokens) {
+		conn.performChat(modelName, chat, maxResponseTokens);
 	}
 
 	public String caption(String content) {

@@ -132,6 +132,7 @@ public class OpenAiApiClient implements IAiApiClient {
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
 		req.addProperty("temperature", completionPrompt.getTemperature());
+		req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
 
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();
@@ -169,7 +170,7 @@ public class OpenAiApiClient implements IAiApiClient {
 	 *                  null)
 	 */
 	@Override
-	public void performChat(String modelName, ChatConversation chat) {
+	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		// Build the JSON array of messages from the conversation.
 		// (We use the messages already in the conversation. We assume the conversation
 		// ends with a user message.)
@@ -198,6 +199,7 @@ public class OpenAiApiClient implements IAiApiClient {
 		// Create the JSON request object.
 		JsonObject req = new JsonObject();
 		req.addProperty("model", modelName);
+		req.addProperty("max_completion_tokens", maxResponseTokens);
 		req.addProperty("stream", true);
 		req.add("messages", messagesJson);
 

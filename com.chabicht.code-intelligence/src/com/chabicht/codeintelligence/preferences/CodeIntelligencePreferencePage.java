@@ -57,9 +57,10 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		lblCompletion.setText("Completion:");
 		lblCompletion.setFont(boldFont);
 
-		CompletionModelFieldEditor completionFieldEditor = new CompletionModelFieldEditor(
-				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent());
-		addField(completionFieldEditor);
+		addField(new CompletionModelFieldEditor(
+				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent()));
+		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS, "Max. &response tokens:",
+				getFieldEditorParent()));
 
 		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
@@ -68,20 +69,22 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		lblChat.setText("Chat:");
 		lblChat.setFont(boldFont);
 
-		ChatModelFieldEditor chatFieldEditor = new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
-				getFieldEditorParent());
-		addField(chatFieldEditor);
+		addField(new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
+				getFieldEditorParent()));
+		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS, "Max. r&esponse tokens:",
+				getFieldEditorParent()));
 
-		IntegerFieldEditor integerEditor = new IntegerFieldEditor(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT,
-				"Max. &history items:", getFieldEditorParent());
-		addField(integerEditor);
+		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT,
+				"Max. &history items:", getFieldEditorParent()));
 
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 
 		addField(new PromptTemplateFieldEditor(PreferenceConstants.PRMPT_TEMPLATES, "&Prompt Templates:",
-				getFieldEditorParent(), connections, completionFieldEditor::getStringValue,
-				chatFieldEditor::getStringValue));
+				getFieldEditorParent(), connections, new CompletionModelFieldEditor(
+						PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent())::getStringValue,
+				new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
+						getFieldEditorParent())::getStringValue));
 
 		addField(new BooleanFieldEditor(PreferenceConstants.DEBUG_LOG_PROMPTS, "Log prompts to Error Log",
 				getFieldEditorParent()));

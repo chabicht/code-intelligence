@@ -110,6 +110,7 @@ public class OllamaApiClient implements IAiApiClient {
 		JsonObject options = new JsonObject();
 		options.addProperty("temperature", completionPrompt.getTemperature());
 		options.addProperty("num_ctx", 8192);
+		options.addProperty("num_predict", Activator.getDefault().getMaxCompletionTokens());
 		req.add("options", options);
 		req.addProperty("stream", false);
 
@@ -140,7 +141,7 @@ public class OllamaApiClient implements IAiApiClient {
 	 *                  far
 	 */
 	@Override
-	public void performChat(String modelName, ChatConversation chat) {
+	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		// Build the JSON array of messages from the conversation.
 		// We assume the conversation ends with a user message.
 		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
@@ -171,6 +172,11 @@ public class OllamaApiClient implements IAiApiClient {
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
 		req.add("messages", messagesJson);
+
+		JsonObject options = new JsonObject();
+		options.addProperty("num_ctx", 8192);
+		options.addProperty("num_predict", maxResponseTokens);
+		req.add("options", options);
 
 		// Add a new (empty) assistant message to the conversation.
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
