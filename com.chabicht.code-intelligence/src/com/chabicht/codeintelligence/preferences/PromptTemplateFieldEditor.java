@@ -33,6 +33,7 @@ import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.model.DefaultPrompts;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.ModelUtil;
 
 /**
  * A field editor for managing PromptTemplates.
@@ -246,9 +247,10 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		template.setType(PromptType.INSTRUCT);
 		template.setPrompt(DefaultPrompts.INSTRUCT_PROMPT);
 		String providerModelString = instructModelIdGetter.get();
-		String[] providerModelArray = providerModelString.split("/");
-		template.setConnectionName(providerModelArray[0]);
-		template.setModelId(providerModelArray[1]);
+		ModelUtil.getProviderModelTuple(providerModelString).ifPresent(t -> {
+			template.setConnectionName(t.getFirst());
+			template.setModelId(t.getSecond());
+		});
 		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(), apiConnections,
 				template);
 		if (dialog.open() == Dialog.OK) {

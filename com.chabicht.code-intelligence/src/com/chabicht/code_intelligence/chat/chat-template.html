@@ -126,13 +126,13 @@
 	  display: flex;
 	  justify-content: flex-end;
 	  padding: 5px;
-	  background-color: #f5f5f5;
+	  background-color: #F5F5F5;
 	  border-bottom: 1px solid #E0E0E0;
 	}
 
 	.copy-button {
 	  background-color: #FFFFFF;
-	  border: 1px solid #cccccc;
+	  border: 1px solid #CCCCCC;
 	  color: #333333;
 	  cursor: pointer;
 	  font-size: 12px;
@@ -145,6 +145,26 @@
 	  padding: 10px;
 	  overflow: auto;
 	}
+
+	/* Add this to the style section in chat-template.html */
+    .message-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 5px;
+      margin-top: 8px;
+      border-top: 1px solid #E0E0E0;
+    }
+    
+    .message-button {
+      background-color: #FFFFFF;
+      border: 1px solid #CCCCCC;
+      color: #333333;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-left: 5px;
+    }
   </style>
 </head>
 <body>
@@ -155,6 +175,7 @@
 
 <script>
 var autoScrollEnabled = true;
+var darkTheme = false;
 
 function isScrolledToBottom() {
   var bottomElement = document.getElementById("bottom");
@@ -172,54 +193,78 @@ function isScrolledToBottom() {
  * @param {String} content - The HTML content of the message.
  */
  function addMessage(uuid, role, content) {
-	var container = document.getElementById("chat-container");
-	if (!container) {
-		return;
-	}
-	var div = document.createElement("div");
+   var container = document.getElementById("chat-container");
+   if (!container) {
+     return;
+   }
+   var div = document.createElement("div");
 
-	// Choose the correct CSS class based on the role
-	if (role === "assistant") {
-		div.className = "message from-them";
-	} else if (role === "user") {
-		div.className = "message from-me";
-	} else if (role === "system") {
-		div.className = "message from-system";
-	} else {
-		div.className = "message";
-	}
+   // Choose the correct CSS class based on the role
+   if (role === "assistant") {
+     div.className = "message from-them";
+   } else if (role === "user") {
+     div.className = "message from-me";
+   } else if (role === "system") {
+     div.className = "message from-system";
+   } else {
+     div.className = "message";
+   }
 
-	// Set the uuid as the element's id for future reference
-	div.id = uuid;
-	div.innerHTML = content;
+   // Set the uuid as the element's id for future reference
+   div.id = uuid;
+   
+   // Create a content div for the message content
+   var contentDiv = document.createElement("div");
+   contentDiv.className = "message-content";
+   contentDiv.innerHTML = content;
+   div.appendChild(contentDiv);
+   
+   // Process code blocks to add copy buttons
+   processCodeBlocks(contentDiv);
 
-	// Process code blocks to add copy buttons
-	processCodeBlocks(div);
+   // Add a footer with buttons
+   if (role !== "system") {  // Skip for system messages
+     var footer = document.createElement("div");
+     footer.className = "message-footer";
+     
+     // Add copy button
+	 var copyButton = document.createElement("button");
+	 copyButton.className = "message-button";
+	 copyButton.title = "Copy";
+	 setCopyButtonIcon(copyButton);
+	 copyButton.onclick = function() {
+       showCheckIconFeedback(copyButton);
 
-	// If the message is from the user, add the edit icon
-	if (role === "user") {
-		var editSpan = document.createElement("span");
-		editSpan.id = "edit:" + uuid;
-		editSpan.innerHTML = "&#x1F58A;"; // pen emoji
-		editSpan.style.position = "absolute";
-		editSpan.style.bottom = "5px";
-		editSpan.style.right = "5px";
-		editSpan.style.cursor = "pointer";
-		editSpan.style.fontSize = "26px";
-		editSpan.style.fontWeight = "800";
+	   // Call the Java callback
+	   messageCopyClicked("copy:" + uuid);
+	 };
 
-		div.style.position = "relative";
-		div.appendChild(editSpan);
-	}
+     footer.appendChild(copyButton);
+     
+	 // Add edit button only for user messages
+	 if (role === "user") {
+	   var editButton = document.createElement("button");
+	   editButton.className = "message-button";
+	   editButton.title = "Edit";
+	   setEditButtonIcon(editButton);
+	   editButton.onclick = function() {
+	     elementClicked("edit:" + uuid);
+	   };
+	   
+	   footer.appendChild(editButton);
+	 }
+     
+     div.appendChild(footer);
+   }
 
-	container.appendChild(div);
+   container.appendChild(div);
 
-	// Only scroll if auto-scroll is enabled
-	if (autoScrollEnabled) {
-		var bottom = document.getElementById("bottom");
-		bottom.scrollIntoView(true);
-	}
-}
+   // Only scroll if auto-scroll is enabled
+   if (autoScrollEnabled) {
+     var bottom = document.getElementById("bottom");
+     bottom.scrollIntoView(true);
+   }
+ }
 
 /**
  * Updates an existing message's content.
@@ -229,10 +274,16 @@ function isScrolledToBottom() {
  function updateMessage(uuid, updatedContent) {
    var message = document.getElementById(uuid);
    if (message) {
-     message.innerHTML = updatedContent;
-
-     // Process code blocks to add copy buttons
-     processCodeBlocks(message);
+     // Find the content div within the message
+     var contentDiv = message.querySelector('.message-content');
+     
+     // Update the content
+     if (contentDiv) {
+       contentDiv.innerHTML = updatedContent;
+       
+       // Process code blocks to add copy buttons
+       processCodeBlocks(contentDiv);
+     }
    }
 
    // Only scroll if auto-scroll is enabled
@@ -240,7 +291,9 @@ function isScrolledToBottom() {
      var bottom = document.getElementById("bottom");
      bottom.scrollIntoView(true);
    }
-}
+ }
+
+
 
 /**
  * Processes code blocks within a container to add copy buttons.
@@ -269,7 +322,8 @@ function processCodeBlocks(container) {
     // Create the copy button
     var copyButton = document.createElement('button');
     copyButton.className = 'copy-button';
-    copyButton.innerText = 'Copy';
+    copyButton.title = 'Copy';
+	setCopyButtonIcon(copyButton);
     
     // Add button to header
     codeBlockHeader.appendChild(copyButton);
@@ -289,11 +343,44 @@ function processCodeBlocks(container) {
  * @param {HTMLElement} button - The copy button element.
  * @param {HTMLElement} codeBlock - The code block element.
  */
-function attachCopyEvent(button, codeBlock) {
-  button.onclick = function() {
-    copyCodeToClipboard(codeBlock);
-  };
-}
+ function attachCopyEvent(button, codeBlock) {
+   button.onclick = function() {
+     showCheckIconFeedback(button);
+
+     copyCodeToClipboard(codeBlock);
+   };
+ }
+
+ /**
+  * Returns the appropriate check icon SVG based on the current theme
+  * @returns {string} The base64 encoded SVG for a check icon
+  */
+ function getCheckIcon() {
+   // SVG icons in base64 format
+   const lightThemeIcon = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjMzMzMzMzIj48cGF0aCBkPSJtMzgyLTM1NCAzMzktMzM5cTEyLTEyIDI4LTEydDI4IDEycTEyIDEyIDEyIDI4LjVUNzc3LTYzNkw0MTAtMjY4cS0xMiAxMi0yOCAxMnQtMjgtMTJMMTgyLTQ0MHEtMTItMTItMTEuNS0yOC41VDE4My00OTdxMTItMTIgMjguNS0xMnQyOC41IDEybDE0MiAxNDNaIi8+PC9zdmc+";
+   const darkThemeIcon = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjY2NjY2NjIj48cGF0aCBkPSJtMzgyLTM1NCAzMzktMzM5cTEyLTEyIDI4LTEydDI4IDEycTEyIDEyIDEyIDI4LjVUNzc3LTYzNkw0MTAtMjY4cS0xMiAxMi0yOCAxMnQtMjgtMTJMMTgyLTQ0MHEtMTItMTItMTEuNS0yOC41VDE4My00OTdxMTItMTIgMjguNS0xMnQyOC41IDEybDE0MiAxNDNaIi8+PC9zdmc+";
+   
+   // Choose the icon based on theme
+   return darkTheme ? darkThemeIcon : lightThemeIcon;
+ }
+
+ /**
+  * Shows a check icon as visual feedback for a successful copy operation
+  * @param {HTMLElement} button - The button element to update
+  */
+ function showCheckIconFeedback(button) {
+   // Save the original content of the button
+   const originalContent = button.innerHTML;
+   
+   // Replace with check icon
+   const checkIcon = getCheckIcon();
+   button.innerHTML = '<img src="data:image/svg+xml;base64,' + checkIcon + '" alt="Copied" width="16" height="16" style="vertical-align: middle;">';
+   
+   // Restore original content after 1.5 seconds
+   setTimeout(function() {
+     button.innerHTML = originalContent;
+   }, 1500);
+ }
 
 /**
  * Copies code content to clipboard (compatible with IE11).
@@ -335,6 +422,119 @@ function processExistingMessages() {
   }
 }
 
+function messageCopyClicked(id) {
+  // This function will be called by the Java BrowserFunction
+  elementClicked(id);
+}
+
+/**
+ * Detects if the current theme is dark or light based on the body's background color.
+ * @returns {boolean} true if dark theme, false if light theme
+ */
+function detectTheme() {
+  // Get the background color of the body
+  const bodyBgColor = window.getComputedStyle(document.body).backgroundColor;
+  
+  // Parse the RGB values
+  const rgb = bodyBgColor.match(/\d+/g);
+  if (!rgb || rgb.length < 3) {
+    // If we can't parse the color, default to light theme
+    return false;
+  }
+  
+  // Convert to integers
+  const r = parseInt(rgb[0]);
+  const g = parseInt(rgb[1]);
+  const b = parseInt(rgb[2]);
+  
+  // Calculate perceived brightness using the formula that accounts for human perception
+  // (the human eye is more sensitive to green, less to blue)
+  const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
+  
+  // If brightness is less than 128 (middle of 0-255 range), consider it dark
+  return brightness < 128;
+}
+
+// Example usage:
+function updateThemeSetting() {
+  darkTheme = detectTheme();
+}
+
+/**
+ * Returns an HTML img tag with the appropriate copy icon based on the current theme
+ * @returns {string} An HTML img tag with the appropriate copy icon
+ */
+function getCopyIconHtml() {
+  // Base64 encoded SVGs for light and dark themes
+  const lightThemeSVG = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjMzMzMzMzIj48cGF0aCBkPSJNMzYwLTI0MHEtMzMgMC01Ni41LTIzLjVUMjgwLTMyMHYtNDgwcTAtMzMgMjMuNS01Ni41VDM2MC04ODBoMzYwcTMzIDAgNTYuNSAyMy41VDgwMC04MDB2NDgwcTAgMzMtMjMuNSA1Ni41VDcyMC0yNDBIMzYwWm0wLTgwaDM2MHYtNDgwSDM2MHY0ODBaTTIwMC04MHEtMzMgMC01Ni41LTIzLjVUMTIwLTE2MHYtNTIwcTAtMTcgMTEuNS0yOC41VDE2MC03MjBxMTcgMCAyOC41IDExLjVUMjAwLTY4MHY1MjBoNDAwcTE3IDAgMjguNSAxMS41VDY0MC0xMjBxMCAxNy0xMS41IDI4LjVUNjAwLTgwSDIwMFptMTYwLTI0MHYtNDgwIDQ4MFoiLz48L3N2Zz4=";
+  const darkThemeSVG = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjY2NjY2NjIj48cGF0aCBkPSJNMzYwLTI0MHEtMzMgMC01Ni41LTIzLjVUMjgwLTMyMHYtNDgwcTAtMzMgMjMuNS01Ni41VDM2MC04ODBoMzYwcTMzIDAgNTYuNSAyMy41VDgwMC04MDB2NDgwcTAgMzMtMjMuNSA1Ni41VDcyMC0yNDBIMzYwWm0wLTgwaDM2MHYtNDgwSDM2MHY0ODBaTTIwMC04MHEtMzMgMC01Ni41LTIzLjVUMTIwLTE2MHYtNTIwcTAtMTcgMTEuNS0yOC41VDE2MC03MjBxMTcgMCAyOC41IDExLjVUMjAwLTY4MHY1MjBoNDAwcTE3IDAgMjguNSAxMS41VDY0MC0xMjBxMCAxNy0xMS41IDI4LjVUNjAwLTgwSDIwMFptMTYwLTI0MHYtNDgwIDQ4MFoiLz48L3N2Zz4=";
+  
+  // Select the appropriate SVG based on the theme
+  const svgBase64 = darkTheme ? darkThemeSVG : lightThemeSVG;
+  
+  // Return the HTML img tag with the data URL
+  return `<img src="data:image/svg+xml;base64,${svgBase64}" alt="Copy" width="16" height="16" style="vertical-align: middle;">`;
+}
+
+/**
+ * Sets the appropriate copy icon SVG based on the current theme
+ * @param {HTMLElement} button - The button element to update
+ */
+function setCopyButtonIcon(button) {
+  // SVG icons in base64 format
+  const lightThemeIcon = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjMzMzMzMzIj48cGF0aCBkPSJNMzYwLTI0MHEtMzMgMC01Ni41LTIzLjVUMjgwLTMyMHYtNDgwcTAtMzMgMjMuNS01Ni41VDM2MC04ODBoMzYwcTMzIDAgNTYuNSAyMy41VDgwMC04MDB2NDgwcTAgMzMtMjMuNSA1Ni41VDcyMC0yNDBIMzYwWm0wLTgwaDM2MHYtNDgwSDM2MHY0ODBaTTIwMC04MHEtMzMgMC01Ni41LTIzLjVUMTIwLTE2MHYtNTIwcTAtMTcgMTEuNS0yOC41VDE2MC03MjBxMTcgMCAyOC41IDExLjVUMjAwLTY4MHY1MjBoNDAwcTE3IDAgMjguNSAxMS41VDY0MC0xMjBxMCAxNy0xMS41IDI4LjVUNjAwLTgwSDIwMFptMTYwLTI0MHYtNDgwIDQ4MFoiLz48L3N2Zz4=";
+  const darkThemeIcon = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjY2NjY2NjIj48cGF0aCBkPSJNMzYwLTI0MHEtMzMgMC01Ni41LTIzLjVUMjgwLTMyMHYtNDgwcTAtMzMgMjMuNS01Ni41VDM2MC04ODBoMzYwcTMzIDAgNTYuNSAyMy41VDgwMC04MDB2NDgwcTAgMzMtMjMuNSA1Ni41VDcyMC0yNDBIMzYwWm0wLTgwaDM2MHYtNDgwSDM2MHY0ODBaTTIwMC04MHEtMzMgMC01Ni41LTIzLjVUMTIwLTE2MHYtNTIwcTAtMTcgMTEuNS0yOC41VDE2MC03MjBxMTcgMCAyOC41IDExLjVUMjAwLTY4MHY1MjBoNDAwcTE3IDAgMjguNSAxMS41VDY0MC0xMjBxMCAxNy0xMS41IDI4LjVUNjAwLTgwSDIwMFptMTYwLTI0MHYtNDgwIDQ4MFoiLz48L3N2Zz4=";
+  
+  // Choose the icon based on theme
+  const iconSrc = darkTheme ? darkThemeIcon : lightThemeIcon;
+  
+  // Set button content to the SVG
+  button.innerHTML = '';
+  button.style.display = "flex";
+  button.style.alignItems = "center";
+  button.style.justifyContent = "center";
+  button.style.padding = "5px 8px";
+  button.style.transition = "opacity 0.7s ease-in-out";
+  
+  // Add the SVG image
+  const img = document.createElement('img');
+  img.src = "data:image/svg+xml;base64," + iconSrc;
+  img.alt = "Copy";
+  img.style.width = "16px";
+  img.style.height = "16px";
+  button.appendChild(img);
+}
+
+/**
+ * Sets the appropriate edit icon SVG based on the current theme
+ * @param {HTMLElement} button - The button element to update
+ */
+function setEditButtonIcon(button) {
+  // SVG icons in base64 format
+  const lightThemeIcon = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjMzMzMzMzIj48cGF0aCBkPSJNMjAwLTIwMGg1N2wzOTEtMzkxLTU3LTU3LTM5MSAzOTF2NTdabS00MCA4MHEtMTcgMC0yOC41LTExLjVUMTIwLTE2MHYtOTdxMC0xNiA2LTMwLjV0MTctMjUuNWw1MDUtNTA0cTEyLTExIDI2LjUtMTd0MzAuNS02cTE2IDAgMzEgNnQyNiAxOGw1NSA1NnExMiAxMSAxNy41IDI2dDUuNSAzMHEwIDE2LTUuNSAzMC41VDgxNy02NDdMMzEzLTE0M3EtMTEgMTEtMjUuNSAxN3QtMzAuNSA2aC05N1ptNjAwLTU4NC01Ni01NiA1NiA1NlptLTE0MSA4NS0yOC0yOSA1NyA1Ny0yOS0yOFoiLz48L3N2Zz4=";
+  const darkThemeIcon = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjY2NjY2NjIj48cGF0aCBkPSJNMjAwLTIwMGg1N2wzOTEtMzkxLTU3LTU3LTM5MSAzOTF2NTdabS00MCA4MHEtMTcgMC0yOC41LTExLjVUMTIwLTE2MHYtOTdxMC0xNiA2LTMwLjV0MTctMjUuNWw1MDUtNTA0cTEyLTExIDI2LjUtMTd0MzAuNS02cTE2IDAgMzEgNnQyNiAxOGw1NSA1NnExMiAxMSAxNy41IDI2dDUuNSAzMHEwIDE2LTUuNSAzMC41VDgxNy02NDdMMzEzLTE0M3EtMTEgMTEtMjUuNSAxN3QtMzAuNSA2aC05N1ptNjAwLTU4NC01Ni01NiA1NiA1NlptLTE0MSA4NS0yOC0yOSA1NyA1Ny0yOS0yOFoiLz48L3N2Zz4=";
+  
+  // Choose the icon based on theme
+  const iconSrc = darkTheme ? darkThemeIcon : lightThemeIcon;
+  
+  // Set button content to the SVG
+  button.innerHTML = '';
+  button.style.display = "flex";
+  button.style.alignItems = "center";
+  button.style.justifyContent = "center";
+  button.style.padding = "5px 8px";
+  button.style.transition = "opacity 0.7s ease-in-out";
+  
+  // Add the SVG image
+  const img = document.createElement('img');
+  img.src = "data:image/svg+xml;base64," + iconSrc;
+  img.alt = "Edit";
+  img.style.width = "16px";
+  img.style.height = "16px";
+  button.appendChild(img);
+}
+
+
 // Call the function after the page loads
 window.onload = function() {
   processExistingMessages();
@@ -342,6 +542,8 @@ window.onload = function() {
   // Initial check - are we at the bottom?
   autoScrollEnabled = isScrolledToBottom();
 
+  updateThemeSetting();
+  
   // Listen for scroll events on the window
   window.addEventListener('scroll', function() {
     autoScrollEnabled = isScrolledToBottom();

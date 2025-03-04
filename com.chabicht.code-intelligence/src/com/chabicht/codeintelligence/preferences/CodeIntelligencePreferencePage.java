@@ -57,8 +57,9 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		lblCompletion.setText("Completion:");
 		lblCompletion.setFont(boldFont);
 
-		addField(new CompletionModelFieldEditor(
-				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent()));
+		CompletionModelFieldEditor completionModelIdFieldEditor = new CompletionModelFieldEditor(
+				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent());
+		addField(completionModelIdFieldEditor);
 		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS, "Max. &response tokens:",
 				getFieldEditorParent()));
 
@@ -69,8 +70,9 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		lblChat.setText("Chat:");
 		lblChat.setFont(boldFont);
 
-		addField(new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
-				getFieldEditorParent()));
+		ChatModelFieldEditor chatModelIdFieldEditor = new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME,
+				"M&odel:", getFieldEditorParent());
+		addField(chatModelIdFieldEditor);
 		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS, "Max. r&esponse tokens:",
 				getFieldEditorParent()));
 
@@ -81,10 +83,8 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 
 		addField(new PromptTemplateFieldEditor(PreferenceConstants.PRMPT_TEMPLATES, "&Prompt Templates:",
-				getFieldEditorParent(), connections, new CompletionModelFieldEditor(
-						PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent())::getStringValue,
-				new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME, "M&odel:",
-						getFieldEditorParent())::getStringValue));
+				getFieldEditorParent(), connections, completionModelIdFieldEditor::getStringValue,
+				chatModelIdFieldEditor::getStringValue));
 
 		addField(new BooleanFieldEditor(PreferenceConstants.DEBUG_LOG_PROMPTS, "Log prompts to Error Log",
 				getFieldEditorParent()));

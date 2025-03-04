@@ -60,6 +60,7 @@ public class ChatComponent extends Composite {
 		Color bubbleBorderColor = rm.create(interpolate(bgColor, fgColor, 75));
 		String bubbleBorderColorString = toCss(bubbleBorderColor);
 
+
 		return CHAT_TEMPLATE.replaceAll("#FFFFFF", bgColorString).replaceAll("#333333", fgColorString)
 				.replaceAll("#F5F5F5", bubbleColorString).replaceAll("#E0E0E0", bubbleBorderColorString);
 	}

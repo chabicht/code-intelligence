@@ -39,6 +39,9 @@ import org.eclipse.swt.browser.LocationEvent;
 import org.eclipse.swt.browser.ProgressAdapter;
 import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.browser.ProgressListener;
+import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.TextTransfer;
+import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -66,6 +69,7 @@ import org.eclipse.ui.part.ViewPart;
 import org.eclipse.ui.texteditor.ITextEditor;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -76,6 +80,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatView extends ViewPart {
@@ -347,15 +352,15 @@ public class ChatView extends ViewPart {
 		settings.setModel(defaultModel);
 
 		if (StringUtils.isNotBlank(defaultModel)) {
-			String[] split = defaultModel.split("/");
-			if (split.length == 2) {
-				String connectionName = split[0];
-				String modelId = split[1];
+			Optional<Tuple<String, String>> modelOpt = ModelUtil.getProviderModelTuple(defaultModel);
+			modelOpt.ifPresent(m -> {
+				String connectionName = m.getFirst();
+				String modelId = m.getSecond();
 				Activator.getDefault().loadPromptTemplates().stream()
 						.filter(pt -> PromptType.CHAT.equals(pt.getType()) && pt.isUseByDefault()
 								&& pt.isApplicable(connectionName, modelId))
 						.findFirst().ifPresent(settings::setPromptTemplate);
-			}
+			});
 		}
 	}
 
@@ -680,13 +685,45 @@ public class ChatView extends ViewPart {
 
 		@Override
 		public Object function(Object[] arguments) {
-			if (arguments[0] instanceof String str && !StringUtils.isBlank(str) && str.startsWith("edit:")) {
-				String messageUuid = str.substring("edit:".length());
-				editChat(messageUuid);
+			if (arguments[0] instanceof String str && !StringUtils.isBlank(str)) {
+				if (str.startsWith("edit:")) {
+					String messageUuid = str.substring("edit:".length());
+					editChat(messageUuid);
+				} else if (str.startsWith("copy:")) {
+					String messageUuid = str.substring("copy:".length());
+					copyMessageToClipboard(messageUuid);
+				}
 			}
 			return null;
 		}
+	}
 
+	public void copyMessageToClipboard(String messageUuidString) {
+		UUID messageUuid = UUID.fromString(messageUuidString);
+
+		// Find the message with the given UUID
+		Optional<ChatMessage> messageOpt = conversation.getMessages().stream()
+				.filter(msg -> messageUuid.equals(msg.getId())).findFirst();
+
+		if (messageOpt.isPresent()) {
+			ChatMessage message = messageOpt.get();
+
+			// Copy to clipboard using SWT
+			Clipboard clipboard = new Clipboard(Display.getDefault());
+			TextTransfer textTransfer = TextTransfer.getInstance();
+
+			String messageMarkdown = message.getContent();
+			if (!message.getContext().isEmpty()) {
+				StringBuilder sb = new StringBuilder();
+				sb.append("\n\n#Context:\n");
+				sb.append(message.getContext().stream().map(c -> c.getDescriptor() + c.getContent())
+						.collect(Collectors.joining("\n\n")));
+				messageMarkdown += sb.toString();
+			}
+
+			clipboard.setContents(new Object[] { messageMarkdown }, new Transfer[] { textTransfer });
+			clipboard.dispose();
+		}
 	}
 
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
