@@ -4,6 +4,7 @@ import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.R
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
 
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -19,11 +20,14 @@ import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.core.databinding.observable.list.IListChangeListener;
 import org.eclipse.core.databinding.observable.list.ListDiffEntry;
 import org.eclipse.core.databinding.observable.list.WritableList;
+import org.eclipse.jdt.core.ToolFactory;
+import org.eclipse.jdt.core.formatter.CodeFormatter;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
+import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.ITextSelection;
@@ -61,6 +65,10 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
+import org.eclipse.text.edits.MalformedTreeException;
+import org.eclipse.text.edits.TextEdit;
+import org.eclipse.text.undo.DocumentUndoManagerRegistry;
+import org.eclipse.text.undo.IDocumentUndoManager;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
@@ -692,6 +700,9 @@ public class ChatView extends ViewPart {
 				} else if (str.startsWith("copy:")) {
 					String messageUuid = str.substring("copy:".length());
 					copyMessageToClipboard(messageUuid);
+				} else if (str.startsWith("apply:")) {
+					String encodedCode = str.substring("apply:".length());
+					applyCodeToEditor(encodedCode);
 				}
 			}
 			return null;
@@ -723,6 +734,165 @@ public class ChatView extends ViewPart {
 
 			clipboard.setContents(new Object[] { messageMarkdown }, new Transfer[] { textTransfer });
 			clipboard.dispose();
+		}
+	}
+
+	/**
+	 * Applies code from the chat to the current editor, minimizing undo steps.
+	 * <p>
+	 * The implementation reduces undo/redo fragmentation by:
+	 * <ul>
+	 * <li>Wrapping all changes in a single compound operation via
+	 * DocumentUndoManagerRegistry</li>
+	 * <li>Using a two-phase formatting approach where text is formatted in memory
+	 * first</li>
+	 * <li>Applying the formatted result as a single document edit rather than
+	 * multiple edits</li>
+	 * </ul>
+	 * This ensures that code application and formatting appear as one atomic
+	 * operation in the editor's undo history, improving usability.
+	 * 
+	 * @param encodedCode URL-encoded string containing the code to apply
+	 */
+	public void applyCodeToEditor(String encodedCode) {
+		try {
+			String codeContent = java.net.URLDecoder.decode(encodedCode, StandardCharsets.UTF_8.name());
+
+			// Get the active editor
+			IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+			if (window == null) {
+				return;
+			}
+
+			IWorkbenchPage page = window.getActivePage();
+			if (page == null) {
+				return;
+			}
+
+			IEditorPart editor = page.getActiveEditor();
+			if (editor == null || !(editor instanceof ITextEditor)) {
+				return;
+			}
+
+			ITextEditor textEditor = (ITextEditor) editor;
+			IDocument document = textEditor.getDocumentProvider().getDocument(textEditor.getEditorInput());
+
+			if (document == null) {
+				return;
+			}
+
+			// Get the current selection or cursor position
+			ISelectionProvider selectionProvider = textEditor.getSelectionProvider();
+			if (selectionProvider == null) {
+				return;
+			}
+
+			ISelection selection = selectionProvider.getSelection();
+			if (selection instanceof ITextSelection) {
+				ITextSelection textSelection = (ITextSelection) selection;
+
+				final int offset;
+				final int length;
+
+				if (textSelection.getLength() > 0) {
+					// Replace the selected text
+					offset = textSelection.getOffset();
+					length = textSelection.getLength();
+				} else {
+					// Insert at cursor position
+					offset = textSelection.getOffset();
+					length = 0;
+				}
+
+				// Execute the edit on the UI thread
+				Display.getDefault().asyncExec(() -> {
+					try {
+						// Get undo manager to create a single undoable operation
+						IDocumentUndoManager undoManager = DocumentUndoManagerRegistry.getDocumentUndoManager(document);
+
+						// Store original length
+						int originalDocumentLength = document.getLength();
+
+						// Begin a single compound change
+						undoManager.beginCompoundChange();
+
+						try {
+							// Apply the code change
+							document.replace(offset, length, codeContent);
+
+							// Format the code using a non-document-modifying approach
+							String formattedText = getFormattedText(document.get(), offset, codeContent.length());
+							if (formattedText != null) {
+								// Apply the formatted text as a single change
+								document.replace(offset, codeContent.length(), formattedText);
+							} else {
+								// Fallback to traditional formatting if above fails
+								formatCode(document, offset, codeContent.length());
+							}
+
+							// Calculate the formatted region's size
+							int formattedLength = document.getLength() - (originalDocumentLength - length);
+
+							// Select the entire applied and formatted code
+							textEditor.selectAndReveal(offset, formattedLength);
+						} finally {
+							// End the compound change
+							undoManager.endCompoundChange();
+						}
+					} catch (BadLocationException e) {
+						Activator.logError("Error applying code to editor", e);
+					}
+				});
+			}
+		} catch (Exception e) {
+			Activator.logError("Error processing code application", e);
+		}
+	}
+
+	/**
+	 * Gets formatted text without directly modifying the document. This allows us
+	 * to apply the formatting as a single edit operation.
+	 * 
+	 * @param documentContent The full document content
+	 * @param offset          The offset of the text to format
+	 * @param length          The length of text to format
+	 * @return Formatted text or null if formatting failed
+	 */
+	private String getFormattedText(String documentContent, int offset, int length) {
+		try {
+			CodeFormatter formatter = ToolFactory.createCodeFormatter(null);
+			if (formatter != null) {
+				TextEdit edit = formatter.format(CodeFormatter.K_COMPILATION_UNIT, documentContent, offset, length, 0,
+						null);
+				if (edit != null) {
+					// Create a document with the same content to apply the edits to
+					Document tempDocument = new Document(documentContent);
+					edit.apply(tempDocument);
+
+					// Extract only the formatted region
+					return tempDocument.get(offset, length + (tempDocument.getLength() - documentContent.length()));
+				}
+			}
+		} catch (Exception e) {
+			Activator.logError("Error in getFormattedText", e);
+		}
+		return null;
+	}
+
+	/**
+	 * Fallback formatting method - applies edits directly to the document
+	 */
+	private void formatCode(IDocument document, int offset, int length) {
+		CodeFormatter formatter = ToolFactory.createCodeFormatter(null);
+		if (formatter != null) {
+			TextEdit edit = formatter.format(CodeFormatter.K_COMPILATION_UNIT, document.get(), offset, length, 0, null);
+			if (edit != null) {
+				try {
+					edit.apply(document);
+				} catch (MalformedTreeException | BadLocationException e) {
+					Activator.logError("Error formatting code", e);
+				}
+			}
 		}
 	}
 

@@ -299,56 +299,173 @@ function isScrolledToBottom() {
  * Processes code blocks within a container to add copy buttons.
  * @param {HTMLElement} container - The container element to search for code blocks.
  */
-function processCodeBlocks(container) {
-  var preElements = container.getElementsByTagName('pre');
-  
-  for (var i = 0; i < preElements.length; i++) {
-    var preElement = preElements[i];
-    var codeElement = preElement.querySelector('code');
-    
-    // Skip if already processed
-    if (preElement.parentNode.className.indexOf('code-block') !== -1) {
-      continue;
-    }
+ /**
+  * Processes code blocks within a container to add copy and apply buttons.
+  * @param {HTMLElement} container - The container element to search for code blocks.
+  */
+ function processCodeBlocks(container) {
+   var preElements = container.getElementsByTagName('pre');
+   
+   for (var i = 0; i < preElements.length; i++) {
+     var preElement = preElements[i];
+     var codeElement = preElement.querySelector('code');
+     
+     // Skip if already processed
+     if (preElement.parentNode.className.indexOf('code-block') !== -1) {
+       continue;
+     }
 
-    // Create wrapper container
-    var codeBlock = document.createElement('div');
-    codeBlock.className = 'code-block';
-    
-    // Create header for the copy button
-    var codeBlockHeader = document.createElement('div');
-    codeBlockHeader.className = 'code-block-header';
-    
-    // Create the copy button
-    var copyButton = document.createElement('button');
-    copyButton.className = 'copy-button';
-    copyButton.title = 'Copy';
-	setCopyButtonIcon(copyButton);
-    
-    // Add button to header
-    codeBlockHeader.appendChild(copyButton);
-    
-    // Insert the code block elements
-    preElement.parentNode.insertBefore(codeBlock, preElement);
-    codeBlock.appendChild(codeBlockHeader);
-    codeBlock.appendChild(preElement);
-    
-    // Attach click event to the copy button
-    attachCopyEvent(copyButton, codeElement || preElement);
-  }
-}
+     // Create wrapper container
+     var codeBlock = document.createElement('div');
+     codeBlock.className = 'code-block';
+     
+     // Create header for the buttons
+     var codeBlockHeader = document.createElement('div');
+     codeBlockHeader.className = 'code-block-header';
+     
+     // Create the apply button
+     var applyButton = document.createElement('button');
+     applyButton.className = 'copy-button';
+     applyButton.title = 'Apply to Editor';
+     setApplyButtonIcon(applyButton);
+     
+     // Create the copy button
+     var copyButton = document.createElement('button');
+     copyButton.className = 'copy-button';
+     copyButton.title = 'Copy';
+     setCopyButtonIcon(copyButton);
+     
+     // Add buttons to header
+     codeBlockHeader.appendChild(applyButton);
+     codeBlockHeader.appendChild(copyButton);
+     
+     // Insert the code block elements
+     preElement.parentNode.insertBefore(codeBlock, preElement);
+     codeBlock.appendChild(codeBlockHeader);
+     codeBlock.appendChild(preElement);
+     
+     // Attach click events to the buttons
+     attachApplyEvent(applyButton, codeElement || preElement);
+     attachCopyEvent(copyButton, codeElement || preElement);
+   }
+ }
 
-/**
- * Attaches a click event to the copy button to copy code content.
- * @param {HTMLElement} button - The copy button element.
- * @param {HTMLElement} codeBlock - The code block element.
- */
+ /**
+  * Sets the appropriate apply icon SVG based on the current theme
+  * @param {HTMLElement} button - The button element to update
+  */
+ function setApplyButtonIcon(button) {
+   // SVG icons in base64 format
+   const lightThemeIcon = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgaGVpZ2h0PSIyNHB4IgogICB2aWV3Qm94PSIwIC05NjAgOTYwIDk2MCIKICAgd2lkdGg9IjI0cHgiCiAgIGZpbGw9IiMzMzMzMzMiCiAgIHZlcnNpb249IjEuMSIKICAgaWQ9InN2ZzQiCiAgIHNvZGlwb2RpOmRvY25hbWU9Im1vdmVfaXRlbV8yNGRwXzMzMzMzM19GSUxMMF93Z2h0NDAwX0dSQUQwX29wc3oyNC5zdmciCiAgIGlua3NjYXBlOnZlcnNpb249IjEuMi4yICg3MzJhMDFkYTYzLCAyMDIyLTEyLTA5KSIKICAgeG1sbnM6aW5rc2NhcGU9Imh0dHA6Ly93d3cuaW5rc2NhcGUub3JnL25hbWVzcGFjZXMvaW5rc2NhcGUiCiAgIHhtbG5zOnNvZGlwb2RpPSJodHRwOi8vc29kaXBvZGkuc291cmNlZm9yZ2UubmV0L0RURC9zb2RpcG9kaS0wLmR0ZCIKICAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogICB4bWxuczpzdmc9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcwogICAgIGlkPSJkZWZzOCIgLz4KICA8c29kaXBvZGk6bmFtZWR2aWV3CiAgICAgaWQ9Im5hbWVkdmlldzYiCiAgICAgcGFnZWNvbG9yPSIjZmZmZmZmIgogICAgIGJvcmRlcmNvbG9yPSIjMDAwMDAwIgogICAgIGJvcmRlcm9wYWNpdHk9IjAuMjUiCiAgICAgaW5rc2NhcGU6c2hvd3BhZ2VzaGFkb3c9IjIiCiAgICAgaW5rc2NhcGU6cGFnZW9wYWNpdHk9IjAuMCIKICAgICBpbmtzY2FwZTpwYWdlY2hlY2tlcmJvYXJkPSIwIgogICAgIGlua3NjYXBlOmRlc2tjb2xvcj0iI2QxZDFkMSIKICAgICBzaG93Z3JpZD0iZmFsc2UiCiAgICAgaW5rc2NhcGU6em9vbT0iNDEuNzUiCiAgICAgaW5rc2NhcGU6Y3g9IjExLjU2ODg2MiIKICAgICBpbmtzY2FwZTpjeT0iMTIiCiAgICAgaW5rc2NhcGU6d2luZG93LXdpZHRoPSIyNTYwIgogICAgIGlua3NjYXBlOndpbmRvdy1oZWlnaHQ9IjEzNjkiCiAgICAgaW5rc2NhcGU6d2luZG93LXg9IjE5MTIiCiAgICAgaW5rc2NhcGU6d2luZG93LXk9Ii04IgogICAgIGlua3NjYXBlOndpbmRvdy1tYXhpbWl6ZWQ9IjEiCiAgICAgaW5rc2NhcGU6Y3VycmVudC1sYXllcj0ic3ZnNCIgLz4KICA8cGF0aAogICAgIGQ9Ik0gNjAwLC02MDAgViAtNzYwIEggMjAwIHYgNTYwIGggNDAwIHYgLTE2MCBoIDgwIHYgMTYwIHEgMCwzMyAtMjMuNSw1Ni41IFEgNjMzLC0xMjAgNjAwLC0xMjAgSCAyMDAgcSAtMzMsMCAtNTYuNSwtMjMuNSBRIDEyMCwtMTY3IDEyMCwtMjAwIHYgLTU2MCBxIDAsLTMzIDIzLjUsLTU2LjUgUSAxNjcsLTg0MCAyMDAsLTg0MCBoIDQwMCBxIDMzLDAgNTYuNSwyMy41IDIzLjUsMjMuNSAyMy41LDU2LjUgdiAxNjAgeiIKICAgICBpZD0icGF0aDQ0MSIgLz4KICA8cGF0aAogICAgIGQ9Im0gNDc0LC01MjAgaCA0ODYgdiA4MCBIIDQ3NCBsIDYyLDYyIC01Niw1OCAtMTYwLC0xNjAgMTYwLC0xNjAgNTYsNTggeiIKICAgICBpZD0icGF0aDIiIC8+Cjwvc3ZnPgo=";
+   const darkThemeIcon = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgaGVpZ2h0PSIyNHB4IgogICB2aWV3Qm94PSIwIC05NjAgOTYwIDk2MCIKICAgd2lkdGg9IjI0cHgiCiAgIGZpbGw9IiMzMzMzMzMiCiAgIHZlcnNpb249IjEuMSIKICAgaWQ9InN2ZzQiCiAgIHNvZGlwb2RpOmRvY25hbWU9Im1vdmVfaXRlbV8yNGRwX0NDQ0NDQ19GSUxMMF93Z2h0NDAwX0dSQUQwX29wc3oyNC5zdmciCiAgIGlua3NjYXBlOnZlcnNpb249IjEuMi4yICg3MzJhMDFkYTYzLCAyMDIyLTEyLTA5KSIKICAgeG1sbnM6aW5rc2NhcGU9Imh0dHA6Ly93d3cuaW5rc2NhcGUub3JnL25hbWVzcGFjZXMvaW5rc2NhcGUiCiAgIHhtbG5zOnNvZGlwb2RpPSJodHRwOi8vc29kaXBvZGkuc291cmNlZm9yZ2UubmV0L0RURC9zb2RpcG9kaS0wLmR0ZCIKICAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogICB4bWxuczpzdmc9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcwogICAgIGlkPSJkZWZzOCIgLz4KICA8c29kaXBvZGk6bmFtZWR2aWV3CiAgICAgaWQ9Im5hbWVkdmlldzYiCiAgICAgcGFnZWNvbG9yPSIjZmZmZmZmIgogICAgIGJvcmRlcmNvbG9yPSIjMDAwMDAwIgogICAgIGJvcmRlcm9wYWNpdHk9IjAuMjUiCiAgICAgaW5rc2NhcGU6c2hvd3BhZ2VzaGFkb3c9IjIiCiAgICAgaW5rc2NhcGU6cGFnZW9wYWNpdHk9IjAuMCIKICAgICBpbmtzY2FwZTpwYWdlY2hlY2tlcmJvYXJkPSIwIgogICAgIGlua3NjYXBlOmRlc2tjb2xvcj0iI2QxZDFkMSIKICAgICBzaG93Z3JpZD0iZmFsc2UiCiAgICAgaW5rc2NhcGU6em9vbT0iNDEuNzUiCiAgICAgaW5rc2NhcGU6Y3g9IjExLjQzNzEyNiIKICAgICBpbmtzY2FwZTpjeT0iMTIiCiAgICAgaW5rc2NhcGU6d2luZG93LXdpZHRoPSIyNTYwIgogICAgIGlua3NjYXBlOndpbmRvdy1oZWlnaHQ9IjEzNjkiCiAgICAgaW5rc2NhcGU6d2luZG93LXg9IjE5MTIiCiAgICAgaW5rc2NhcGU6d2luZG93LXk9Ii04IgogICAgIGlua3NjYXBlOndpbmRvdy1tYXhpbWl6ZWQ9IjEiCiAgICAgaW5rc2NhcGU6Y3VycmVudC1sYXllcj0ic3ZnNCIgLz4KICA8cGF0aAogICAgIGQ9Ik0gNjAwLC02MDAgViAtNzYwIEggMjAwIHYgNTYwIGggNDAwIHYgLTE2MCBoIDgwIHYgMTYwIHEgMCwzMyAtMjMuNSw1Ni41IFEgNjMzLC0xMjAgNjAwLC0xMjAgSCAyMDAgcSAtMzMsMCAtNTYuNSwtMjMuNSBRIDEyMCwtMTY3IDEyMCwtMjAwIHYgLTU2MCBxIDAsLTMzIDIzLjUsLTU2LjUgUSAxNjcsLTg0MCAyMDAsLTg0MCBoIDQwMCBxIDMzLDAgNTYuNSwyMy41IDIzLjUsMjMuNSAyMy41LDU2LjUgdiAxNjAgeiIKICAgICBpZD0icGF0aDQ0MSIKICAgICBzdHlsZT0iZmlsbDojY2NjY2NjO2ZpbGwtb3BhY2l0eToxIiAvPgogIDxwYXRoCiAgICAgZD0ibSA0NzQsLTUyMCBoIDQ4NiB2IDgwIEggNDc0IGwgNjIsNjIgLTU2LDU4IC0xNjAsLTE2MCAxNjAsLTE2MCA1Niw1OCB6IgogICAgIGlkPSJwYXRoMiIKICAgICBzdHlsZT0iZmlsbDojY2NjY2NjO2ZpbGwtb3BhY2l0eToxIiAvPgo8L3N2Zz4K";
+   
+   // Choose the icon based on theme
+   const iconSrc = darkTheme ? darkThemeIcon : lightThemeIcon;
+   
+   // Set button content to the SVG
+   button.innerHTML = '';
+   button.style.display = "flex";
+   button.style.alignItems = "center";
+   button.style.justifyContent = "center";
+   button.style.padding = "5px 8px";
+   button.style.transition = "opacity 0.7s ease-in-out";
+   
+   // Add the SVG image
+   const img = document.createElement('img');
+   img.src = "data:image/svg+xml;base64," + iconSrc;
+   img.alt = "Apply";
+   img.style.width = "16px";
+   img.style.height = "16px";
+   button.appendChild(img);
+ }
+
+ /**
+  * Attaches a click event to the apply button to apply code to editor.
+  * @param {HTMLElement} button - The apply button element.
+  * @param {HTMLElement} codeBlock - The code block element.
+  */
+ function attachApplyEvent(button, codeBlock) {
+   button.onclick = function() {
+     showCheckIconFeedback(button);
+
+     // Get the selected text or the whole code block
+     var content = getSelectedTextInElement(codeBlock) || (codeBlock.innerText || codeBlock.textContent);
+     elementClicked("apply:" + encodeURIComponent(content));
+   };
+ }
+
+ /**
+  * Attaches a click event to the copy button to copy code content.
+  * @param {HTMLElement} button - The copy button element.
+  * @param {HTMLElement} codeBlock - The code block element.
+  */
  function attachCopyEvent(button, codeBlock) {
    button.onclick = function() {
      showCheckIconFeedback(button);
 
-     copyCodeToClipboard(codeBlock);
+     // Get the selected text or the whole code block
+     var content = getSelectedTextInElement(codeBlock) || (codeBlock.innerText || codeBlock.textContent);
+     copyTextToClipboard(content);
    };
+ }
+
+ /**
+  * Gets the selected text if it's within the given element.
+  * @param {HTMLElement} element - The element to check selection within.
+  * @returns {string|null} The selected text within the element, or null if no valid selection.
+  */
+ function getSelectedTextInElement(element) {
+   // Get the current selection
+   var selection = window.getSelection();
+   
+   // Check if there's a selection and it has text
+   if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
+     return null;
+   }
+   
+   // Check if the selection is inside the element
+   var range = selection.getRangeAt(0);
+   var container = range.commonAncestorContainer;
+   
+   // Navigate up the DOM if needed
+   while (container && container !== element && container.parentNode !== document.body) {
+     container = container.parentNode;
+   }
+   
+   // If the selection is within the element, return the selected text
+   if (container === element || element.contains(container)) {
+     return selection.toString();
+   }
+   
+   return null;
+ }
+
+ /**
+  * Copies text to clipboard.
+  * @param {string} text - The text to copy.
+  */
+ function copyTextToClipboard(text) {
+   var textarea = document.createElement('textarea');
+   textarea.value = text;
+
+   // Make the textarea off-screen
+   textarea.style.position = 'fixed';
+   textarea.style.top = '-1000px';
+   textarea.style.left = '-1000px';
+
+   document.body.appendChild(textarea);
+   textarea.select();
+
+   try {
+     var successful = document.execCommand('copy');
+     if (!successful) {
+       console.error('Unable to copy text.');
+     }
+   } catch (err) {
+     console.error('Copy feature is not supported in this browser.');
+   }
+
+   document.body.removeChild(textarea);
  }
 
  /**
@@ -381,36 +498,6 @@ function processCodeBlocks(container) {
      button.innerHTML = originalContent;
    }, 1500);
  }
-
-/**
- * Copies code content to clipboard (compatible with IE11).
- * @param {HTMLElement} codeElement - The code element whose content to copy.
- */
-function copyCodeToClipboard(codeElement) {
-  var text = codeElement.innerText || codeElement.textContent;
-
-  var textarea = document.createElement('textarea');
-  textarea.value = text;
-
-  // Make the textarea off-screen
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-1000px';
-  textarea.style.left = '-1000px';
-
-  document.body.appendChild(textarea);
-  textarea.select();
-
-  try {
-    var successful = document.execCommand('copy');
-    if (!successful) {
-      alert('Unable to copy code.');
-    }
-  } catch (err) {
-    alert('Copy feature is not supported in this browser.');
-  }
-
-  document.body.removeChild(textarea);
-}
 
 /**
  * Processes existing messages to add copy buttons to code blocks.
