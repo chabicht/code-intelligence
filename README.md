@@ -51,7 +51,7 @@ Open the preferences: *Window* -> *Preferences* -> *Code Intelligence*.
 
 ![Screenshot: Plugin configuration page](images/preferences.png)
 
-Here you can add connections to different API providers and select the model you want to use for *code completion* and *chat* requests.
+Here you can add connections to different API providers and configure the model you want to use for *code completion* and *chat* requests.
 
 ## Ollama connection settings
 
