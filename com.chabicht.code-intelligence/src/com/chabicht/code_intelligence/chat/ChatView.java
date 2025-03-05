@@ -122,40 +122,15 @@ public class ChatView extends ViewPart {
 	private Composite cmpAttachments;
 	private Composite composite;
 	private Button btnSettings;
+	private Button btnHistory;
 
 	private ChatListener chatListener = new ChatListener() {
 
 		@Override
 		public void onMessageUpdated(ChatMessage message) {
-			Matcher thinkStartMatcher = PATTERN_THINK_START.matcher(message.getContent());
-			Matcher thinkEndMatcher = PATTERN_THINK_END.matcher(message.getContent());
-
-			String thinkContent = "";
-			String messageContent = message.getContent();
-			boolean endOfThinkingReached = false;
-			if (thinkStartMatcher.find()) {
-				if (thinkEndMatcher.find()) {
-					int endPosition = thinkEndMatcher.start();
-					thinkContent = messageContent.substring(thinkStartMatcher.end(), endPosition);
-					messageContent = messageContent.substring(thinkEndMatcher.end());
-					endOfThinkingReached = true;
-				} else {
-					thinkContent = messageContent.substring(thinkStartMatcher.end());
-					messageContent = "";
-				}
-			}
-			messageContent = PATTERN_TAGS_TO_REMOVE.matcher(messageContent).replaceAll("");
-
-			String thinkHtml = "";
-			if (StringUtils.isNotBlank(thinkContent)) {
-				thinkHtml = String.format("<details%s><summary>%s</summary><blockquote>%s</blockquote></details>",
-						endOfThinkingReached ? "" : " open", endOfThinkingReached ? "Thoughts" : "Thinking...",
-						markdownRenderer.render(markdownParser.parse(thinkContent)));
-			}
-			String messageHtml = markdownRenderer.render(markdownParser.parse(messageContent));
-			String combinedHtml = thinkHtml + messageHtml;
+			String messageHtml = messageContentToHtml(message);
 			Display.getDefault().asyncExec(() -> {
-				chat.updateMessage(message.getId(), combinedHtml);
+				chat.updateMessage(message.getId(), messageHtml);
 			});
 		}
 
@@ -170,7 +145,7 @@ public class ChatView extends ViewPart {
 								+ "<span class=\"tooltip\">%s</span>" + "</span>", ctx.getLabel()));
 					}
 				}
-				String messageHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
+				String messageHtml = messageContentToHtml(message);
 				String combinedHtml = messageHtml + "\n" + attachments.toString();
 
 				if (Role.SYSTEM.equals(message.getRole())) {
@@ -182,6 +157,21 @@ public class ChatView extends ViewPart {
 					chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), finalHtml);
 				});
 			});
+		}
+
+		private String messageContentToHtml(ChatMessage message) {
+			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
+
+			String thinkHtml = "";
+			if (StringUtils.isNotBlank(thoughtsAndMessage.getThoughts())) {
+				thinkHtml = String.format("<details%s><summary>%s</summary><blockquote>%s</blockquote></details>",
+						thoughtsAndMessage.isEndOfReasoningReached() ? "" : " open",
+						thoughtsAndMessage.isEndOfReasoningReached() ? "Thoughts" : "Thinking...",
+						markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getThoughts())));
+			}
+			String messageHtml = markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getMessage()));
+			String combinedHtml = thinkHtml + messageHtml;
+			return combinedHtml;
 		}
 
 		@Override
@@ -198,6 +188,30 @@ public class ChatView extends ViewPart {
 					Activator.logInfo(conversation.toString());
 				}
 			});
+		}
+	};
+
+	private static class MessageContentWithReasoning {
+		private final String thoughts;
+		private final String message;
+		private final boolean endOfReasoningReached;
+
+		public MessageContentWithReasoning(String thoughts, String message, boolean endOfReasoningReached) {
+			this.thoughts = thoughts;
+			this.message = message;
+			this.endOfReasoningReached = endOfReasoningReached;
+		}
+
+		public String getThoughts() {
+			return thoughts;
+		}
+
+		public String getMessage() {
+			return message;
+		}
+
+		public boolean isEndOfReasoningReached() {
+			return endOfReasoningReached;
 		}
 	};
 
@@ -723,7 +737,8 @@ public class ChatView extends ViewPart {
 			Clipboard clipboard = new Clipboard(Display.getDefault());
 			TextTransfer textTransfer = TextTransfer.getInstance();
 
-			String messageMarkdown = message.getContent();
+			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
+			String messageMarkdown = thoughtsAndMessage.getMessage();
 			if (!message.getContext().isEmpty()) {
 				StringBuilder sb = new StringBuilder();
 				sb.append("\n\n#Context:\n");
@@ -896,8 +911,32 @@ public class ChatView extends ViewPart {
 		}
 	}
 
+	private MessageContentWithReasoning splitThoughtsFromMessage(ChatMessage message) {
+		Matcher thinkStartMatcher = PATTERN_THINK_START.matcher(message.getContent());
+		Matcher thinkEndMatcher = PATTERN_THINK_END.matcher(message.getContent());
+
+		String thinkContent = "";
+		String messageContent = message.getContent();
+		boolean endOfThinkingReached = false;
+		if (thinkStartMatcher.find()) {
+			if (thinkEndMatcher.find()) {
+				int endPosition = thinkEndMatcher.start();
+				thinkContent = messageContent.substring(thinkStartMatcher.end(), endPosition);
+				messageContent = messageContent.substring(thinkEndMatcher.end());
+				endOfThinkingReached = true;
+			} else {
+				thinkContent = messageContent.substring(thinkStartMatcher.end());
+				messageContent = "";
+			}
+		}
+		messageContent = PATTERN_TAGS_TO_REMOVE.matcher(messageContent).replaceAll("");
+
+		MessageContentWithReasoning thoughtsAndMessage = new MessageContentWithReasoning(thinkContent, messageContent,
+				endOfThinkingReached);
+		return thoughtsAndMessage;
+	}
+
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
 			+ "if (e) {var target = e.target || e.srcElement; " + "var elementId = target.id ? target.id : 'no-id';"
 			+ "elementClicked(elementId);}}";
-	private Button btnHistory;
 }
