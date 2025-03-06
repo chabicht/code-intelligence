@@ -84,9 +84,9 @@ Here you can add connections to different API providers and configure the model 
 
 ![Screenshot: Gemini configuration](images/gemini.png)
 
-- Use *Type* Anthropic.
+- Use *Type* Gemini.
 - For the *Base URI*, use `https://generativelanguage.googleapis.com/v1beta`.
-- You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
+- You have to create an API key in the [Google AI Studio settings](https://aistudio.google.com/app/apikey).  
 
 ## Anthropic connection settings
 
@@ -94,7 +94,7 @@ Here you can add connections to different API providers and configure the model 
 
 - Use *Type* Anthropic.
 - For the *Base URI*, use `https://api.anthropic.com/v1`.
-- You have to create an API key in the [Google AI Studio settings](https://aistudio.google.com/app/apikey).  
+- You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
 
 ## X.ai/Grok connection settings
 
