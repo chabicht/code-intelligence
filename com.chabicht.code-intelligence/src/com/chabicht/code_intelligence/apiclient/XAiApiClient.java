@@ -175,9 +175,8 @@ public class XAiApiClient implements IAiApiClient {
                 content.append("Context information:\n\n");
             }
             for (MessageContext ctx : msg.getContext()) {
-                content.append(ctx.getDescriptor());
-                content.append(ctx.getContent());
-                content.append("\n\n");
+				content.append(ctx.compile());
+				content.append("\n");
             }
             content.append(msg.getContent());
             jsonMsg.addProperty("content", content.toString());

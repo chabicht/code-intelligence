@@ -96,6 +96,14 @@ Here you can add connections to different API providers and configure the model 
 - For the *Base URI*, use `https://api.x.ai/v1`.
 - You have to create an API key in the [X.ai Console settings](https://console.x.ai/).  
 
+## DeepSeek connection settings
+
+![Screenshot: DeepSeek configuration](images/deepseek.png)
+
+- Use *Type* OpenAI.
+- For the *Base URI*, use `https://api.deepseek.com`.
+- You have to create an API key in the [DeepSeek platform](https://platform.deepseek.com/api_keys).  
+
 ## Model selection
 
 The model is identified by `[Connection Name]/[Model ID]`, so assuming your OpenAI connection was named *OpenAI*, to use GPT-4o-Mini, you would enter `OpenAI/gpt-4o-mini`.

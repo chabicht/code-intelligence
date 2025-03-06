@@ -441,6 +441,7 @@ public class ChatView extends ViewPart {
 
 			if (e.widget.getData() instanceof MessageContext context) {
 				externallyAddedContext.remove(context);
+				cmpAttachments.layout();
 			}
 		});
 
@@ -742,8 +743,7 @@ public class ChatView extends ViewPart {
 			if (!message.getContext().isEmpty()) {
 				StringBuilder sb = new StringBuilder();
 				sb.append("\n\n#Context:\n");
-				sb.append(message.getContext().stream().map(c -> c.getDescriptor() + c.getContent())
-						.collect(Collectors.joining("\n\n")));
+				sb.append(message.getContext().stream().map(c -> c.compile()).collect(Collectors.joining("\n")));
 				messageMarkdown += sb.toString();
 			}
 
@@ -918,7 +918,15 @@ public class ChatView extends ViewPart {
 		String thinkContent = "";
 		String messageContent = message.getContent();
 		boolean endOfThinkingReached = false;
+		match_found:
 		if (thinkStartMatcher.find()) {
+
+			// If we encounter a start tag in the middle of a conversation, it's probably a
+			// model talking about reasoning.
+			if ((thinkStartMatcher.start() > 0)) {
+				break match_found;
+			}
+
 			if (thinkEndMatcher.find()) {
 				int endPosition = thinkEndMatcher.start();
 				thinkContent = messageContent.substring(thinkStartMatcher.end(), endPosition);

@@ -100,8 +100,14 @@ public class ChatConversation {
 		}
 
 		public String getDescriptor() {
-			return new StringBuilder().append("// ").append(this.getFileName()).append(" ")
-					.append(this.getRangeDescription()).append("\n").toString();
+			return new StringBuilder().append(this.getFileName()).append(" ")
+					.append(this.getRangeDescription())
+					.append("\n").toString();
+		}
+
+		public String compile() {
+			return new StringBuilder().append("```").append(getDescriptor()).append("\n").append(getContent())
+					.append("\n```\n").toString();
 		}
 
 		public String getRangeDescription() {

@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -187,9 +188,8 @@ public class OpenAiApiClient implements IAiApiClient {
 				content.append("Context information:\n\n");
 			}
 			for (MessageContext ctx : msg.getContext()) {
-				content.append(ctx.getDescriptor());
-				content.append(ctx.getContent());
-				content.append("\n\n");
+				content.append(ctx.compile());
+				content.append("\n");
 			}
 			content.append(msg.getContent());
 			jsonMsg.addProperty("content", content.toString());
@@ -226,6 +226,7 @@ public class OpenAiApiClient implements IAiApiClient {
 		// line-by-line.
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
+				AtomicBoolean reasoningStarted = new AtomicBoolean(false);
 				if (response.statusCode() >= 200 && response.statusCode() < 300) {
 					response.body().forEach(line -> {
 						// Each chunk from the API is prefixed with "data: ".
@@ -242,8 +243,27 @@ public class OpenAiApiClient implements IAiApiClient {
 									JsonObject choice = choiceElement.getAsJsonObject();
 									if (choice.has("delta")) {
 										JsonObject delta = choice.getAsJsonObject("delta");
-										if (delta.has("content")) {
-											String chunk = delta.get("content").getAsString();
+										String chunk = "";
+										// Special case for DeepSeek: reasoning is in another field than regular
+										// content.
+										if (delta.has("content") && !delta.get("content").isJsonNull()) {
+											chunk = delta.get("content").getAsString();
+											if (reasoningStarted.get()) {
+												chunk = "</think>\n" + chunk;
+												reasoningStarted.set(false);
+											}
+										} else if (delta.has("reasoning_content")
+												&& !delta.get("reasoning_content").isJsonNull()) {
+											chunk = delta.get("reasoning_content").getAsString();
+											if (!reasoningStarted.get()) {
+												chunk = chunk + "<think>\n";
+												reasoningStarted.set(true);
+											}
+										} else {
+											chunk = "";
+										}
+
+										if (StringUtils.isNotBlank(chunk)) {
 											// Append the received chunk to the assistant message.
 											assistantMessage.setContent(assistantMessage.getContent() + chunk);
 											// Notify the conversation listeners that the assistant message was updated.

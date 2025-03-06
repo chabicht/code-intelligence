@@ -202,9 +202,8 @@ public class GeminiApiClient implements IAiApiClient {
 			if (!msg.getContext().isEmpty()) {
 				contentBuilder.append("Context information:\n\n");
 				for (MessageContext ctx : msg.getContext()) {
-					contentBuilder.append(ctx.getDescriptor());
-					contentBuilder.append(ctx.getContent());
-					contentBuilder.append("\n\n");
+					contentBuilder.append(ctx.compile());
+					contentBuilder.append("\n");
 				}
 			}
 			contentBuilder.append(msg.getContent());
