@@ -80,13 +80,21 @@ Here you can add connections to different API providers and configure the model 
 - For the *Base URI*, use `https://api.groq.com/openai/v1`.
 - You have to create an API key in the [Groq playground](https://console.groq.com/keys).
 
+## Gemini connection settings
+
+![Screenshot: Gemini configuration](images/gemini.png)
+
+- Use *Type* Anthropic.
+- For the *Base URI*, use `https://generativelanguage.googleapis.com/v1beta`.
+- You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
+
 ## Anthropic connection settings
 
 ![Screenshot: Anthropic configuration](images/anthropic.png)
 
 - Use *Type* Anthropic.
 - For the *Base URI*, use `https://api.anthropic.com/v1`.
-- You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
+- You have to create an API key in the [Google AI Studio settings](https://aistudio.google.com/app/apikey).  
 
 ## X.ai/Grok connection settings
 
