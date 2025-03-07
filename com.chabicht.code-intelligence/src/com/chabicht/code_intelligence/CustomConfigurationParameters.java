@@ -1,9 +1,15 @@
 package com.chabicht.code_intelligence;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
+import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
+import com.chabicht.code_intelligence.model.PromptType;
+
 public class CustomConfigurationParameters {
+	private static final Map<Tuple<ApiType, PromptType>, String> connectionParamTemplates = createTemplates();
+
 	private static CustomConfigurationParameters instance = null;
 	private Map<String, Map<String, String>> map;
 
@@ -22,7 +28,7 @@ public class CustomConfigurationParameters {
 		if (map.containsKey(connectionName)) {
 			return map.get(connectionName);
 		} else {
-			return Collections.emptyMap();
+			return Map.of();
 		}
 	}
 
@@ -33,5 +39,26 @@ public class CustomConfigurationParameters {
 	public void setMap(Map<String, Map<String, String>> replacement) {
 		Activator.getDefault().saveCustomConfigurationParameters(replacement);
 		map = replacement;
+	}
+
+	public static Map<Tuple<ApiType, PromptType>, String> getConnectionparamtemplates() {
+		return connectionParamTemplates;
+	}
+
+	private static Map<Tuple<ApiType, PromptType>, String> createTemplates() {
+		HashMap<Tuple<ApiType, PromptType>, String> res = new HashMap<>();
+
+		res.put(Tuple.of(ApiType.OLLAMA, PromptType.CHAT), """
+				{
+				  "options": {
+				    "num_ctx": 8192,
+				    "num_batch": 2048
+				  },
+				  "keep_alive": "15m"
+				}
+				""");
+		res.put(Tuple.of(ApiType.OLLAMA, PromptType.INSTRUCT), res.get(Tuple.of(ApiType.OLLAMA, PromptType.CHAT)));
+
+		return res;
 	}
 }

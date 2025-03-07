@@ -25,14 +25,13 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
-public class GeminiApiClient implements IAiApiClient {
-	private final AiApiConnection apiConnection;
-	private transient final Gson gson = new Gson();
+public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
+	private transient final Gson gson = Activator.getDefault().createGson();
 	private CompletableFuture<Void> asyncRequest;
 	private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/";
 
 	public GeminiApiClient(AiApiConnection apiConnection) {
-		this.apiConnection = apiConnection;
+		super(apiConnection);
 	}
 
 	@Override

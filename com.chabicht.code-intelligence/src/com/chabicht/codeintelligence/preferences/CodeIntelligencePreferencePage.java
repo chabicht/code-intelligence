@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.eclipse.core.databinding.observable.list.WritableList;
-import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.IntegerFieldEditor;
@@ -69,9 +68,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		btnCustomParamsDlog.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
 			CustomConfigurationParametersDialog dlg = new CustomConfigurationParametersDialog(
 					Display.getCurrent().getActiveShell(), connections);
-			if (dlg.open() == Dialog.OK) {
-				dlg.save();
-			}
+			dlg.open();
 		}));
 
 		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);

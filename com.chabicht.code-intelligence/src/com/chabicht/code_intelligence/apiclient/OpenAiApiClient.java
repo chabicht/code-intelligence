@@ -31,14 +31,13 @@ import com.google.gson.JsonSyntaxException;
  * Implementation for OpenAI or compatible API using the chat completion
  * endpoint.
  */
-public class OpenAiApiClient implements IAiApiClient {
+public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
-	private final AiApiConnection apiConnection;
-	private transient final Gson gson = new Gson();
+	private transient final Gson gson = Activator.getDefault().createGson();
 	private CompletableFuture<Void> asyncRequest;
 
 	public OpenAiApiClient(AiApiConnection apiConnection) {
-		this.apiConnection = apiConnection;
+		super(apiConnection);
 	}
 
 	@Override

@@ -239,7 +239,7 @@ public class Activator extends AbstractUIPlugin {
 		}
 	}
 
-	private Gson createGson() {
+	public Gson createGson() {
 		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter()).create();
 	}
 

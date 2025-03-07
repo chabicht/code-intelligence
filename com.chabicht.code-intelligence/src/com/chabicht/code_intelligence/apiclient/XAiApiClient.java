@@ -30,10 +30,9 @@ import com.google.gson.JsonSyntaxException;
  * Implementation for X.ai API using the chat completion endpoint.
  * Compatible with the OpenAI REST API structure but tailored for X.ai specifics.
  */
-public class XAiApiClient implements IAiApiClient {
+public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 
-    private final AiApiConnection apiConnection;
-    private transient final Gson gson = new Gson();
+	private transient final Gson gson = Activator.getDefault().createGson();
     private CompletableFuture<Void> asyncRequest;
 
     /**
@@ -44,7 +43,7 @@ public class XAiApiClient implements IAiApiClient {
      * @param apiConnection the connection details for the X.ai API
      */
     public XAiApiClient(AiApiConnection apiConnection) {
-        this.apiConnection = apiConnection;
+		super(apiConnection);
     }
 
     @Override

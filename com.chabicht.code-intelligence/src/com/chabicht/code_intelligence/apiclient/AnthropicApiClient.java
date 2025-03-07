@@ -33,16 +33,15 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 
-public class AnthropicApiClient implements IAiApiClient {
+public class AnthropicApiClient extends AbstractApiClient implements IAiApiClient {
 
-	private final AiApiConnection apiConnection;
-	private transient final Gson gson = new Gson();
+	private transient final Gson gson = Activator.getDefault().createGson();
 	private CompletableFuture<Void> asyncRequest;
 
 	private static final String ANTHROPIC_VERSION = "2023-06-01";
 
 	public AnthropicApiClient(AiApiConnection apiConnection) {
-		this.apiConnection = apiConnection;
+		super(apiConnection);
 	}
 
 	@Override

@@ -53,5 +53,4 @@ public interface IAiApiClient {
 	 * Creates a short caption for e.g. a conversation.
 	 */
 	String caption(String modelName, String content);
-
 }
