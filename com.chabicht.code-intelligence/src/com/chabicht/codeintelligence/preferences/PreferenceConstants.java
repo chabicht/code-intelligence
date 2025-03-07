@@ -13,5 +13,6 @@ public class PreferenceConstants {
 	public static final String CHAT_HISTORY_SIZE_LIMIT = "chatHistorySizeLimit";
 	public static final String COMPLETION_MAX_RESPONSE_TOKENS = "completionMaxResponseTokens";
 	public static final String CHAT_MAX_RESPONSE_TOKENS = "chatMaxResponseTokens";
+	public static final String CUSTOM_CONFIGURATION_PARAMETERS = "customConfigurationParameters";
 
 }

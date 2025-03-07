@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.eclipse.core.runtime.IStatus;
@@ -43,6 +44,8 @@ public class Activator extends AbstractUIPlugin {
 	private static final String API_CONNECTIONS_FILE = "api-connections.json";
 
 	public static final String CHAT_HISTORY_FILE = "chat-history.json";
+
+	public static final String CUSTOM_CONFIGURATION_PARAMETERS_FILE = "custom-config.json";
 
 	// The plug-in ID
 	public static final String PLUGIN_ID = "com.chabicht.code-intelligence"; //$NON-NLS-1$
@@ -164,6 +167,41 @@ public class Activator extends AbstractUIPlugin {
 		}
 
 		saveChatHistory(history);
+	}
+
+	public Map<String, Map<String, String>> loadCustomConfigurationParameters() {
+		TypeToken<Map<String, Map<String, String>>> typeToken = new TypeToken<Map<String, Map<String, String>>>() {
+		};
+		try {
+			File parentDirectory = getConfigLocationAsFile();
+			File file = new File(parentDirectory, CUSTOM_CONFIGURATION_PARAMETERS_FILE);
+
+			if (!file.exists()) {
+				return Collections.emptyMap();
+			} else {
+				try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+					Type mapType = typeToken.getType();
+					return createGson().fromJson(reader, mapType);
+				}
+			}
+		} catch (JsonSyntaxException e) {
+			return Collections.emptyMap();
+		} catch (IOException | JsonIOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	public void saveCustomConfigurationParameters(Map<String, Map<String, String>> parameters) {
+		try {
+			File parentDirectory = getConfigLocationAsFile();
+			File file = new File(parentDirectory, CUSTOM_CONFIGURATION_PARAMETERS_FILE);
+
+			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+				createGson().toJson(parameters, writer);
+			}
+		} catch (IOException | JsonIOException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	private <T> List<T> readFile(String filename, TypeToken<List<T>> token) {

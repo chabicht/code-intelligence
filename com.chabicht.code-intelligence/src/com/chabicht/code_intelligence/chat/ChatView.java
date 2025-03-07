@@ -88,6 +88,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
@@ -113,8 +114,8 @@ public class ChatView extends ViewPart {
 
 	private ChatConversation conversation;
 
-	private Parser markdownParser = Parser.builder().build();
-	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
+	private Parser markdownParser = MarkdownUtil.createParser();
+	private HtmlRenderer markdownRenderer = MarkdownUtil.createRenderer();
 
 	private Button btnSend;
 	private AiModelConnection connection;
@@ -912,7 +913,8 @@ public class ChatView extends ViewPart {
 	}
 
 	private MessageContentWithReasoning splitThoughtsFromMessage(ChatMessage message) {
-		Matcher thinkStartMatcher = PATTERN_THINK_START.matcher(message.getContent());
+		String content = StringUtils.stripToEmpty(message.getContent());
+		Matcher thinkStartMatcher = PATTERN_THINK_START.matcher(content);
 		Matcher thinkEndMatcher = PATTERN_THINK_END.matcher(message.getContent());
 
 		String thinkContent = "";

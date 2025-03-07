@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import org.apache.commons.io.IOUtils;
 import org.eclipse.jface.resource.ColorDescriptor;
@@ -55,14 +56,34 @@ public class ChatComponent extends Composite {
 		Color fgColor = rm.create(ColorDescriptor
 				.createFrom(new RGB(255 - bgColor.getRed(), 255 - bgColor.getGreen(), 255 - bgColor.getBlue())));
 		String fgColorString = toCss(fgColor);
+
 		Color bubbleColor = rm.create(interpolate(bgColor, fgColor, 95));
 		String bubbleColorString = toCss(bubbleColor);
 		Color bubbleBorderColor = rm.create(interpolate(bgColor, fgColor, 75));
 		String bubbleBorderColorString = toCss(bubbleBorderColor);
 
+		Color messageBorderColor = rm.create(interpolate(bgColor, fgColor, 88));
+		String messageBorderColorString = toCss(messageBorderColor);
 
-		return CHAT_TEMPLATE.replaceAll("#FFFFFF", bgColorString).replaceAll("#333333", fgColorString)
-				.replaceAll("#F5F5F5", bubbleColorString).replaceAll("#E0E0E0", bubbleBorderColorString);
+		Color tableRowEvenColor = rm.create(interpolate(bgColor, fgColor, 98));
+		String tableRowEvenColorString = toCss(tableRowEvenColor);
+		Color tableRowHoverColor = rm.create(interpolate(bgColor, fgColor, 94));
+		String tableRowHoverColorString = toCss(tableRowHoverColor);
+
+		String template = CHAT_TEMPLATE;
+		template = replaceColor(template, "#FFFFFF", bgColorString);
+		template = replaceColor(template, "#333333", fgColorString);
+		template = replaceColor(template, "#F5F5F5", bubbleColorString);
+		template = replaceColor(template, "#BFBFBF", bubbleBorderColorString);
+		template = replaceColor(template, "#E0E0E0", messageBorderColorString);
+		template = replaceColor(template, "#F9F9F9", tableRowEvenColorString);
+		template = replaceColor(template, "#F0F0F0", tableRowHoverColorString);
+
+		return template;
+	}
+
+	private String replaceColor(String template, String color, String replacementColor) {
+		return Pattern.compile(color, Pattern.CASE_INSENSITIVE).matcher(template).replaceAll(replacementColor);
 	}
 
 	private ColorDescriptor interpolate(Color bgColor, Color fgColor, int weight) {

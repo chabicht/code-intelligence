@@ -6,7 +6,9 @@ Bundle-Version: 1.0.0.qualifier
 Bundle-Activator: com.chabicht.code_intelligence.Activator
 Bundle-ClassPath: lib/commonmark-0.24.0.jar,
  .,
- lib/jmustache-1.16.jar
+ lib/jmustache-1.16.jar,
+ lib/commonmark-ext-gfm-tables-0.24.0.jar,
+ lib/commonmark-ext-gfm-strikethrough-0.24.0.jar
 Bundle-Vendor: chabicht.com
 Require-Bundle: org.eclipse.ui,
  org.eclipse.core.runtime,

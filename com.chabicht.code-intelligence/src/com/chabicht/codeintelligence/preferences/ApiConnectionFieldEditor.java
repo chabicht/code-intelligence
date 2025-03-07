@@ -1,10 +1,8 @@
 package com.chabicht.codeintelligence.preferences;
 
-import java.lang.reflect.Type;
 import java.util.List;
 import java.util.function.Consumer;
 
-import org.apache.commons.lang3.StringUtils;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.preference.FieldEditor;
@@ -24,8 +22,6 @@ import org.eclipse.swt.widgets.Control;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
 public class ApiConnectionFieldEditor extends FieldEditor {
 	private List<AiApiConnection> connections;

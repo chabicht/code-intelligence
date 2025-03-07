@@ -165,6 +165,100 @@
       border-radius: 4px;
       margin-left: 5px;
     }
+	
+	/* Table Styles */
+	table {
+	  width: 100%;
+	  border-collapse: collapse;
+	  margin: 15px 0;
+	  border: 1px solid #bfbfbf;
+	  border-radius: 10px;
+	  overflow: hidden;
+	  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+	  background-color: #ffffff;
+	}
+
+	th,
+	td {
+	  padding: 10px 12px;
+	  text-align: left;
+	  border-bottom: 1px solid #bfbfbf;
+	  border-right: 1px solid #bfbfbf; /* Add vertical lines */
+	}
+
+	th {
+	  background-color: #f5f5f5;
+	  font-weight: bold;
+	  color: #333333;
+	  border-bottom: 2px solid #bfbfbf;
+	}
+
+	/* Remove the right border from the last cell in each row */
+	th:last-child,
+	td:last-child {
+	  border-right: none;
+	}
+
+	tr:nth-child(even) {
+	  background-color: #f9f9f9;
+	}
+
+	tr:hover {
+	  background-color: #f0f0f0;
+	}
+
+	/* Responsive adjustments */
+	@media (max-width: 768px) {
+	  table,
+	  thead,
+	  tbody,
+	  th,
+	  td,
+	  tr {
+	    display: block;
+	  }
+
+	  thead tr {
+	    position: absolute;
+	    top: -9999px;
+	    left: -9999px;
+	  }
+
+	  tr {
+	    margin-bottom: 10px;
+	    border: 1px solid #bfbfbf;
+	    border-radius: 10px;
+	  }
+
+	  td {
+	    border: none;
+	    border-bottom: 1px solid #bfbfbf;
+	    position: relative;
+	    padding-left: 50%;
+	    white-space: normal;
+	  }
+
+	  td:before {
+	    position: absolute;
+	    top: 6px;
+	    left: 6px;
+	    width: 45%;
+	    padding-right: 10px;
+	    white-space: nowrap;
+	    content: attr(data-label);
+	    font-weight: bold;
+	  }
+
+	  td:last-child {
+	    border-bottom: 0;
+	  }
+	    /* Remove vertical lines in responsive mode */
+	    td, th {
+	        border-right: none;
+	    }
+	}
+
+	
   </style>
 </head>
 <body>

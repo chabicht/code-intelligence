@@ -9,12 +9,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.CustomConfigurationParameters;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
@@ -24,9 +26,17 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 
 public class OllamaApiClient implements IAiApiClient {
+
+	private static final String COMPLETION = "completion.";
+	private static final String CHAT = "chat.";
+	private static final String NUM_BATCH = "num_batch";
+	private static final String NUM_CTX = "num_ctx";
+	private static final String COMPLETION_NUM_CTX = COMPLETION + NUM_CTX;
+	private static final String CHAT_NUM_CTX = CHAT + NUM_CTX;
 
 	private final AiApiConnection apiConnection;
 	private transient final Gson gson = new Gson();
@@ -109,7 +119,8 @@ public class OllamaApiClient implements IAiApiClient {
 		req.addProperty("prompt", completionPrompt.compile());
 		JsonObject options = new JsonObject();
 		options.addProperty("temperature", completionPrompt.getTemperature());
-		options.addProperty("num_ctx", 8192);
+		options.addProperty(NUM_CTX, getContextSizeCompletion());
+		addNumBatchCompletion(options);
 		options.addProperty("num_predict", Activator.getDefault().getMaxCompletionTokens());
 		req.add("options", options);
 		req.addProperty("stream", false);
@@ -117,6 +128,56 @@ public class OllamaApiClient implements IAiApiClient {
 		JsonObject res = performPost(JsonObject.class, "api/generate", req);
 
 		return new CompletionResult(res.get("response").getAsString());
+	}
+
+	private int getContextSizeCompletion() {
+		Map<String, String> map = CustomConfigurationParameters.getInstance().get(apiConnection.getName());
+		int res = 8192;
+		if (map.containsKey(COMPLETION_NUM_CTX)) {
+			try {
+				res = Integer.parseInt(map.get(COMPLETION_NUM_CTX));
+			} catch (NumberFormatException e) {
+				// just use default.
+			}
+		}
+		return res;
+	}
+
+	private void addNumBatchCompletion(JsonObject params) {
+		Map<String, String> map = CustomConfigurationParameters.getInstance().get(apiConnection.getName());
+		if (map.containsKey(COMPLETION + NUM_BATCH)) {
+			try {
+				int numBatch = Integer.parseInt(map.get(COMPLETION + NUM_BATCH));
+				params.add(NUM_BATCH, new JsonPrimitive(numBatch));
+			} catch (NumberFormatException e) {
+				// just ignore then.
+			}
+		}
+	}
+
+	private int getContextSizeChat() {
+		Map<String, String> map = CustomConfigurationParameters.getInstance().get(apiConnection.getName());
+		int res = 8192;
+		if (map.containsKey(CHAT_NUM_CTX)) {
+			try {
+				res = Integer.parseInt(map.get(CHAT_NUM_CTX));
+			} catch (NumberFormatException e) {
+				// just use default.
+			}
+		}
+		return res;
+	}
+
+	private void addNumBatchChat(JsonObject params) {
+		Map<String, String> map = CustomConfigurationParameters.getInstance().get(apiConnection.getName());
+		if (map.containsKey(CHAT + NUM_BATCH)) {
+			try {
+				int numBatch = Integer.parseInt(map.get(CHAT + NUM_BATCH));
+				params.add(NUM_BATCH, new JsonPrimitive(numBatch));
+			} catch (NumberFormatException e) {
+				// just ignore then.
+			}
+		}
 	}
 
 	/**
@@ -173,7 +234,8 @@ public class OllamaApiClient implements IAiApiClient {
 		req.add("messages", messagesJson);
 
 		JsonObject options = new JsonObject();
-		options.addProperty("num_ctx", 8192);
+		options.addProperty(NUM_CTX, getContextSizeChat());
+		addNumBatchChat(options);
 		options.addProperty("num_predict", maxResponseTokens);
 		req.add("options", options);
 
@@ -253,7 +315,8 @@ public class OllamaApiClient implements IAiApiClient {
 		req.addProperty("prompt", content);
 		JsonObject options = new JsonObject();
 		options.addProperty("temperature", 1);
-		options.addProperty("num_ctx", 8192);
+		options.addProperty(NUM_CTX, getContextSizeCompletion());
+		addNumBatchCompletion(options);
 		req.add("options", options);
 		req.addProperty("stream", false);
 

@@ -64,6 +64,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.DefaultPrompts;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.google.gson.JsonSyntaxException;
 import com.samskivert.mustache.Mustache;
 import com.samskivert.mustache.Template;
@@ -86,8 +87,8 @@ public class PromptManagementDialog extends Dialog {
 	private Button btnEnabled;
 	private Composite cmpSashRight;
 
-	private Parser markdownParser = Parser.builder().build();
-	private HtmlRenderer markdownRenderer = HtmlRenderer.builder().build();
+	private Parser markdownParser = MarkdownUtil.createParser();
+	private HtmlRenderer markdownRenderer = MarkdownUtil.createRenderer();
 
 	private WritableList<PromptType> promptTypesList = new WritableList<>();
 	private WritableList<AiApiConnection> connectionsList = new WritableList<>();

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.eclipse.core.databinding.observable.list.WritableList;
+import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.IntegerFieldEditor;
@@ -11,9 +12,13 @@ import org.eclipse.jface.preference.StringButtonFieldEditor;
 import org.eclipse.jface.resource.FontDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.layout.GridData;
+import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.IWorkbenchPreferencePage;
@@ -47,11 +52,30 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 	 * knows how to save and restore itself.
 	 */
 	public void createFieldEditors() {
+		Font boldFont = JFaceResources.getResources().create(FontDescriptor.createFrom(getFont()).setStyle(SWT.BOLD));
+
 		addField(new ApiConnectionFieldEditor(PreferenceConstants.API_CONNECTION_DATA, "&API connections:",
 				getFieldEditorParent(), connections));
 
-		Font boldFont = JFaceResources.getResources().create(FontDescriptor.createFrom(getFont()).setStyle(SWT.BOLD));
+		Composite cmpButtons = new Composite(getFieldEditorParent(), SWT.NONE);
+		cmpButtons.setLayoutData(new GridData(SWT.FILL, SWT.FILL, false, false, 3, 1));
+		GridLayout cmpButtonsLayout = new GridLayout(1, false);
+		cmpButtonsLayout.marginWidth = 0;
+		cmpButtonsLayout.marginHeight = 0;
+		cmpButtons.setLayout(cmpButtonsLayout);
+		Button btnCustomParamsDlog = new Button(cmpButtons, SWT.NONE);
+		btnCustomParamsDlog.setText("Custom params...");
+		btnCustomParamsDlog.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+		btnCustomParamsDlog.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
+			CustomConfigurationParametersDialog dlg = new CustomConfigurationParametersDialog(
+					Display.getCurrent().getActiveShell(), connections);
+			if (dlg.open() == Dialog.OK) {
+				dlg.save();
+			}
+		}));
 
+		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 		Label lblCompletion = new Label(getFieldEditorParent(), SWT.NONE);
 		lblCompletion.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
 		lblCompletion.setText("Completion:");
@@ -63,7 +87,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS, "Max. &response tokens:",
 				getFieldEditorParent()));
 
-		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 		Label lblChat = new Label(getFieldEditorParent(), SWT.NONE);
 		lblChat.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));
@@ -76,8 +100,8 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS, "Max. r&esponse tokens:",
 				getFieldEditorParent()));
 
-		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT,
-				"Max. &history items:", getFieldEditorParent()));
+		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT, "Max. &history items:",
+				getFieldEditorParent()));
 
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
