@@ -57,8 +57,9 @@ public class CustomConfigurationParametersDialog extends Dialog {
 		super(parentShell);
 
 		// TODO add other types once supported.
-		this.connections = connections.stream().filter(c -> ApiType.OLLAMA.equals(c.getType())
-				|| ApiType.OPENAI.equals(c.getType()) || ApiType.ANTHROPIC.equals(c.getType()))
+		this.connections = connections.stream()
+				.filter(c -> ApiType.OLLAMA.equals(c.getType()) || ApiType.OPENAI.equals(c.getType())
+						|| ApiType.ANTHROPIC.equals(c.getType()) || ApiType.GEMINI.equals(c.getType()))
 				.collect(Collectors.toList());
 
 		// Load existing configuration

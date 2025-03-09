@@ -18,6 +18,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.PromptType;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -47,13 +48,12 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	@Override
 	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
 		req.add("contents", createContentsArray(completionPrompt.compile()));
-		JsonObject genConfig = new JsonObject();
-		genConfig.addProperty("temperature", completionPrompt.getTemperature());
+		JsonObject genConfig = getOrAddJsonObject(req, "generationConfig");
+		setPropertyIfNotPresent(genConfig, "temperature", completionPrompt.getTemperature());
 		genConfig.addProperty("maxOutputTokens", Activator.getDefault().getMaxChatTokens());
-		req.add("generationConfig", genConfig);
 
 		JsonObject res = performPost(JsonObject.class, modelName + ":generateContent", req);
 		String completion = res.get("candidates").getAsJsonArray().get(0).getAsJsonObject().get("content")
@@ -63,7 +63,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	@Override
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.CHAT);
 		String systemPrompt = getSystemPrompt(chat);
 		if (StringUtils.isNoneBlank(systemPrompt)) {
 			JsonObject systemInstruction = new JsonObject();
@@ -74,10 +74,9 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 		req.add("contents", createChatContentsArray(chat));
 
-		JsonObject genConfig = new JsonObject();
-		genConfig.addProperty("temperature", 0.1);
+		JsonObject genConfig = getOrAddJsonObject(req, "generationConfig");
+		setPropertyIfNotPresent(genConfig, "temperature", 0.1);
 		genConfig.addProperty("maxOutputTokens", maxResponseTokens);
-		req.add("generationConfig", genConfig);
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
@@ -140,12 +139,11 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	@Override
 	public String caption(String modelName, String content) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
 		req.add("contents", createContentsArray(content));
-		JsonObject genConfig = new JsonObject();
-		genConfig.addProperty("temperature", 1);
-		req.add("generationConfig", genConfig);
+		JsonObject genConfig = getOrAddJsonObject(req, "generationConfig");
+		setPropertyIfNotPresent(genConfig, "temperature", 1);
 
 		JsonObject res = performPost(JsonObject.class, modelName + ":generateContent", req);
 		String completion = res.get("candidates").getAsJsonArray().get(0).getAsJsonObject().get("content")

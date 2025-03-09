@@ -140,6 +140,47 @@ public class CustomConfigurationParameters {
 				""");
 		res.put(tCompletion, res.get(tChat));
 
+		tChat = Tuple.of(ApiType.GEMINI, PromptType.CHAT);
+		tCompletion = Tuple.of(ApiType.GEMINI, PromptType.INSTRUCT);
+		res.put(tChat, """
+				{
+				  "safetySettings": [
+				    {
+				      "category": "HARM_CATEGORY_HATE_SPEECH",
+				      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+				    },
+				    {
+				      "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+				      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+				    },
+				    {
+				      "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+				      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+				    },
+				    {
+				      "category": "HARM_CATEGORY_HARASSMENT",
+				      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+				    },
+				    {
+				      "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+				      "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+				    }
+				  ],
+				  "generationConfig": {
+				    "candidateCount": 1,
+				    "temperature": 0.7,
+				    "topP": 0.9,
+				    "topK": 40,
+				    "seed": 1234,
+				    "presencePenalty": 0.0,
+				    "frequencyPenalty": 0.0,
+				    "stopSequences": [],
+				    "responseMimeType": "text/plain"
+				  }
+				}
+				""");
+		res.put(tCompletion, res.get(tChat));
+
 		return res;
 	}
 }

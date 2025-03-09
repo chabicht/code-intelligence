@@ -45,6 +45,7 @@ import org.eclipse.swt.browser.LocationEvent;
 import org.eclipse.swt.browser.ProgressAdapter;
 import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.browser.ProgressListener;
+import org.eclipse.swt.custom.SashForm;
 import org.eclipse.swt.dnd.Clipboard;
 import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
@@ -80,8 +81,6 @@ import org.eclipse.ui.texteditor.ITextEditor;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Tuple;
-import com.chabicht.code_intelligence.apiclient.AiApiConnection;
-import com.chabicht.code_intelligence.apiclient.AiModel;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -104,7 +103,7 @@ public class ChatView extends ViewPart {
 			.compile("<\\|begin_of_solution\\|>|<\\|end_of_solution\\|>");
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
-	
+
 	private static final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 	private final ChatSettings settings = new ChatSettings();
@@ -128,7 +127,6 @@ public class ChatView extends ViewPart {
 	private AiModelConnection connection;
 
 	private Composite cmpAttachments;
-	private Composite composite;
 	private Button btnSettings;
 	private Button btnHistory;
 
@@ -235,20 +233,25 @@ public class ChatView extends ViewPart {
 							.collect(Collectors.joining("\n"));
 
 					String caption = ConnectionFactory.forCompletions().caption(combinedMessages);
+
+					// Replace all line breaks in the caption, then replace all multiple
+					// white spaces to " ".
+					caption = caption.replace("\n", " ").replaceAll("\\s+", " ");
+
 					conversation.setCaption(caption);
 
-					// Update the chat history *after* the caption is set.  Crucially, this must
+					// Update the chat history *after* the caption is set. Crucially, this must
 					// happen *after* the setCaption call, and still within the background thread.
 					Activator.getDefault().addOrUpdateChatHistory(conversation);
 
 				} catch (Exception e) {
 					Activator.logError(e.getMessage(), e);
-					// Consider adding more specific error handling here.  For example, you might
+					// Consider adding more specific error handling here. For example, you might
 					// want to set a default caption, or display an error message to the user.
 				}
 			});
 		} else {
-			//If there is already caption, update the history.
+			// If there is already caption, update the history.
 			Activator.getDefault().addOrUpdateChatHistory(conversation);
 		}
 	}
@@ -267,18 +270,22 @@ public class ChatView extends ViewPart {
 
 	@Override
 	public void createPartControl(Composite parent) {
-		composite = new Composite(parent, SWT.NONE);
-		GridLayout gl_composite = new GridLayout(2, false);
-		gl_composite.marginHeight = 0;
-		gl_composite.marginWidth = 0;
-		composite.setLayout(gl_composite);
 
-		chat = new ChatComponent(composite, SWT.BORDER);
+		SashForm sashForm = new SashForm(parent, SWT.VERTICAL);
+		sashForm.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+		// Upper part: Chat and buttons
+		Composite upperComposite = new Composite(sashForm, SWT.NONE);
+		GridLayout gl_upperComposite = new GridLayout(2, false);
+		gl_upperComposite.marginHeight = 0;
+		upperComposite.setLayout(gl_upperComposite);
+
+		chat = new ChatComponent(upperComposite, SWT.BORDER);
 		GridData gd_chat = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2);
 		gd_chat.heightHint = 336;
 		chat.setLayoutData(gd_chat);
 
-		Button btnClear = new Button(composite, SWT.NONE);
+		Button btnClear = new Button(upperComposite, SWT.NONE);
 		btnClear.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
@@ -295,7 +302,7 @@ public class ChatView extends ViewPart {
 		btnClear.setToolTipText("Clear Chat");
 		btnClear.setFont(buttonSymbolFont);
 
-		btnHistory = new Button(composite, SWT.NONE);
+		btnHistory = new Button(upperComposite, SWT.NONE);
 		btnHistory.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
@@ -326,7 +333,14 @@ public class ChatView extends ViewPart {
 		btnHistory.setToolTipText("Recent Conversations");
 		btnHistory.setFont(buttonSymbolFont);
 
-		cmpAttachments = new Composite(composite, SWT.NONE);
+		// Lower part: Input and buttons
+		Composite lowerComposite = new Composite(sashForm, SWT.NONE);
+		GridLayout gl_lowerComposite = new GridLayout(2, false);
+		gl_lowerComposite.marginBottom = 5;
+		gl_lowerComposite.marginHeight = 0;
+		lowerComposite.setLayout(gl_lowerComposite);
+
+		cmpAttachments = new Composite(lowerComposite, SWT.NONE);
 		GridData gd_cmpAttachments = new GridData(SWT.FILL, SWT.FILL, false, false, 1, 1);
 		gd_cmpAttachments.heightHint = 30;
 		cmpAttachments.setLayoutData(gd_cmpAttachments);
@@ -334,15 +348,15 @@ public class ChatView extends ViewPart {
 		layoutCmpAttachments.marginTop = 0;
 		layoutCmpAttachments.marginBottom = 0;
 		cmpAttachments.setLayout(layoutCmpAttachments);
-		new Label(composite, SWT.NONE);
+		new Label(lowerComposite, SWT.NONE); //empty label for the second column
 
-		tvUserInput = new TextViewer(composite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
-		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.CENTER, true, false);
+		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
+		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.FILL, true, true);
 		gridDataTvUserInput.verticalSpan = 2;
 		gridDataTvUserInput.heightHint = 80;
 		tvUserInput.getTextWidget().setLayoutData(gridDataTvUserInput);
 
-		btnSettings = new Button(composite, SWT.NONE);
+		btnSettings = new Button(lowerComposite, SWT.NONE);
 		btnSettings.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
@@ -366,7 +380,7 @@ public class ChatView extends ViewPart {
 		gridData.verticalSpan = 2;
 		gridData.heightHint = 80;
 
-		btnSend = new Button(composite, SWT.NONE);
+		btnSend = new Button(lowerComposite, SWT.NONE);
 		btnSend.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
@@ -381,6 +395,8 @@ public class ChatView extends ViewPart {
 		// Set text to "▶️"
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
+
+		sashForm.setWeights(new int[] { 80, 20 });
 
 		init();
 		initUserInputControl();
@@ -475,8 +491,7 @@ public class ChatView extends ViewPart {
 					l.setToolTipText(ctx.getLabel());
 					l.setData(ctx);
 					l.setImage(paperclipImage);
-					RowData rd = new RowData(16, 25);
-					l.setLayoutData(rd);
+					l.setLayoutData(new RowData(16, 25));
 
 					l.addMenuDetectListener(event -> {
 						deleteItem.setData(l.getData());
@@ -491,7 +506,6 @@ public class ChatView extends ViewPart {
 			}
 		};
 		externallyAddedContext.addListChangeListener(listChangeListener);
-		composite.addDisposeListener(e -> ChatView.externallyAddedContext.removeListChangeListener(listChangeListener));
 
 		chat.addProgressListener(ProgressListener.completedAdapter(event -> {
 			final Browser bChat = chat.getBrowser();
@@ -941,8 +955,7 @@ public class ChatView extends ViewPart {
 		String thinkContent = "";
 		String messageContent = message.getContent();
 		boolean endOfThinkingReached = false;
-		match_found:
-		if (thinkStartMatcher.find()) {
+		match_found: if (thinkStartMatcher.find()) {
 
 			// If we encounter a start tag in the middle of a conversation, it's probably a
 			// model talking about reasoning.
