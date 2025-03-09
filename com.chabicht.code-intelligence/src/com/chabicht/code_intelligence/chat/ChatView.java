@@ -491,7 +491,7 @@ public class ChatView extends ViewPart {
 					l.setToolTipText(ctx.getLabel());
 					l.setData(ctx);
 					l.setImage(paperclipImage);
-					l.setLayoutData(new RowData(16, 25));
+					l.setLayoutData(new RowData(15, 25));
 
 					l.addMenuDetectListener(event -> {
 						deleteItem.setData(l.getData());
