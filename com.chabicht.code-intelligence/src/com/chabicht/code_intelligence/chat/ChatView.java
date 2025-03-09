@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.chat;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
 
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -55,6 +56,7 @@ import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.ImageData;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -117,6 +119,7 @@ public class ChatView extends ViewPart {
 
 	private Font buttonSymbolFont;
 	private Image paperclipImage;
+	private String paperclipBase64;
 
 	private ChatConversation conversation;
 
@@ -146,9 +149,10 @@ public class ChatView extends ViewPart {
 				StringBuilder attachments = new StringBuilder();
 				if (!message.getContext().isEmpty()) {
 					for (MessageContext ctx : message.getContext()) {
-						attachments.append(String.format("<span class=\"attachment-container\">"
-								+ "<span class=\"attachment-icon\">&#128206;</span>"
-								+ "<span class=\"tooltip\">%s</span>" + "</span>", ctx.getLabel()));
+						attachments.append(String.format(
+								"<span class=\"attachment-container\">" + "<span class=\"attachment-icon\">%s</span>"
+										+ "<span class=\"tooltip\">%s</span>" + "</span>",
+								getAttachmentIconHtml(), ctx.getLabel()));
 					}
 				}
 				String messageHtml = messageContentToHtml(message);
@@ -163,6 +167,11 @@ public class ChatView extends ViewPart {
 					chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), finalHtml);
 				});
 			});
+		}
+
+		private String getAttachmentIconHtml() {
+			String dataUrl = "data:image/png;base64," + paperclipBase64;
+			return String.format("<img src=\"%s\" style=\"width: 15px; height: 25px;\"/>", dataUrl);
 		}
 
 		private String messageContentToHtml(ChatMessage message) {
@@ -265,9 +274,9 @@ public class ChatView extends ViewPart {
 
 		paperclipImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
 				String.format("/icons/paperclip_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
-
+		createPaperclipBase64();
 	}
-
+	
 	@Override
 	public void createPartControl(Composite parent) {
 
@@ -348,7 +357,7 @@ public class ChatView extends ViewPart {
 		layoutCmpAttachments.marginTop = 0;
 		layoutCmpAttachments.marginBottom = 0;
 		cmpAttachments.setLayout(layoutCmpAttachments);
-		new Label(lowerComposite, SWT.NONE); //empty label for the second column
+		new Label(lowerComposite, SWT.NONE); // empty label for the second column
 
 		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
 		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.FILL, true, true);
@@ -984,6 +993,16 @@ public class ChatView extends ViewPart {
 	public void dispose() {
 		executorService.shutdownNow();
 		super.dispose();
+	}
+
+	private void createPaperclipBase64() {
+		ImageData imageData = paperclipImage.getImageData();
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		org.eclipse.swt.graphics.ImageLoader imageLoader = new org.eclipse.swt.graphics.ImageLoader();
+		imageLoader.data = new ImageData[] { imageData };
+		imageLoader.save(baos, SWT.IMAGE_PNG);
+
+		paperclipBase64 = java.util.Base64.getEncoder().encodeToString(baos.toByteArray());
 	}
 
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
