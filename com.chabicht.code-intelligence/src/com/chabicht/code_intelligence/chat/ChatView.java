@@ -90,6 +90,7 @@ import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
+import com.chabicht.code_intelligence.util.ThemeUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatView extends ViewPart {
@@ -239,8 +240,8 @@ public class ChatView extends ViewPart {
 	public ChatView() {
 		buttonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(18));
 
-		ImageDescriptor paperclipDescriptor = ImageDescriptor.createFromFile(getClass(), "/icons/paperclip.png");
-		paperclipImage = resources.create(paperclipDescriptor);
+		paperclipImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
+				String.format("/icons/paperclip_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
 
 	}
 

@@ -38,6 +38,7 @@ import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.ThemeUtil;
 
 public class CustomConfigurationParametersDialog extends Dialog {
 	private List<AiApiConnection> connections;
@@ -112,7 +113,8 @@ public class CustomConfigurationParametersDialog extends Dialog {
 		// Reset button
 		Button resetButton = new Button(composite, SWT.PUSH);
 		resetButton.setImage(new LocalResourceManager(JFaceResources.getResources())
-				.create(ImageDescriptor.createFromFile(this.getClass(), "/icons/reset_settings_light.png")));
+				.create(ImageDescriptor.createFromFile(this.getClass(),
+						String.format("/icons/reset_settings_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light"))));
 		resetButton.setToolTipText("Reset to Default");
 		resetButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
 
@@ -200,7 +202,12 @@ public class CustomConfigurationParametersDialog extends Dialog {
 		if (selectedConnection != null) {
 			String key = getConfigKey();
 			Map<String, String> map = configMap.get(key);
-			String jsonTemplate = map.get(type.name());
+
+			String jsonTemplate = null;
+
+			if (map != null) {
+				jsonTemplate = map.get(type.name());
+			}
 
 			if (jsonTemplate == null) {
 				jsonTemplate = "{}";

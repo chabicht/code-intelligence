@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence.chat;
 
+import static com.chabicht.code_intelligence.util.ThemeUtil.getTextBackgroundColor;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +27,8 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.themes.ITheme;
 import org.eclipse.ui.themes.IThemeManager;
+
+import com.chabicht.code_intelligence.util.ThemeUtil;
 
 public class ChatComponent extends Composite {
 	private Browser bChat;
@@ -187,14 +191,6 @@ public class ChatComponent extends Composite {
 			}
 		}
 		return escaped.toString();
-	}
-
-	private Color getTextBackgroundColor() {
-		IThemeManager themeManager = PlatformUI.getWorkbench().getThemeManager();
-		ITheme currentTheme = themeManager.getCurrentTheme();
-		ColorRegistry colorRegistry = currentTheme.getColorRegistry();
-		String backgroundColorKey = "org.eclipse.ui.workbench.ACTIVE_TAB_BG_END";
-		return colorRegistry.get(backgroundColorKey);
 	}
 
 	private String CHAT_TEMPLATE = readTemplateFile();
