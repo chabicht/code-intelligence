@@ -25,6 +25,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.PromptType;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -92,7 +93,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 	@Override
 	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
 		req.addProperty("max_tokens", Activator.getDefault().getMaxCompletionTokens());
 
@@ -111,7 +112,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 	@Override
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
 
@@ -300,9 +301,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 	@Override
 	public String caption(String modelName, String content) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
-		req.addProperty("max_tokens", 1024); // You might want to make this configurable
+		setPropertyIfNotPresent(req, "max_tokens", 1024);
 
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();

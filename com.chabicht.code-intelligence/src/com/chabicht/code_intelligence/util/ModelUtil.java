@@ -5,6 +5,8 @@ import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Tuple;
+import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 
 public class ModelUtil {
 	private ModelUtil() {

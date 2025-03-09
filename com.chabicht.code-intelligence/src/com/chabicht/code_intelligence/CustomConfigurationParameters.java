@@ -57,10 +57,32 @@ public class CustomConfigurationParameters {
 		res.put(tChat, """
 				{
 				  "options": {
-				    "num_ctx": 8192,
-				    "num_batch": 2048
+				    "temperature": 0.8,
+				    "top_k": 20,
+				    "top_p": 0.9,
+				    "min_p": 0.0,
+				    "typical_p": 0.7,
+				    "repeat_last_n": 33,
+				    "repeat_penalty": 1.2,
+				    "presence_penalty": 1.5,
+				    "frequency_penalty": 1.0,
+				    "mirostat": 1,
+				    "mirostat_tau": 0.8,
+				    "mirostat_eta": 0.6,
+				    "stop": ["\\n", "user:"],
+				    "num_keep": 5,
+				    "num_predict": 100,
+				    "num_ctx": 1024,
+				    "num_batch": 2,
+				    "num_gpu": 1,
+				    "main_gpu": 0,
+				    "low_vram": false,
+				    "vocab_only": false,
+				    "use_mmap": true,
+				    "use_mlock": false,
+				    "num_thread": 8
 				  },
-				  "keep_alive": "15m"
+				  "keep_alive": "5m"
 				}
 				""");
 		res.put(tCompletion, res.get(tChat));
@@ -69,8 +91,51 @@ public class CustomConfigurationParameters {
 		tCompletion = Tuple.of(ApiType.OPENAI, PromptType.INSTRUCT);
 		res.put(tChat, """
 				{
-				  "reasoning_effort": "medium",
-				  "temperature": 0.3
+				  "store": false,
+				  "reasoning_effort": null,
+				  "metadata": null,
+				  "frequency_penalty": 0,
+				  "logit_bias": null,
+				  "logprobs": false,
+				  "top_logprobs": null,
+				  "max_tokens": null,
+				  "max_completion_tokens": null,
+				  "n": 1,
+				  "modalities": null,
+				  "prediction": null,
+				  "audio": null,
+				  "presence_penalty": 0,
+				  "response_format": null,
+				  "seed": null,
+				  "service_tier": "auto",
+				  "stop": null,
+				  "stream": false,
+				  "stream_options": null,
+				  "temperature": 1,
+				  "top_p": 1,
+				  "tools": null,
+				  "tool_choice": "none",
+				  "parallel_tool_calls": true,
+				  "user": null,
+				  "function_call": "none",
+				  "functions": null
+				}
+				""");
+		res.put(tCompletion, res.get(tChat));
+
+		tChat = Tuple.of(ApiType.ANTHROPIC, PromptType.CHAT);
+		tCompletion = Tuple.of(ApiType.ANTHROPIC, PromptType.INSTRUCT);
+		res.put(tChat, """
+				{
+				  "max_tokens": 8192,
+				  "temperature": 1.0,
+				  "top_p": 1.0,
+				  "top_k": 50,
+				  "stop_sequences": [],
+				  "metadata": {},
+				  "system": "",
+				  "tool_choice": null,
+				  "tools": []
 				}
 				""");
 		res.put(tCompletion, res.get(tChat));

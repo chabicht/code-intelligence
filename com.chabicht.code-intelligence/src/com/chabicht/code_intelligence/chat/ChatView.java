@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -78,6 +80,8 @@ import org.eclipse.ui.texteditor.ITextEditor;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Tuple;
+import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.apiclient.AiModel;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -100,6 +104,8 @@ public class ChatView extends ViewPart {
 			.compile("<\\|begin_of_solution\\|>|<\\|end_of_solution\\|>");
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
+	
+	private static final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 	private final ChatSettings settings = new ChatSettings();
 
@@ -218,18 +224,32 @@ public class ChatView extends ViewPart {
 	};
 
 	private void addConversationToHistory() {
-		addCaptionForConversation();
-		Activator.getDefault().addOrUpdateChatHistory(conversation);
+		addCaptionForConversationInBackgroundAndAddToHistory();
 	}
 
-	private void addCaptionForConversation() {
+	private void addCaptionForConversationInBackgroundAndAddToHistory() {
 		if (StringUtils.isBlank(conversation.getCaption())) {
-			try {
-				conversation.setCaption(ConnectionFactory.forCompletions().caption(conversation.getMessages().stream()
-						.map(ChatMessage::getContent).collect(Collectors.joining("\n"))));
-			} catch (Exception e) {
-				Activator.logError(e.getMessage(), e);
-			}
+			executorService.submit(() -> { // Use a thread pool
+				try {
+					String combinedMessages = conversation.getMessages().stream().map(ChatMessage::getContent)
+							.collect(Collectors.joining("\n"));
+
+					String caption = ConnectionFactory.forCompletions().caption(combinedMessages);
+					conversation.setCaption(caption);
+
+					// Update the chat history *after* the caption is set.  Crucially, this must
+					// happen *after* the setCaption call, and still within the background thread.
+					Activator.getDefault().addOrUpdateChatHistory(conversation);
+
+				} catch (Exception e) {
+					Activator.logError(e.getMessage(), e);
+					// Consider adding more specific error handling here.  For example, you might
+					// want to set a default caption, or display an error message to the user.
+				}
+			});
+		} else {
+			//If there is already caption, update the history.
+			Activator.getDefault().addOrUpdateChatHistory(conversation);
 		}
 	}
 
@@ -945,6 +965,12 @@ public class ChatView extends ViewPart {
 		MessageContentWithReasoning thoughtsAndMessage = new MessageContentWithReasoning(thinkContent, messageContent,
 				endOfThinkingReached);
 		return thoughtsAndMessage;
+	}
+
+	@Override
+	public void dispose() {
+		executorService.shutdownNow();
+		super.dispose();
 	}
 
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "
