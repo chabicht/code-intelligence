@@ -7,6 +7,10 @@ import java.util.Map;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
 import com.chabicht.code_intelligence.model.PromptType;
 
+/**
+ * Handles and caches custom model parameters that are dynamically added to chat
+ * requests.
+ */
 public class CustomConfigurationParameters {
 	private static final Map<Tuple<ApiType, PromptType>, String> connectionParamTemplates = createTemplates();
 
@@ -48,7 +52,9 @@ public class CustomConfigurationParameters {
 	private static Map<Tuple<ApiType, PromptType>, String> createTemplates() {
 		HashMap<Tuple<ApiType, PromptType>, String> res = new HashMap<>();
 
-		res.put(Tuple.of(ApiType.OLLAMA, PromptType.CHAT), """
+		Tuple<ApiType, PromptType> tChat = Tuple.of(ApiType.OLLAMA, PromptType.CHAT);
+		Tuple<ApiType, PromptType> tCompletion = Tuple.of(ApiType.OLLAMA, PromptType.INSTRUCT);
+		res.put(tChat, """
 				{
 				  "options": {
 				    "num_ctx": 8192,
@@ -57,7 +63,17 @@ public class CustomConfigurationParameters {
 				  "keep_alive": "15m"
 				}
 				""");
-		res.put(Tuple.of(ApiType.OLLAMA, PromptType.INSTRUCT), res.get(Tuple.of(ApiType.OLLAMA, PromptType.CHAT)));
+		res.put(tCompletion, res.get(tChat));
+
+		tChat = Tuple.of(ApiType.OPENAI, PromptType.CHAT);
+		tCompletion = Tuple.of(ApiType.OPENAI, PromptType.INSTRUCT);
+		res.put(tChat, """
+				{
+				  "reasoning_effort": "medium",
+				  "temperature": 0.3
+				}
+				""");
+		res.put(tCompletion, res.get(tChat));
 
 		return res;
 	}

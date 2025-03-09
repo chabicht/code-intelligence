@@ -20,6 +20,7 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
+import com.chabicht.code_intelligence.model.PromptType;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -129,9 +130,9 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	@Override
 	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
-		req.addProperty("temperature", completionPrompt.getTemperature());
+		setPropertyIfNotPresent(req, "temperature", completionPrompt.getTemperature());
 		req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
 
 		JsonArray messages = new JsonArray();
@@ -196,7 +197,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 
 		// Create the JSON request object.
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
 		req.addProperty("max_completion_tokens", maxResponseTokens);
 		req.addProperty("stream", true);
@@ -291,9 +292,9 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	@Override
 	public String caption(String modelName, String content) {
-		JsonObject req = new JsonObject();
+		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
-		req.addProperty("temperature", 1);
+		setPropertyIfNotPresent(req, "temperature", 1);
 
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();
