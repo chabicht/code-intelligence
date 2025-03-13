@@ -44,6 +44,7 @@ public class ConnectionSelectionPage extends WizardPage {
 	private ComboViewer cvProvider;
 	private boolean apiConnSuccessful;
 	private Button btnTestConnection;
+	private Label lblConnectionTestResult;
 
 	protected ConnectionSelectionPage(String pageName, AiApiConnection connection) {
 		super(pageName);
@@ -62,29 +63,30 @@ public class ConnectionSelectionPage extends WizardPage {
 	public void createControl(Composite parent) {
 		Composite container = new Composite(parent, SWT.NULL);
 		setControl(container);
-		container.setLayout(new GridLayout(2, false));
+		container.setLayout(new GridLayout(3, false));
 
 		Label lblProvider = new Label(container, SWT.NONE);
 		lblProvider.setText("Provider:");
 
 		cvProvider = new ComboViewer(container, SWT.NONE);
 		Combo cboProvider = cvProvider.getCombo();
-		cboProvider.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		cboProvider.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 
 		Label lblBaseUri = new Label(container, SWT.NONE);
 		lblBaseUri.setText("Base URI:");
 
 		txtBaseUri = new Text(container, SWT.BORDER);
-		txtBaseUri.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		txtBaseUri.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 
 		Label lblSpacer = new Label(container, SWT.NONE);
+		new Label(container, SWT.NONE);
 		new Label(container, SWT.NONE);
 
 		Label lblObtainApiKey = new Label(container, SWT.NONE);
 		lblObtainApiKey.setText("Obtain API key:");
 
 		lnkApiKey = new Link(container, SWT.NONE);
-		lnkApiKey.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false, 1, 1));
+		lnkApiKey.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false, 2, 1));
 		lnkApiKey.setText("");
 		lnkApiKey.setVisible(false);
 		lnkApiKey.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
@@ -96,7 +98,7 @@ public class ConnectionSelectionPage extends WizardPage {
 		lblApiKey.setText("API Key:");
 
 		txtApiKey = new Text(container, SWT.BORDER);
-		txtApiKey.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		txtApiKey.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 		new Label(container, SWT.NONE);
 
 		btnTestConnection = new Button(container, SWT.NONE);
@@ -104,6 +106,9 @@ public class ConnectionSelectionPage extends WizardPage {
 
 		m_bindingContext = initDataBindings();
 		initData(cvProvider);
+
+		lblConnectionTestResult = new Label(container, SWT.NONE);
+		lblConnectionTestResult.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false, 1, 1));
 		initListeners();
 	}
 
@@ -135,20 +140,29 @@ public class ConnectionSelectionPage extends WizardPage {
 				} else {
 					lnkApiKey.setVisible(false);
 				}
+
+				if (ApiType.OLLAMA.equals(connection.getType())) {
+					txtApiKey.setText("(no key needed)");
+				} else if ("(no key needed)".equals(txtApiKey.getText())) {
+					txtApiKey.setText("");
+				}
 			}
 
 			apiConnSuccessful = false;
+			lblConnectionTestResult.setText("");
 			checkPageComplete();
 		});
 
 		txtBaseUri.addModifyListener(e -> {
 			connection.setBaseUri(txtBaseUri.getText());
 			apiConnSuccessful = false;
+			lblConnectionTestResult.setText("");
 			checkPageComplete();
 		});
 		txtApiKey.addModifyListener(e -> {
 			connection.setApiKey(txtApiKey.getText());
 			apiConnSuccessful = false;
+			lblConnectionTestResult.setText("");
 			checkPageComplete();
 		});
 
@@ -156,9 +170,11 @@ public class ConnectionSelectionPage extends WizardPage {
 			try {
 				connection.getApiClient(true).getModels();
 				apiConnSuccessful = true;
+				lblConnectionTestResult.setText("✔️");
 			} catch (Exception ex) {
 				// Ignored.
 				apiConnSuccessful = false;
+				lblConnectionTestResult.setText("❌");
 			}
 			checkPageComplete();
 		}));
