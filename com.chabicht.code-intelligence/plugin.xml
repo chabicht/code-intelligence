@@ -83,5 +83,11 @@
             id="com.chabicht.code-intelligence.consolePageParticipant">
          <enablement></enablement>
       </consolePageParticipant>
+   </extension>
+   <extension
+         point="org.eclipse.ui.startup">
+      <startup
+            class="com.chabicht.code_intelligence.Startup">
+      </startup>
    </extension>     
 </plugin>

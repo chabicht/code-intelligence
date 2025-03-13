@@ -279,7 +279,6 @@ public class ChatView extends ViewPart {
 	
 	@Override
 	public void createPartControl(Composite parent) {
-
 		SashForm sashForm = new SashForm(parent, SWT.VERTICAL);
 		sashForm.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
@@ -404,8 +403,7 @@ public class ChatView extends ViewPart {
 		// Set text to "▶️"
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
-
-		sashForm.setWeights(new int[] { 80, 20 });
+		sashForm.setWeights(new int[] {85, 15});
 
 		init();
 		initUserInputControl();

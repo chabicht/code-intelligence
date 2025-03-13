@@ -8,16 +8,32 @@ import com.chabicht.code_intelligence.model.DefaultPrompts;
 
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
-		OPENAI("OpenAI"), OLLAMA("Ollama"), ANTHROPIC("Anthropic"), GEMINI("Gemini"), XAI("X.ai");
+		OPENAI("OpenAI", "https://api.openai.com/v1", "https://platform.openai.com/settings/organization/api-keys"),
+		OLLAMA("Ollama", "http://localhost:11434", ""),
+		ANTHROPIC("Anthropic", "https://api.anthropic.com/v1", "https://console.anthropic.com/settings/keys"),
+		GEMINI("Gemini", "https://generativelanguage.googleapis.com/v1beta", "https://aistudio.google.com/app/apikey"),
+		XAI("X.ai", "https://api.x.ai/v1", "https://console.x.ai/");
 
-		private ApiType(String label) {
+		private ApiType(String label, String defaultBaseUri, String apiKeyUri) {
 			this.label = label;
+			this.defaultBaseUri = defaultBaseUri;
+			this.apiKeyUri = apiKeyUri;
 		}
 
-		private String label;
+		private final String label;
+		private final String defaultBaseUri;
+		private final String apiKeyUri;
 
 		public String getName() {
 			return label;
+		}
+
+		public String getDefaultBaseUri() {
+			return defaultBaseUri;
+		}
+
+		public String getApiKeyUri() {
+			return apiKeyUri;
 		}
 	}
 
@@ -74,7 +90,11 @@ public class AiApiConnection extends Bean {
 	}
 
 	public IAiApiClient getApiClient() {
-		if (apiClient == null) {
+		return getApiClient(false);
+	}
+
+	public IAiApiClient getApiClient(boolean force) {
+		if (apiClient == null || force) {
 			switch (type) {
 			case OPENAI:
 				apiClient = new OpenAiApiClient(this);

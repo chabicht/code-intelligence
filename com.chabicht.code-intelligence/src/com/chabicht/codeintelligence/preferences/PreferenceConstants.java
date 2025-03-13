@@ -15,4 +15,5 @@ public class PreferenceConstants {
 	public static final String CHAT_MAX_RESPONSE_TOKENS = "chatMaxResponseTokens";
 	public static final String CUSTOM_CONFIGURATION_PARAMETERS = "customConfigurationParameters";
 
+	public static final String CONNECTION_SETUP_WIZARD_PROPOSED = "connectionSetupWizardProposed";
 }
