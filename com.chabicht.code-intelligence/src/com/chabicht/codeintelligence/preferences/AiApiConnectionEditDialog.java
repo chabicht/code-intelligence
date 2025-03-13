@@ -1,6 +1,7 @@
 package com.chabicht.codeintelligence.preferences;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
@@ -163,7 +164,10 @@ public class AiApiConnectionEditDialog extends Dialog {
 	}
 
 	private static Map<ApiType, String> initDefaultConnectionUrls() {
-		return Map.of(ApiType.OLLAMA, "http://localhost:11434", ApiType.OPENAI, "https://api.openai.com/v1",
-				ApiType.ANTHROPIC, "https://api.anthropic.com/v1", ApiType.XAI, "https://api.x.ai/v1");
+		Map<ApiType, String> res = new HashMap<>();
+		for (ApiType t : ApiType.values()) {
+			res.put(t, t.getDefaultBaseUri());
+		}
+		return res;
 	}
 }

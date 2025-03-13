@@ -10,6 +10,7 @@ import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringButtonFieldEditor;
 import org.eclipse.jface.resource.FontDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
+import org.eclipse.jface.wizard.WizardDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.graphics.Font;
@@ -25,6 +26,7 @@ import org.eclipse.ui.IWorkbenchPreferencePage;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
+import com.chabicht.codeintelligence.preferences.setupwizard.ConnectionSetupWizard;
 
 /**
  * This class represents a preference page that is contributed to the
@@ -53,6 +55,22 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 	public void createFieldEditors() {
 		Font boldFont = JFaceResources.getResources().create(FontDescriptor.createFrom(getFont()).setStyle(SWT.BOLD));
 
+		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		Composite cmpTopButtons = new Composite(getFieldEditorParent(), SWT.NONE);
+		cmpTopButtons.setLayoutData(new GridData(SWT.FILL, SWT.FILL, false, false, 3, 1));
+		GridLayout cmpTopButtonsLayout = new GridLayout(3, false);
+		cmpTopButtonsLayout.marginWidth = 0;
+		cmpTopButtonsLayout.marginHeight = 0;
+		cmpTopButtons.setLayout(cmpTopButtonsLayout);
+		Button btnSetupWizardDialog = new Button(cmpTopButtons, SWT.NONE);
+		btnSetupWizardDialog.setText("Setup wizard...");
+		btnSetupWizardDialog.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+		btnSetupWizardDialog.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
+			WizardDialog dlg = new WizardDialog(getShell(), new ConnectionSetupWizard());
+			dlg.open();
+		}));
+
+		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		addField(new ApiConnectionFieldEditor(PreferenceConstants.API_CONNECTION_DATA, "&API connections:",
 				getFieldEditorParent(), connections));
 
@@ -71,7 +89,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 			dlg.open();
 		}));
 
-		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 		Label lblCompletion = new Label(getFieldEditorParent(), SWT.NONE);
 		lblCompletion.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1));

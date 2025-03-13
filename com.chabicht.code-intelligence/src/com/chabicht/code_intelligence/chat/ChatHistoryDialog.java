@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.dialogs.MessageDialog;
@@ -83,7 +84,7 @@ public class ChatHistoryDialog extends Dialog {
 			@Override
 			public String getText(Object element) {
 				if (element instanceof ChatHistoryEntry entry) {
-					return entry.getTitle();
+					return StringUtils.stripToEmpty(entry.getTitle());
 				}
 				return "";
 			}
