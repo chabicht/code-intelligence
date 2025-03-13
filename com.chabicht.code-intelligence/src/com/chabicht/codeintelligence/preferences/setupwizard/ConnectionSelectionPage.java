@@ -52,9 +52,7 @@ public class ConnectionSelectionPage extends WizardPage {
 
 		this.connection = connection;
 		setTitle("Select a connection provider");
-		setMessage("First you have to select the AI provider you want to use."
-				+ "\nYou also can customize the URI of the API here."
-				+ "\nUsually, you also need to provide an API key to access the API.");
+		setMessage("First you have to configure the AI provider you want to use.");
 		List<ApiType> list = new ArrayList<>(Arrays.asList(ApiType.values()));
 		Collections.sort(list, (a, b) -> a.getName().compareTo(b.getName()));
 		providers.addAll(list);

@@ -24,20 +24,20 @@ import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
 import com.chabicht.codeintelligence.preferences.ModelSelectionDialog;
 
-public class CompletionModelSelectionPage extends WizardPage {
+public class ChatModelSelectionPage extends WizardPage {
 	private DataBindingContext m_bindingContext;
 	private AiApiConnection connection;
-	private Text txtCompletionModel;
+	private Text txtChatModel;
 	private Button btnSelect;
 	private Label lblDescription;
 	private ConnectionSetupWizard parent;
 
-	protected CompletionModelSelectionPage(String pageName, ConnectionSetupWizard parent, AiApiConnection connection) {
+	protected ChatModelSelectionPage(String pageName, ConnectionSetupWizard parent, AiApiConnection connection) {
 		super(pageName);
 		this.parent = parent;
 		this.connection = connection;
-		setTitle("Selection completion model");
-		setDescription("Now select the model used for code completion tasks.");
+		setTitle("Selection Chat Model");
+		setDescription("Select the model to be used for chat tasks.");
 	}
 
 	@Override
@@ -50,15 +50,15 @@ public class CompletionModelSelectionPage extends WizardPage {
 		GridData gd_lblDescription = new GridData(SWT.FILL, SWT.FILL, true, false, 3, 1);
 		gd_lblDescription.heightHint = 75;
 		lblDescription.setLayoutData(gd_lblDescription);
-		lblDescription.setText("If the connection data is correct, you shouldsee all models the"
-				+ " connection you chose on the first page when you click on the \"Select...\" button");
+		lblDescription.setText("If the connection data is correct, you should see all models the "
+				+ "connection you chose on the first page when you click on the \"Select...\" button");
 
-		Label lblCompletionModel = new Label(container, SWT.NONE);
-		lblCompletionModel.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
-		lblCompletionModel.setText("Completion model:");
+		Label lblChatModel = new Label(container, SWT.NONE);
+		lblChatModel.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
+		lblChatModel.setText("Chat Model:");
 
-		txtCompletionModel = new Text(container, SWT.BORDER);
-		txtCompletionModel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		txtChatModel = new Text(container, SWT.BORDER);
+		txtChatModel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
 
 		btnSelect = new Button(container, SWT.NONE);
 		btnSelect.setText("Select...");
@@ -84,37 +84,45 @@ public class CompletionModelSelectionPage extends WizardPage {
 				AiModel model = dialog.getSelectedModel();
 				if (model != null) {
 					String modelString = model.getApiConnection().getName() + "/" + model.getId();
-					txtCompletionModel.setText(modelString);
+					txtChatModel.setText(modelString);
 				}
 			}
 		}));
 
-		txtCompletionModel.addModifyListener(e -> {
+		txtChatModel.addModifyListener(e -> {
 			Display.getCurrent().asyncExec(() -> {
-				setPageComplete(StringUtils.isNotBlank(txtCompletionModel.getText()));
+				parent.setChatModelId(txtChatModel.getText());
+				setPageComplete(StringUtils.isNotBlank(txtChatModel.getText()));
 			});
 		});
+	}
+
+	public String getSelectedModel() {
+		return txtChatModel.getText();
 	}
 
 	@Override
 	public void setVisible(boolean visible) {
 		super.setVisible(visible);
 
+		// Pre-fill with defaults, similar to CompletionModelSelectionPage.
+		// Adjust model names as necessary. These are *examples*.
 		String connName = connection.getName();
 		switch (connection.getType()) {
 		case ANTHROPIC:
-			txtCompletionModel.setText(connName + "/claude-3-5-haiku-20241022");
+			txtChatModel.setText(connName + "/claude-3-7-sonnet-20250219"); // Example
 			break;
 		case GEMINI:
-			txtCompletionModel.setText(connName + "/models/gemini-2.0-flash-lite");
+			txtChatModel.setText(connName + "/models/gemini-2.0-pro-exp"); // Example
 			break;
 		case OPENAI:
-			txtCompletionModel.setText(connName + "/gpt-4o-mini");
+			txtChatModel.setText(connName + "/o3-mini"); // Example
 			break;
 		case XAI:
-			txtCompletionModel.setText(connName + "/grok-2-1212");
+			txtChatModel.setText(connName + "/grok-2-1212"); // Example
 			break;
 		default:
+			// Don't pre-fill if the type is unknown.
 			break;
 		}
 	}
@@ -122,11 +130,9 @@ public class CompletionModelSelectionPage extends WizardPage {
 	protected DataBindingContext initDataBindings() {
 		DataBindingContext bindingContext = new DataBindingContext();
 		//
-		IObservableValue observeTextTxtCompletionModelObserveWidget = WidgetProperties.text(SWT.Modify)
-				.observe(txtCompletionModel);
-		IObservableValue completionModelIdParentObserveValue = PojoProperties.value("completionModelId")
-				.observe(parent);
-		bindingContext.bindValue(observeTextTxtCompletionModelObserveWidget, completionModelIdParentObserveValue, null,
+		IObservableValue observeTextTxtChatModelObserveWidget = WidgetProperties.text(SWT.Modify).observe(txtChatModel);
+		IObservableValue chatModelIdParentObserveValue = PojoProperties.value("chatModelId").observe(parent);
+		bindingContext.bindValue(observeTextTxtChatModelObserveWidget, chatModelIdParentObserveValue, null,
 				null);
 		//
 		return bindingContext;
