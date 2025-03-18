@@ -149,11 +149,13 @@ public class ChatView extends ViewPart {
 			Display.getDefault().asyncExec(() -> {
 				StringBuilder attachments = new StringBuilder();
 				if (!message.getContext().isEmpty()) {
+					String attachmentIcon = getAttachmentIconHtml();
 					for (MessageContext ctx : message.getContext()) {
 						attachments.append(String.format(
-								"<span class=\"attachment-container\">" + "<span class=\"attachment-icon\">%s</span>"
+								"<span id=\"%s\" class=\"attachment-container\">"
+										+ "<span class=\"attachment-icon\">%s</span>"
 										+ "<span class=\"tooltip\">%s</span>" + "</span>",
-								getAttachmentIconHtml(), ctx.getLabel()));
+								ctx.getUuid(), attachmentIcon, ctx.getLabel()));
 					}
 				}
 				String messageHtml = messageContentToHtml(message);
@@ -404,7 +406,7 @@ public class ChatView extends ViewPart {
 		// Set text to "▶️"
 		btnSend.setText("\u25B6");
 		btnSend.setFont(buttonSymbolFont);
-		sashForm.setWeights(new int[] {85, 15});
+		sashForm.setWeights(new int[] { 85, 15 });
 
 		init();
 		initUserInputControl();
@@ -767,10 +769,37 @@ public class ChatView extends ViewPart {
 				} else if (str.startsWith("apply:")) {
 					String encodedCode = str.substring("apply:".length());
 					applyCodeToEditor(encodedCode);
+				} else if (str.startsWith("attachment:")) { // Add this case
+					String attachmentUuid = str.substring("attachment:".length());
+					openAttachmentDialog(attachmentUuid);
 				}
 			}
 			return null;
 		}
+	}
+
+	private void openAttachmentDialog(String attachmentUuid) {
+		MessageContext ctx = findContextByUuid(attachmentUuid);
+		if (ctx != null) {
+			MessageContextDialog dlg = new MessageContextDialog(getSite().getShell(), ctx);
+			dlg.open();
+		}
+	}
+
+	private MessageContext findContextByUuid(String uuidString) {
+		try {
+			UUID uuid = UUID.fromString(uuidString);
+			for (ChatMessage message : conversation.getMessages()) { // Access messages directly
+				for (MessageContext ctx : message.getContext()) {
+					if (uuid.equals(ctx.getUuid())) {
+						return ctx;
+					}
+				}
+			}
+		} catch (IllegalArgumentException e) {
+			Activator.logError("Invalid UUID format: " + uuidString, e);
+		}
+		return null;
 	}
 
 	public void copyMessageToClipboard(String messageUuidString) {

@@ -48,6 +48,7 @@ public class ChatConversation {
 	 * Context information added to a message.
 	 */
 	public static class MessageContext {
+		private final UUID uuid;
 		private final String fileName;
 		private final RangeType rangeType;
 		private final int start;
@@ -59,6 +60,11 @@ public class ChatConversation {
 		}
 
 		public MessageContext(String fileName, RangeType rangeType, int start, int end, String content) {
+			this(UUID.randomUUID(), fileName, rangeType, start, end, content);
+		}
+
+		public MessageContext(UUID uuid, String fileName, RangeType rangeType, int start, int end, String content) {
+			this.uuid = uuid;
 			this.fileName = fileName;
 			this.rangeType = rangeType;
 			this.start = start;
@@ -73,6 +79,10 @@ public class ChatConversation {
 				return true;
 			}
 			return false;
+		}
+
+		public UUID getUuid() {
+			return uuid;
 		}
 
 		public String getFileName() {

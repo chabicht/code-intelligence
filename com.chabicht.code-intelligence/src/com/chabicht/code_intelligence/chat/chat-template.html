@@ -315,7 +315,10 @@ function isScrolledToBottom() {
    
    // Process code blocks to add copy buttons
    processCodeBlocks(contentDiv);
-
+   
+   // Process attachments to add double-click functionality
+   processAttachments(contentDiv);
+   
    // Add a footer with buttons
    if (role !== "system") {  // Skip for system messages
      var footer = document.createElement("div");
@@ -377,6 +380,9 @@ function isScrolledToBottom() {
        
        // Process code blocks to add copy buttons
        processCodeBlocks(contentDiv);
+
+	   // Process attachments for double click
+	   processAttachments(contentDiv);
      }
    }
 
@@ -444,6 +450,31 @@ function isScrolledToBottom() {
    }
  }
 
+  /**
+  * Processes attachment containers to add double-click functionality.
+  * @param {HTMLElement} container - The container element to search for attachment containers.
+  */
+  function processAttachments(container) {
+    var attachmentContainers = container.getElementsByClassName('attachment-container');
+ 
+    for (var i = 0; i < attachmentContainers.length; i++) {
+      var attachmentContainer = attachmentContainers[i];
+      var attachmentId = attachmentContainer.id; // Get the UUID from the id attribute
+ 
+      attachmentContainer.addEventListener('dblclick', function(event) {
+        // Prevent the event from bubbling up (important!)
+        event.stopPropagation();
+ 
+        // Call the Java callback with the attachment UUID
+        attachmentDoubleClicked("attachment:" + attachmentId); // Consistent naming
+      });
+    }
+  }
+
+  function attachmentDoubleClicked(uuid) {
+      elementClicked(uuid);
+  }
+  
  /**
   * Sets the appropriate apply icon SVG based on the current theme
   * @param {HTMLElement} button - The button element to update
