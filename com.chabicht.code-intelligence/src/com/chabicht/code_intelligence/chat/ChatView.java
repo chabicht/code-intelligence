@@ -52,6 +52,7 @@ import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
+import org.eclipse.swt.events.MouseListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
@@ -505,6 +506,11 @@ public class ChatView extends ViewPart {
 						contextMenu.setLocation(event.x, event.y);
 						contextMenu.setVisible(true);
 					});
+
+					l.addMouseListener(MouseListener.mouseDoubleClickAdapter(ev -> {
+						MessageContextDialog dlg = new MessageContextDialog(getSite().getShell(), ctx);
+						dlg.open();
+					}));
 
 					cmpAttachments.layout();
 				} else {

@@ -1,7 +1,9 @@
 package com.chabicht.code_intelligence.util;
 
 import org.eclipse.jface.resource.ColorRegistry;
+import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.graphics.Font;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.themes.ITheme;
 import org.eclipse.ui.themes.IThemeManager;
@@ -36,5 +38,9 @@ public class ThemeUtil {
 		double yiq = ((color.getRed() * 299) + (color.getGreen() * 587) + (color.getBlue() * 114)) / 1000;
 		// Consider it a dark color if the brightness is less than 128 (midpoint)
 		return yiq < 128;
+	}
+
+	public static Font getTextEditorFont() {
+		return JFaceResources.getTextFont();
 	}
 }
