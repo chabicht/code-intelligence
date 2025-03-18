@@ -20,6 +20,8 @@ import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.jface.viewers.Viewer;
 import org.eclipse.jface.viewers.ViewerFilter;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.KeyEvent;
+import org.eclipse.swt.events.KeyListener;
 import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -35,7 +37,6 @@ import com.chabicht.code_intelligence.apiclient.AiModel;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 
 public class ModelSelectionDialog extends Dialog {
-	private DataBindingContext m_bindingContext;
 	private Table table;
 	private WritableList<AiModel> models;
 	private UIModel uiModel = new UIModel();
@@ -138,6 +139,22 @@ public class ModelSelectionDialog extends Dialog {
 			txtFilter.setText("");
 			tableViewer.setFilters();
 		}));
+		txtFilter.addKeyListener(new KeyListener() {
+			@Override
+			public void keyPressed(KeyEvent e) {
+				if (e.keyCode == SWT.ARROW_DOWN) {
+					tableViewer.getTable().setFocus(); // Set focus to the table
+					if (tableViewer.getTable().getItemCount() > 0) {
+						tableViewer.getTable().setSelection(0); // select the first item
+					}
+				}
+			}
+
+			@Override
+			public void keyReleased(KeyEvent e) {
+				// Not needed for this specific functionality
+			}
+		});
 
 		tableViewer = new TableViewer(composite, SWT.BORDER | SWT.FULL_SELECTION);
 		table = tableViewer.getTable();
@@ -186,7 +203,7 @@ public class ModelSelectionDialog extends Dialog {
 		});
 
 		tableViewer.setContentProvider(new ObservableListContentProvider<AiModel>());
-		m_bindingContext = initDataBindings();
+		initDataBindings();
 		tableViewer.setInput(models);
 
 		return composite;

@@ -176,7 +176,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 
 		JsonObject options = getOrAddJsonObject(req, "options");
 		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
-		setPropertyIfNotPresent(options, "num_predict", Activator.getDefault().getMaxCompletionTokens());
+		setPropertyIfNotPresent(options, "num_predict", maxResponseTokens);
 
 		// Add a new (empty) assistant message to the conversation.
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(

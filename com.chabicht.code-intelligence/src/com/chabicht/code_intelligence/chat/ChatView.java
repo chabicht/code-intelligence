@@ -276,7 +276,7 @@ public class ChatView extends ViewPart {
 				String.format("/icons/paperclip_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
 		createPaperclipBase64();
 	}
-	
+
 	@Override
 	public void createPartControl(Composite parent) {
 		SashForm sashForm = new SashForm(parent, SWT.VERTICAL);
