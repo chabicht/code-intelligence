@@ -12,6 +12,7 @@ import java.lang.reflect.Type;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -24,9 +25,11 @@ import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
+import com.chabicht.code_intelligence.model.ProviderDefaults;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -54,6 +57,8 @@ public class Activator extends AbstractUIPlugin {
 	private static Activator plugin;
 
 	private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
+
+	private final Map<String, ProviderDefaults> SUPPORTED_PROVIDERS = consSupportedProviders();
 
 	/**
 	 * The constructor
@@ -295,4 +300,60 @@ public class Activator extends AbstractUIPlugin {
 		}
 		return res;
 	}
+
+	/**
+	 * Creates a mapping of all supported AI providers (not just the ones whose
+	 * <i>protocols</i> are supported).
+	 */
+	private HashMap<String, ProviderDefaults> consSupportedProviders() {
+		HashMap<String, ProviderDefaults> res = new HashMap<>();
+
+		// OpenAI
+		res.put("OpenAI", new ProviderDefaults("OpenAI", ApiType.OPENAI, "https://api.openai.com/v1",
+				"https://platform.openai.com/settings/organization/api-keys", "gpt-4o-mini", "o3-mini"));
+
+		// Groq
+		res.put("Groq", new ProviderDefaults("Groq", ApiType.OPENAI, "https://api.groq.com/openai/v1",
+				"https://console.groq.com/keys", "qwen-2.5-coder-32b", "deepseek-r1-distill-llama-70b"));
+
+		// DeepSeek
+		res.put("DeepSeek", new ProviderDefaults("DeepSeek", ApiType.OPENAI, "https://api.deepseek.com",
+				"https://platform.deepseek.com/api-keys", "deepseek-chat", "deepseek-reasoner"));
+
+		// Ollama
+		res.put("Ollama", new ProviderDefaults("Ollama", ApiType.OLLAMA, "http://localhost:11434", "",
+				"qwen2.5-coder:14b", "qwen2.5-coder:14b"));
+
+		// Anthropic
+		res.put("Anthropic",
+				new ProviderDefaults("Anthropic", ApiType.ANTHROPIC, "https://api.anthropic.com/v1",
+						"https://console.anthropic.com/settings/keys", "claude-3-5-haiku-20241022",
+						"claude-3-7-sonnet-20250219"));
+
+		// Gemini
+		res.put("Gemini",
+				new ProviderDefaults("Gemini", ApiType.GEMINI, "https://generativelanguage.googleapis.com/v1beta",
+						"https://aistudio.google.com/app/apikey", "models/gemini-2.0-flash-lite",
+
+						"models/gemini-2.0-pro-exp"));
+
+		// X.ai
+		res.put("X.ai",
+				new ProviderDefaults("X.ai", ApiType.XAI, "https://api.x.ai/v1", "https://console.x.ai/", "grok-2-1212",
+
+						"grok-2-1212"));
+
+		return res;
+	}
+
+	// Make this accessible
+	private HashMap<String, ProviderDefaults> supportedProviders;
+
+	public HashMap<String, ProviderDefaults> getSupportedProviders() {
+		if (supportedProviders == null) {
+			supportedProviders = consSupportedProviders();
+		}
+		return supportedProviders;
+	}
+
 }

@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.preference.BooleanFieldEditor;
+import org.eclipse.jface.preference.FieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringButtonFieldEditor;
@@ -40,6 +41,7 @@ import com.chabicht.codeintelligence.preferences.setupwizard.ConnectionSetupWiza
  */
 public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage implements IWorkbenchPreferencePage {
 	WritableList<AiApiConnection> connections = new WritableList<>();
+	private List<FieldEditor> myFieldEditors = new ArrayList<>();
 
 	public CodeIntelligencePreferencePage() {
 		super(GRID);
@@ -56,6 +58,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		Font boldFont = JFaceResources.getResources().create(FontDescriptor.createFrom(getFont()).setStyle(SWT.BOLD));
 
 		Label ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 		Composite cmpTopButtons = new Composite(getFieldEditorParent(), SWT.NONE);
 		cmpTopButtons.setLayoutData(new GridData(SWT.FILL, SWT.FILL, false, false, 3, 1));
 		GridLayout cmpTopButtonsLayout = new GridLayout(3, false);
@@ -68,9 +71,21 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		btnSetupWizardDialog.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
 			WizardDialog dlg = new WizardDialog(getShell(), new ConnectionSetupWizard());
 			dlg.open();
+
+			// Refresh all field editors
+			for (FieldEditor editor : myFieldEditors) {
+				editor.load();
+			}
+//			// Special handling for ApiConnectionFieldEditor
+//			for (FieldEditor editor : myFieldEditors) {
+//				if (editor instanceof ApiConnectionFieldEditor) {
+//					((ApiConnectionFieldEditor) editor).refreshConnectionsList();
+//				}
+//			}
 		}));
 
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
+		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 		addField(new ApiConnectionFieldEditor(PreferenceConstants.API_CONNECTION_DATA, "&API connections:",
 				getFieldEditorParent(), connections));
 
@@ -195,6 +210,12 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 			}
 			return res;
 		}
+	}
+
+	@Override
+	public void addField(FieldEditor editor) {
+		super.addField(editor);
+		myFieldEditors.add(editor);
 	}
 
 	@Override

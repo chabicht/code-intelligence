@@ -22,6 +22,7 @@ import org.eclipse.swt.widgets.Text;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
+import com.chabicht.code_intelligence.model.ProviderDefaults;
 import com.chabicht.codeintelligence.preferences.ModelSelectionDialog;
 
 public class CompletionModelSelectionPage extends WizardPage {
@@ -100,22 +101,10 @@ public class CompletionModelSelectionPage extends WizardPage {
 	public void setVisible(boolean visible) {
 		super.setVisible(visible);
 
-		String connName = connection.getName();
-		switch (connection.getType()) {
-		case ANTHROPIC:
-			txtCompletionModel.setText(connName + "/claude-3-5-haiku-20241022");
-			break;
-		case GEMINI:
-			txtCompletionModel.setText(connName + "/models/gemini-2.0-flash-lite");
-			break;
-		case OPENAI:
-			txtCompletionModel.setText(connName + "/gpt-4o-mini");
-			break;
-		case XAI:
-			txtCompletionModel.setText(connName + "/grok-2-1212");
-			break;
-		default:
-			break;
+		ProviderDefaults defaults = parent.getSelectedProviderDefaults();
+		if (defaults != null && defaults.getDefaultCompletionModelId() != null) {
+			String modelName = defaults.getProviderName() + "/" + defaults.getDefaultCompletionModelId();
+			txtCompletionModel.setText(modelName);
 		}
 	}
 

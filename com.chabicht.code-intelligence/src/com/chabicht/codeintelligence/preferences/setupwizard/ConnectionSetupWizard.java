@@ -10,6 +10,7 @@ import org.eclipse.jface.wizard.Wizard;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
+import com.chabicht.code_intelligence.model.ProviderDefaults;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ConnectionSetupWizard extends Wizard {
@@ -17,6 +18,7 @@ public class ConnectionSetupWizard extends Wizard {
 	private AiApiConnection connection = new AiApiConnection();
 	private String completionModelId;
 	private String chatModelId;
+	private ProviderDefaults selectedProviderDefaults;
 
 	public ConnectionSetupWizard() {
 		connection.setEnabled(true);
@@ -80,5 +82,13 @@ public class ConnectionSetupWizard extends Wizard {
 	public void setChatModelId(String chatModelId) {
 		this.chatModelId = chatModelId;
 
+	}
+
+	public ProviderDefaults getSelectedProviderDefaults() {
+		return selectedProviderDefaults;
+	}
+
+	public void setSelectedProviderDefaults(ProviderDefaults defaults) {
+		this.selectedProviderDefaults = defaults;
 	}
 }

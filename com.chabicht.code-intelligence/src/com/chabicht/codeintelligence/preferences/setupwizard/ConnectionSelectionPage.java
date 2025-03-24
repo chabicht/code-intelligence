@@ -1,7 +1,6 @@
 package com.chabicht.codeintelligence.preferences.setupwizard;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -28,15 +27,17 @@ import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Link;
 import org.eclipse.swt.widgets.Text;
 
+import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection.ApiType;
+import com.chabicht.code_intelligence.model.ProviderDefaults;
 
 public class ConnectionSelectionPage extends WizardPage {
 	private DataBindingContext m_bindingContext;
 	private Text txtBaseUri;
 
-	private WritableList<ApiType> providers = new WritableList<>();
-
+	private WritableList<ProviderDefaults> providers = new WritableList<>();
+	
 	private Link lnkApiKey;
 	private Text txtApiKey;
 
@@ -54,9 +55,10 @@ public class ConnectionSelectionPage extends WizardPage {
 		this.connection = connection;
 		setTitle("Select a connection provider");
 		setMessage("First you have to configure the AI provider you want to use.");
-		List<ApiType> list = new ArrayList<>(Arrays.asList(ApiType.values()));
-		Collections.sort(list, (a, b) -> a.getName().compareTo(b.getName()));
-		providers.addAll(list);
+		
+	    List<ProviderDefaults> list = new ArrayList<>(Activator.getDefault().getSupportedProviders().values());
+	    Collections.sort(list, (a, b) -> a.getProviderName().compareTo(b.getProviderName()));
+	    providers.addAll(list);
 	}
 
 	@Override
@@ -113,27 +115,31 @@ public class ConnectionSelectionPage extends WizardPage {
 	}
 
 	private void initData(ComboViewer cvProvider) {
-		cvProvider.setLabelProvider(new LabelProvider() {
-
-			@Override
-			public String getText(Object element) {
-				if (element instanceof ApiType a) {
-					return a.getName();
-				}
-				return super.getText(element);
-			}
-		});
-		cvProvider.setContentProvider(new ObservableListContentProvider<ApiType>());
-		cvProvider.setInput(providers);
+	    cvProvider.setLabelProvider(new LabelProvider() {
+	        @Override
+	        public String getText(Object element) {
+	            if (element instanceof ProviderDefaults pd) {
+	                return pd.getProviderName();
+	            }
+	            return super.getText(element);
+	        }
+	    });
+	    cvProvider.setContentProvider(new ObservableListContentProvider<ProviderDefaults>());
+	    cvProvider.setInput(providers);
 	}
 
 	private void initListeners() {
 		cvProvider.addSelectionChangedListener(e -> {
-			if (e.getStructuredSelection().getFirstElement() instanceof ApiType a) {
-				connection.setName(a.getName());
-				txtBaseUri.setText(a.getDefaultBaseUri());
+			if (e.getStructuredSelection().getFirstElement() instanceof ProviderDefaults defaults) {
+				connection.setName(defaults.getProviderName());
+				connection.setType(defaults.getApiType());
+				connection.setBaseUri(defaults.getBaseUri());
 
-				String apiKeyUri = a.getApiKeyUri();
+				((ConnectionSetupWizard) getWizard()).setSelectedProviderDefaults(defaults);
+
+				txtBaseUri.setText(defaults.getBaseUri());
+
+				String apiKeyUri = defaults.getApiKeyUri();
 				if (StringUtils.isNotBlank(apiKeyUri)) {
 					lnkApiKey.setVisible(true);
 					lnkApiKey.setText("<a>" + apiKeyUri + "</a>");
@@ -141,7 +147,7 @@ public class ConnectionSelectionPage extends WizardPage {
 					lnkApiKey.setVisible(false);
 				}
 
-				if (ApiType.OLLAMA.equals(connection.getType())) {
+				if (ApiType.OLLAMA.equals(defaults.getApiType())) {
 					txtApiKey.setText("(no key needed)");
 				} else if ("(no key needed)".equals(txtApiKey.getText())) {
 					txtApiKey.setText("");
@@ -189,19 +195,24 @@ public class ConnectionSelectionPage extends WizardPage {
 
 	protected DataBindingContext initDataBindings() {
 		DataBindingContext bindingContext = new DataBindingContext();
-		//
-		IObservableValue observeSingleSelectionCvProvider_1 = ViewerProperties.singleSelection().observe(cvProvider);
-		IObservableValue typeConnectionObserveValue = BeanProperties.value("type").observe(connection);
-		bindingContext.bindValue(observeSingleSelectionCvProvider_1, typeConnectionObserveValue, null, null);
-		//
+
+		IObservableValue<ProviderDefaults> observeSingleSelectionCvProvider = ViewerProperties
+				.singleSelection(ProviderDefaults.class).observe(cvProvider);
+		IObservableValue<ApiType> apiTypeObservable = BeanProperties.value("apiType", ApiType.class)
+				.observe(observeSingleSelectionCvProvider);
+		IObservableValue<ApiType> typeConnectionObserveValue = BeanProperties.value("type", ApiType.class)
+				.observe(connection);
+		bindingContext.bindValue(apiTypeObservable, typeConnectionObserveValue, null, null);
+
 		IObservableValue observeTextTxtBaseUriObserveWidget = WidgetProperties.text(SWT.Modify).observe(txtBaseUri);
 		IObservableValue baseUriConnectionObserveValue = BeanProperties.value("baseUri").observe(connection);
 		bindingContext.bindValue(observeTextTxtBaseUriObserveWidget, baseUriConnectionObserveValue, null, null);
-		//
+
 		IObservableValue observeTextTxtApiKeyObserveWidget = WidgetProperties.text(SWT.Modify).observe(txtApiKey);
 		IObservableValue apiKeyConnectionObserveValue = BeanProperties.value("apiKey").observe(connection);
 		bindingContext.bindValue(observeTextTxtApiKeyObserveWidget, apiKeyConnectionObserveValue, null, null);
-		//
+
 		return bindingContext;
 	}
+
 }

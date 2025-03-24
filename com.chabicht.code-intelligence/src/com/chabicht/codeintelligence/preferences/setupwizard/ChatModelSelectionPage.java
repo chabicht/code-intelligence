@@ -22,6 +22,7 @@ import org.eclipse.swt.widgets.Text;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
+import com.chabicht.code_intelligence.model.ProviderDefaults;
 import com.chabicht.codeintelligence.preferences.ModelSelectionDialog;
 
 public class ChatModelSelectionPage extends WizardPage {
@@ -105,25 +106,10 @@ public class ChatModelSelectionPage extends WizardPage {
 	public void setVisible(boolean visible) {
 		super.setVisible(visible);
 
-		// Pre-fill with defaults, similar to CompletionModelSelectionPage.
-		// Adjust model names as necessary. These are *examples*.
-		String connName = connection.getName();
-		switch (connection.getType()) {
-		case ANTHROPIC:
-			txtChatModel.setText(connName + "/claude-3-7-sonnet-20250219"); // Example
-			break;
-		case GEMINI:
-			txtChatModel.setText(connName + "/models/gemini-2.0-pro-exp"); // Example
-			break;
-		case OPENAI:
-			txtChatModel.setText(connName + "/o3-mini"); // Example
-			break;
-		case XAI:
-			txtChatModel.setText(connName + "/grok-2-1212"); // Example
-			break;
-		default:
-			// Don't pre-fill if the type is unknown.
-			break;
+		ProviderDefaults defaults = parent.getSelectedProviderDefaults();
+		if (defaults != null && defaults.getDefaultCompletionModelId() != null) {
+			String modelName = defaults.getProviderName() + "/" + defaults.getDefaultChatModelId();
+			txtChatModel.setText(modelName);
 		}
 	}
 
@@ -132,8 +118,7 @@ public class ChatModelSelectionPage extends WizardPage {
 		//
 		IObservableValue observeTextTxtChatModelObserveWidget = WidgetProperties.text(SWT.Modify).observe(txtChatModel);
 		IObservableValue chatModelIdParentObserveValue = PojoProperties.value("chatModelId").observe(parent);
-		bindingContext.bindValue(observeTextTxtChatModelObserveWidget, chatModelIdParentObserveValue, null,
-				null);
+		bindingContext.bindValue(observeTextTxtChatModelObserveWidget, chatModelIdParentObserveValue, null, null);
 		//
 		return bindingContext;
 	}
