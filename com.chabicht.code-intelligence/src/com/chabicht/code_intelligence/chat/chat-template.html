@@ -418,9 +418,9 @@ function isScrolledToBottom() {
      var codeBlock = document.createElement('div');
      codeBlock.className = 'code-block';
   
-	 if(window.Prism) {
-	   window.Prism.highlightAllUnder(codeBlock);
-	 }
+     if(window.Prism) {
+       window.Prism.highlightElement(codeElement || preElement);
+     }
 	    
      // Create header for the buttons
      var codeBlockHeader = document.createElement('div');
