@@ -2,17 +2,18 @@ package com.chabicht.code_intelligence.chat;
 
 import static com.chabicht.code_intelligence.util.ThemeUtil.getTextBackgroundColor;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.io.IOUtils;
 import org.eclipse.jface.resource.ColorDescriptor;
-import org.eclipse.jface.resource.ColorRegistry;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.swt.SWT;
@@ -24,10 +25,8 @@ import org.eclipse.swt.graphics.RGB;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.ui.PlatformUI;
-import org.eclipse.ui.themes.ITheme;
-import org.eclipse.ui.themes.IThemeManager;
 
+import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 
 public class ChatComponent extends Composite {
@@ -35,6 +34,9 @@ public class ChatComponent extends Composite {
 	private final Set<UUID> knownMessages = new HashSet<>();
 	private boolean ready = false;
 	private LocalResourceManager rm;
+
+	private boolean useJetty = true;
+	private File htmlFile;
 
 	public ChatComponent(Composite parent, int style) {
 		super(parent, style);
@@ -48,13 +50,18 @@ public class ChatComponent extends Composite {
 
 		bChat = new Browser(this, SWT.WEBKIT | SWT.EDGE);
 		bChat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
-		bChat.setText(getHtml());
+		setHtml(getHtml());
 		bChat.addProgressListener(ProgressListener.completedAdapter(e -> {
 			ready = true;
 		}));
 	}
 
+	private void setHtml(String html) {
+		bChat.setText(getHtml());
+	}
+
 	private String getHtml() {
+		boolean isDark = ThemeUtil.isDarkTheme();
 		Color bgColor = getTextBackgroundColor();
 		String bgColorString = toCss(bgColor);
 		Color fgColor = rm.create(ColorDescriptor
@@ -83,7 +90,34 @@ public class ChatComponent extends Composite {
 		template = replaceColor(template, "#F9F9F9", tableRowEvenColorString);
 		template = replaceColor(template, "#F0F0F0", tableRowHoverColorString);
 
+		String theme = isDark ? "dark" : "light";
+		String cssFileName = "prism-" + theme + ".css";
+		String jsFileName = "prism-" + theme + ".js";
+		template = replacePlaceholder(template, "<!-- ADD PRISM CSS HERE -->", cssFileName, "style");
+		template = replacePlaceholder(template, "<!-- ADD PRISM JS HERE -->", jsFileName, "script");
+
 		return template;
+	}
+
+	private String replacePlaceholder(String template, String placeholder, String resourceFileName,
+			String tagName) {
+		try {
+			String resourceContent = loadResource(resourceFileName);
+			return template.replaceAll(placeholder,
+					Matcher.quoteReplacement("<" + tagName + ">\n" + resourceContent + "\n</" + tagName + ">"));
+		} catch (IOException e) {
+			Activator.logError("Error loading PrismJS " + tagName + ": " + e, e);
+			return template;
+		}
+	}
+
+	private String loadResource(String resourceFileName) throws IOException {
+		try (InputStream is = this.getClass().getResourceAsStream(resourceFileName)) {
+			if (is == null) {
+				throw new IOException("Resource not found: " + resourceFileName);
+			}
+			return IOUtils.toString(is, StandardCharsets.UTF_8);
+		}
 	}
 
 	private String replaceColor(String template, String color, String replacementColor) {
@@ -139,7 +173,7 @@ public class ChatComponent extends Composite {
 	}
 
 	public void reset() {
-		bChat.setText(getHtml());
+		setHtml(getHtml());
 		knownMessages.clear();
 	}
 
