@@ -35,6 +35,7 @@ import org.eclipse.ui.texteditor.ITextEditor;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
+import com.chabicht.code_intelligence.util.CodeUtil;
 
 public class AddSelectionToContextUtil {
 	private AddSelectionToContextUtil() {
@@ -56,9 +57,10 @@ public class AddSelectionToContextUtil {
 				if (selection != null) {
 					String selectedText = selection.getText();
 					if (StringUtils.isNotBlank(selectedText)) {
+						String processedText = CodeUtil.removeCommonIndentation(selectedText);
 						String fileName = getTextEditor().getEditorInput().getName();
 						ChatView.addContext(new MessageContext(fileName, selection.getStartLine() + 1,
-								selection.getEndLine() + 1, selectedText));
+								selection.getEndLine() + 1, processedText));
 					}
 				}
 			}
@@ -72,8 +74,9 @@ public class AddSelectionToContextUtil {
 				ISourceRange sourceRange = sre.getSourceRange();
 				String source = sre.getSource();
 				if (StringUtils.isNotBlank(source)) {
+					String processedText = CodeUtil.removeCommonIndentation(source);
 					ChatView.addContext(new MessageContext(ancestor, RangeType.OFFSET, sourceRange.getOffset(),
-							sourceRange.getOffset() + sourceRange.getLength(), source));
+							sourceRange.getOffset() + sourceRange.getLength(), processedText));
 				} else {
 					String stringRep = sre.toString();
 					String binaryLabel = "Binary " + stringRep.replaceAll(" \\[.*", "");

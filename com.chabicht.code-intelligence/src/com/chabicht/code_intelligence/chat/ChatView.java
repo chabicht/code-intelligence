@@ -94,6 +94,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.CodeUtil;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.code_intelligence.util.ThemeUtil;
@@ -671,22 +672,25 @@ public class ChatView extends ViewPart {
 			String fileName = textEditor.getEditorInput().getName();
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
+			String processedText = CodeUtil.removeCommonIndentation(selectedText);
 			addContextToMessageIfNotDuplicate(chatMessage, fileName, RangeType.LINE, startLine + 1, endLine + 1,
-					selectedText);
+					processedText);
 		}
 	}
 
 	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
 			int start, int end, String selectedText) {
 		boolean duplicate = false;
-		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, selectedText);
+		// Process the selected text to remove common indentation
+		String processedText = CodeUtil.removeCommonIndentation(selectedText);
+		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, processedText);
 		for (MessageContext ctx : chatMessage.getContext()) {
 			if (newCtx.isDuplicate(ctx)) {
 				duplicate = true;
 			}
 		}
 		if (!duplicate) {
-			chatMessage.getContext().add(new MessageContext(fileName, start, end, selectedText));
+			chatMessage.getContext().add(new MessageContext(fileName, start, end, processedText));
 		}
 	}
 

@@ -42,12 +42,10 @@
     }
 
     .from-me {
-      max-width: 800px;
       align-self: flex-start;
     }
 
     .from-them {
-      max-width: 800px;
       align-self: flex-end;
     }
 
@@ -258,8 +256,9 @@
 	    }
 	}
 
-	
   </style>
+
+  <!-- ADD PRISM CSS HERE -->
 </head>
 <body>
 
@@ -418,7 +417,11 @@ function isScrolledToBottom() {
      // Create wrapper container
      var codeBlock = document.createElement('div');
      codeBlock.className = 'code-block';
-     
+  
+     if(window.Prism) {
+       window.Prism.highlightElement(codeElement || preElement);
+     }
+	    
      // Create header for the buttons
      var codeBlockHeader = document.createElement('div');
      codeBlockHeader.className = 'code-block-header';
@@ -763,5 +766,6 @@ window.onload = function() {
 };
 </script>
 
+<!-- ADD PRISM JS HERE -->
 </body>
 </html>
