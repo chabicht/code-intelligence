@@ -1,6 +1,5 @@
 package com.chabicht.code_intelligence.apiclient;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -10,8 +9,6 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
 public class ConnectionFactory {
 	public static List<AiApiConnection> getApis() {
@@ -52,6 +49,6 @@ public class ConnectionFactory {
 			}
 		}
 
-		throw new IllegalStateException("No connection found for completion model. Check your preferences.");
+		throw new IllegalStateException("No connection found for chat model. Check your preferences.");
 	}
 }

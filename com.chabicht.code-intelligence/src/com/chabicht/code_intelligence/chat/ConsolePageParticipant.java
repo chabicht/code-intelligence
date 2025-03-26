@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.lang.ref.WeakReference;
 import java.util.IdentityHashMap;
 import java.util.Map;
 
@@ -17,6 +18,7 @@ public class ConsolePageParticipant implements IConsolePageParticipant {
 
 	private Map<ConsolePageParticipant, Tuple<IPageBookViewPage, IConsole>> instances = new IdentityHashMap<>();
 
+	private static WeakReference<StyledText> selectionOrigin;
 	private static String consoleName = "";
 	private static Point selectionRange = null;
 	private static String selectedText = "";
@@ -39,6 +41,14 @@ public class ConsolePageParticipant implements IConsolePageParticipant {
 					consoleName = "Console Log " + console.getName();
 					selectionRange = textWidget.getSelectionRange();
 					selectedText = textWidget.getSelectionText();
+					selectionOrigin = new WeakReference<StyledText>(textWidget);
+				}
+			});
+			textWidget.addDisposeListener(e -> {
+				if (selectionOrigin != null && selectionOrigin.get() == textWidget) {
+					selectionRange = new Point(0, 0);
+					selectedText = "";
+					selectionOrigin = null;
 				}
 			});
 		}
