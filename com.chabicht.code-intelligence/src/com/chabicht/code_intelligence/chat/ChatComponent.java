@@ -57,7 +57,7 @@ public class ChatComponent extends Composite {
 	}
 
 	private void setHtml(String html) {
-		bChat.setText(getHtml());
+		bChat.setText(html);
 	}
 
 	private String getHtml() {
@@ -155,17 +155,18 @@ public class ChatComponent extends Composite {
 		bChat.removeProgressListener(listener);
 	}
 
-	public void addMessage(UUID messageId, String role, String html) {
+	public void addMessage(UUID messageId, String role, String html, boolean updating) {
 		knownMessages.add(messageId);
-		bChat.execute(String.format("addMessage('%s', '%s', '%s');", messageId, role, escapeForJavaScript(html)));
+		bChat.execute(String.format("addMessage('%s', '%s', '%s', %s);", messageId, role, escapeForJavaScript(html),
+				updating ? "true" : "false"));
 	}
 
 	public void updateMessage(UUID messageId, String html) {
 		bChat.execute(String.format("updateMessage('%s', '%s');", messageId, escapeForJavaScript(html)));
 	}
 
-	public void updateMessage(UUID messageId, String role, String html) {
-		bChat.execute(String.format("updateMessage('%s', '%s', '%s');", messageId, role, escapeForJavaScript(html)));
+	public void markMessageFinished(UUID messageId) {
+		bChat.execute(String.format("markMessageFinished('%s');", messageId));
 	}
 
 	public boolean isMessageKnown(UUID messageId) {

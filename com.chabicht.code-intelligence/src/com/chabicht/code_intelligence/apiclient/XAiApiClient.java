@@ -192,7 +192,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
         // Add an empty assistant message to be updated as the stream progresses
         ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
                 ChatConversation.Role.ASSISTANT, "");
-        chat.addMessage(assistantMessage);
+		chat.addMessage(assistantMessage, true);
 
         // Prepare the HTTP request
         String requestBody = gson.toJson(req);

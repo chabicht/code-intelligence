@@ -202,7 +202,7 @@ public class ChatConversation {
 		 *
 		 * @param message the updated message.
 		 */
-		void onMessageAdded(ChatMessage message);
+		void onMessageAdded(ChatMessage message, boolean updating);
 
 		/**
 		 * Called when a chat message is updated.
@@ -244,9 +244,9 @@ public class ChatConversation {
 	 *
 	 * @param message the message to add.
 	 */
-	public void addMessage(ChatMessage message) {
+	public void addMessage(ChatMessage message, boolean updating) {
 		messages.add(message);
-		notifyMessageAdded(message);
+		notifyMessageAdded(message, updating);
 	}
 
 	/**
@@ -266,10 +266,10 @@ public class ChatConversation {
 		}
 	}
 
-	public void notifyMessageAdded(ChatMessage message) {
+	public void notifyMessageAdded(ChatMessage message, boolean updating) {
 		for (ChatListener listener : listeners) {
 			if (listener != null) {
-				listener.onMessageAdded(message);
+				listener.onMessageAdded(message, updating);
 			}
 		}
 	}

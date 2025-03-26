@@ -181,7 +181,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		// Add a new (empty) assistant message to the conversation.
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
-		chat.addMessage(assistantMessage);
+		chat.addMessage(assistantMessage, true);
 
 		// Prepare the HTTP request.
 		String requestBody = gson.toJson(req);

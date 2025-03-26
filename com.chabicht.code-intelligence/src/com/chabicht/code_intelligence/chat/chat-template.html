@@ -255,9 +255,47 @@
 	        border-right: none;
 	    }
 	}
-
   </style>
 
+  <style>
+	.spinner {
+	  margin: 2px 2px 0;
+	  width: 20px;
+	  text-align: left;
+	}
+
+	.spinner > div {
+	  width: 8px;
+	  height: 8px;
+	  background-color: #333333;
+
+	  border-radius: 100%;
+	  display: inline-block;
+	  -webkit-animation: spinner-bouncedelay 1.4s infinite ease-in-out both;
+	  animation: spinner-bouncedelay 1.4s infinite ease-in-out both;
+	}
+
+	.spinner .bounce1 {
+	  -webkit-animation-delay: -0.7s;
+	  animation-delay: -0.7s;
+	}
+
+	@-webkit-keyframes spinner-bouncedelay {
+	  0%, 80%, 100% { -webkit-transform: scale(0) }
+	  40% { -webkit-transform: scale(1.0) }
+	}
+
+	@keyframes spinner-bouncedelay {
+	  0%, 80%, 100% { 
+	    -webkit-transform: scale(0);
+	    transform: scale(0);
+	  } 40% { 
+	    -webkit-transform: scale(1.0);
+	    transform: scale(1.0);
+	  }
+	}
+  </style>
+  
   <!-- ADD PRISM CSS HERE -->
 </head>
 <body>
@@ -285,7 +323,7 @@ function isScrolledToBottom() {
  * @param {String} role - The role of the sender ("assistant" or "user").
  * @param {String} content - The HTML content of the message.
  */
- function addMessage(uuid, role, content) {
+ function addMessage(uuid, role, content, updating=false) {
    var container = document.getElementById("chat-container");
    if (!container) {
      return;
@@ -311,13 +349,19 @@ function isScrolledToBottom() {
    contentDiv.className = "message-content";
    contentDiv.innerHTML = content;
    div.appendChild(contentDiv);
-   
+         
    // Process code blocks to add copy buttons
    processCodeBlocks(contentDiv);
    
    // Process attachments to add double-click functionality
    processAttachments(contentDiv);
-   
+
+   if(updating && role === "assistant") {
+     var spinnerDiv = document.createElement("div");
+     spinnerDiv.innerHTML = '<div class="spinner"><div class="bounce1"></div><div class="bounce3"></div></div>';
+     div.appendChild(spinnerDiv);
+   }
+
    // Add a footer with buttons
    if (role !== "system") {  // Skip for system messages
      var footer = document.createElement("div");
@@ -367,7 +411,7 @@ function isScrolledToBottom() {
  * @param {String} uuid - Unique identifier for the message to update.
  * @param {String} updatedContent - The new HTML content for the message.
  */
- function updateMessage(uuid, updatedContent) {
+ function updateMessage(uuid, updatedContent, updating=false) {
    var message = document.getElementById(uuid);
    if (message) {
      // Find the content div within the message
@@ -382,7 +426,7 @@ function isScrolledToBottom() {
 
 	   // Process attachments for double click
 	   processAttachments(contentDiv);
-     }
+      }
    }
 
    // Only scroll if auto-scroll is enabled
@@ -392,6 +436,21 @@ function isScrolledToBottom() {
    }
  }
 
+ /**
+  * Removes the spinner from a completed chat message
+  * @param {String} uuid - Unique identifier for the message to update.
+  */
+  function markMessageFinished(uuid) {
+	var message = document.getElementById(uuid);
+	if (message) {
+	  // Find the spinner element within the content div
+      var spinnerElement = message.querySelector('div.spinner');
+      // If the spinner element exists, remove it
+      if (spinnerElement) {
+          spinnerElement.remove();
+      }
+	}
+  }
 
 
 /**

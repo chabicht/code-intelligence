@@ -80,7 +80,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
-		chat.addMessage(assistantMessage);
+		chat.addMessage(assistantMessage, true);
 
 		String requestBody = gson.toJson(req);
 		HttpRequest request = buildHttpRequest(modelName + ":streamGenerateContent?alt=sse&", requestBody);

@@ -207,7 +207,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		// This is the message that will be updated as new text is streamed in.
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
-		chat.addMessage(assistantMessage);
+		chat.addMessage(assistantMessage, true);
 
 		// Prepare the HTTP request.
 		String requestBody = gson.toJson(req);

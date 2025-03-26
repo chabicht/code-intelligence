@@ -146,7 +146,7 @@ public class ChatView extends ViewPart {
 		}
 
 		@Override
-		public void onMessageAdded(ChatMessage message) {
+		public void onMessageAdded(ChatMessage message, boolean updating) {
 			Display.getDefault().asyncExec(() -> {
 				StringBuilder attachments = new StringBuilder();
 				if (!message.getContext().isEmpty()) {
@@ -168,7 +168,7 @@ public class ChatView extends ViewPart {
 
 				final String finalHtml = combinedHtml;
 				Display.getDefault().asyncExec(() -> {
-					chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), finalHtml);
+					chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), finalHtml, updating);
 				});
 			});
 		}
@@ -200,6 +200,10 @@ public class ChatView extends ViewPart {
 				btnSend.setText("\u25B6");
 
 				connection = null;
+
+				Display.getDefault().asyncExec(() -> {
+					chat.markMessageFinished(message.getId());
+				});
 
 				addConversationToHistory();
 
@@ -607,7 +611,7 @@ public class ChatView extends ViewPart {
 			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
 
-			conversation.addMessage(chatMessage);
+			conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
 			userInput.set("");
 
@@ -711,7 +715,7 @@ public class ChatView extends ViewPart {
 				@Override
 				public void completed(ProgressEvent event) {
 					List<ChatMessage> messages = new ArrayList<>(replacement.getMessages());
-					messages.forEach(conversation::notifyMessageAdded);
+					messages.forEach(m -> conversation.notifyMessageAdded(m, false));
 					chat.removeProgressListener(this);
 				}
 			};
@@ -735,7 +739,7 @@ public class ChatView extends ViewPart {
 		ChatConversation res = new ChatConversation();
 
 		if (settings.getPromptTemplate() != null) {
-			res.addMessage(new ChatMessage(Role.SYSTEM, settings.getPromptTemplate().getPrompt()));
+			res.addMessage(new ChatMessage(Role.SYSTEM, settings.getPromptTemplate().getPrompt()), false);
 		}
 
 		return res;

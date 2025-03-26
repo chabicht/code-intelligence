@@ -324,13 +324,15 @@ public class PromptManagementDialog extends Dialog {
 					if (chatConversation == null) {
 						chatConversation = new ChatConversation();
 						chatConversation.addMessage(new ChatMessage(Role.SYSTEM,
-								"<details open><summary>System Prompt</summary>" + prompt.getPrompt() + "</details>"));
-						chatConversation.addMessage(new ChatMessage(Role.USER, "test"));
+								"<details open><summary>System Prompt</summary>" + prompt.getPrompt() + "</details>"),
+								false);
+						chatConversation.addMessage(new ChatMessage(Role.USER, "test"), false);
 						chatConversation.addMessage(new ChatMessage(Role.ASSISTANT,
 								"It seems like you're testing or checking something."
 										+ " Could you clarify what you need help with?"
 										+ " Whether it's a specific question, a problem to solve,"
-										+ " or just exploring, I'm here to assist!"));
+										+ " or just exploring, I'm here to assist!"),
+								false);
 					} else {
 						chatConversation.getMessages().get(0).setContent(prompt.getPrompt());
 					}
@@ -341,7 +343,7 @@ public class PromptManagementDialog extends Dialog {
 						if (chat.isMessageKnown(msg.getId())) {
 							chat.updateMessage(msg.getId(), html);
 						} else {
-							chat.addMessage(msg.getId(), role, html);
+							chat.addMessage(msg.getId(), role, html, false);
 						}
 					}
 				} catch (JsonSyntaxException e) {

@@ -154,7 +154,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
-		chat.addMessage(assistantMessage);
+		chat.addMessage(assistantMessage, true);
 
 		String requestBody = gson.toJson(req);
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
