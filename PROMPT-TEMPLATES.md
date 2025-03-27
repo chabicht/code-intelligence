@@ -20,12 +20,12 @@ You can use these parameters to structure the prompt according to the target mod
 
 ### Example 1: Fill-in-the-Middle (FIM) Prompt
 
-Many modern code generation models are trained with a specific Fill-in-the-Middle (FIM) format. This usually involves special tokens to denote the prefix, suffix, and the point where the model should insert the completion. The exact tokens (`<fim_prefix>`, `<fim_suffix>`, `<fim_middle>` or `<PRE>`, `<SUF>`, `<MID>`, etc.) depend on the model being used.
+Many modern code generation models are trained with a specific Fill-in-the-Middle (FIM) format. This usually involves special tokens to denote the prefix, suffix, and the point where the model should insert the completion. The exact tokens (e.g. `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>`) depend on the model being used.
 
-A template for a model expecting `<fim_prefix>`, `<fim_suffix>`, `<fim_middle>` tokens might look like this:
+A template for a model expecting `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>` tokens might look like this:
 
 ``````mustache
-<fim_prefix>{{prefix}}<fim_suffix>{{suffix}}<fim_middle>
+<|fim_prefix|>{{prefix}}<|fim_suffix|>{{suffix}}<|fim_middle|>
 ``````
 
 *Note: If there is a selection, the `prefix` ends at the cursor, and the `suffix` starts after the selection. The model is expected to generate code that effectively replaces the selection.*
@@ -46,9 +46,7 @@ Context:
 
 The user recently made these edits:
 {{#recentEdits}}
-```
 {{.}}
-```
 {{/recentEdits}}
 
 Completion:
@@ -61,13 +59,11 @@ You might want to provide recent edits as additional context even when using FIM
 ``````
 Here are recent changes made by the user:
 {{#recentEdits}}
-```
 {{.}}
-```
 {{/recentEdits}}
 
 Complete the code based on the following prefix and suffix:
-<fim_prefix>{{prefix}}<fim_suffix>{{suffix}}<fim_middle>
+<|fim_prefix|>{{prefix}}<|fim_suffix|>{{suffix}}<|fim_middle|>
 ``````
 
 Choose the prompt structure that works best for the specific AI model you are interacting with via the API. The FIM style (`prefix`/`suffix`) is often preferred for models specifically trained for code completion, while the instruction style (`contextWithTags`) might be more suitable for general-purpose instruction-following models.

@@ -9,6 +9,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.ui.text.java.ContentAssistInvocationContext;
 import org.eclipse.jdt.ui.text.java.IJavaCompletionProposalComputer;
+import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
@@ -51,17 +52,27 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 			IDocument doc = invocationContext.getDocument();
 			ITextSelection textSelection = invocationContext.getTextSelection();
 
+			IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
+			int ctxLinesBefore = prefs.getInt(PreferenceConstants.COMPLETION_CONTEXT_LINES_BEFORE);
+			int ctxLinesAfter = prefs.getInt(PreferenceConstants.COMPLETION_CONTEXT_LINES_BEFORE);
+
 			int selectionStartOffset = textSelection.getOffset();
 			int selectionEndOffset = textSelection.getOffset() + textSelection.getLength();
 
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
 
-			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - 10));
+			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - ctxLinesBefore));
 			int selectedLinesStartOffset = doc.getLineOffset(doc.getLineOfOffset(textSelection.getOffset()));
 			int selectedLinesEndOffset = doc
-					.getLineOffset(doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1);
-			int ctxAfterEndOffset = doc.getLineOffset(Math.min(doc.getNumberOfLines() - 1, endLine + 5));
+					.getLineOffset(Math.min(doc.getNumberOfLines() - 1,
+							doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1));
+			int ctxAfterEndLine = Math.min(doc.getNumberOfLines() - 1, endLine + ctxLinesAfter + 1);
+			int ctxAfterEndOffset = doc.getLineOffset(ctxAfterEndLine);
+			// Special case: last line
+			if (ctxAfterEndLine == doc.getNumberOfLines() - 1) {
+				ctxAfterEndOffset += doc.getLineLength(ctxAfterEndLine);
+			}
 
 			int cursorOffset = invocationContext.getInvocationOffset();
 			int lineOfCursor = doc.getLineOfOffset(cursorOffset);
