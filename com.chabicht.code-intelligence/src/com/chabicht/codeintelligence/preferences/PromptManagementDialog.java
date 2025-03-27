@@ -378,12 +378,19 @@ public class PromptManagementDialog extends Dialog {
 						```
 						""", //
 				"```\nres.setEnabled(true);\n```"));
-		res.put("code", """
+		res.put("contextWithTags", """
 				List<Integer> numbers = List.of(1, 2, 3, 4, 5);
 				int evenSum = numbers.stream()
 				    .filter(n -> n % 2 == 0)
 				    <<<cursor>>>
 				""");
+		res.put("prefix", """
+				List<Integer> numbers = List.of(1, 2, 3, 4, 5);
+				int evenSum = numbers.stream()
+				    .filter(n -> n % 2 == 0)
+				""");
+		res.put("suffix", "");
+		res.put("selection", "");
 		return res;
 	}
 

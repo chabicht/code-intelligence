@@ -286,14 +286,14 @@
 	}
 
 	@-webkit-keyframes spinner-pulsedelay {
-	  0%, 80%, 100% { -webkit-transform: scale(0) }
+	  0%, 80%, 100% { -webkit-transform: scale(0.5) }
 	  40% { -webkit-transform: scale(1.0) }
 	}
 
 	@keyframes spinner-pulsedelay {
 	  0%, 80%, 100% { 
-	    -webkit-transform: scale(0);
-	    transform: scale(0);
+	    -webkit-transform: scale(0.5);
+	    transform: scale(0.5);
 	  } 40% { 
 	    -webkit-transform: scale(1.0);
 	    transform: scale(1.0);
@@ -456,6 +456,19 @@ function isScrolledToBottom() {
       }
 	}
   }
+
+/**
+ * Removes the spinner from all chat messages (if present).
+ */
+ function markAllMessagesFinished() {
+    var spinners = document.querySelectorAll('div.spinner');
+
+    spinners.forEach(function(spinnerElement) {
+        if (spinnerElement) {
+            spinnerElement.remove();
+        }
+    });
+ }
 
 
 /**

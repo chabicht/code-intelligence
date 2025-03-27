@@ -169,6 +169,10 @@ public class ChatComponent extends Composite {
 		bChat.execute(String.format("markMessageFinished('%s');", messageId));
 	}
 
+	public void markAllMessagesFinished() {
+		bChat.execute("markAllMessagesFinished();");
+	}
+
 	public boolean isMessageKnown(UUID messageId) {
 		return knownMessages.contains(messageId);
 	}

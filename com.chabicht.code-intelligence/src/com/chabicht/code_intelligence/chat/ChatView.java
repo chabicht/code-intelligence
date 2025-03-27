@@ -585,6 +585,8 @@ public class ChatView extends ViewPart {
 		if (connection.isChatPending()) {
 			connection.abortChat();
 
+			chat.markAllMessagesFinished();
+
 			// Set text to "▶️"
 			btnSend.setText("\u25B6");
 
