@@ -67,7 +67,7 @@ Here are recent changes made by the user:
 {{/recentEdits}}
 
 Complete the code based on the following prefix and suffix:
-<PRE>{{prefix}}<SUF>{{suffix}}<MID>
+<fim_prefix>{{prefix}}<fim_suffix>{{suffix}}<fim_middle>
 ``````
 
 Choose the prompt structure that works best for the specific AI model you are interacting with via the API. The FIM style (`prefix`/`suffix`) is often preferred for models specifically trained for code completion, while the instruction style (`contextWithTags`) might be more suitable for general-purpose instruction-following models.
