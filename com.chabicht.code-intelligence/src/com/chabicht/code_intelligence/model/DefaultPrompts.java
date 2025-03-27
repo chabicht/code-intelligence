@@ -3,56 +3,52 @@ package com.chabicht.code_intelligence.model;
 public interface DefaultPrompts {
 	static final String INSTRUCT_PROMPT = """
 			## General Instructions:
-			Complete the code beginning at the <<<cursor>>> position.
-			A selection may be present, indicated by <<<selection_start>>> and <<<selection_end>>> markers.
-			A completion always starts at the <<<cursor>>> marker, but it may span more than one line.
+			Complete the given code.
 
 			### Example 1:
 			**Code:**
 			```
-			public class Main {
+			<|fim_prefix|>public class Main {
 			  public static void main(String[] args) {
 			    String name = "John";
-			    System.ou<<<cursor>>>
+			    System.ou<|fim_suffix|>
 			  }
-			}
+			}<|fim_middle|>
 			```
 			**Completion:**
 			```
-			    System.out.println(name);
+			t.println(name);
 			```
 
 			### Example 2:
 			**Code:**
 			```
-			var model = configuration.getSelectedModel().orElseThrow();
+			<|fim_prefix|>var model = configuration.getSelectedModel().orElseThrow();
 
 			HttpClient client = HttpClient.newBuilder()
 			                                  .connectTimeout( Duration.ofSeconds(configuration.getConnectionTimoutSeconds()) )
 			                                  .build();
 
 			String requestBody = getRequestBody(prompt, model);
-			HttpRequest request = HttpRequest.newBuil<<<cursor>>>
-			logger.info("Sending request to ChatGPT.
-
-			" + requestBody);
+			HttpRequest request = HttpRequest.newBuil<|fim_suffix|>
+			logger.info("Sending request to ChatGPT. " + requestBody);
 
 			try
 			{
 			        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
 			        if (response.statusCode() != 200)
-
+			<|fim_middle|>
 			```
 			**Completion:**
 			```
-			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(model.apiUrl()))
+			der().uri(URI.create(model.apiUrl()));
 			```
 
 			### Example 3:
 			**Code:**
 			```
-			var model = configuration.getSelectedModel().orElseThrow();
+			<|fim_prefix|>var model = configuration.getSelectedModel().orElseThrow();
 
 			HttpClient client = HttpClient.newBuilder()
 			                                  .connectTimeout( Duration.ofSeconds(configuration.getConnectionTimoutSeconds()) )
@@ -60,7 +56,7 @@ public interface DefaultPrompts {
 
 			String requestBody = getRequestBody(prompt, model);
 			HttpRequest request = HttpRequest.newBuilder().uri(URI.create(model.apiUrl()))
-			<<<cursor>>>
+			<|fim_suffix|>
 			logger.info("Sending request to ChatGPT.
 
 			" + requestBody);
@@ -70,10 +66,11 @@ public interface DefaultPrompts {
 			        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
 			        if (response.statusCode() != 200)
-
+			<|fim_middle|>
 			```
 			**Completion:**
 			```
+
 			.timeout( Duration.ofSeconds( configuration.getRequestTimoutSeconds() ) )
 			```
 
@@ -87,7 +84,6 @@ public interface DefaultPrompts {
 			## Important details:
 			- This is Java 17 code.
 			- Do not repeat the context in your answer.
-			- Include the current line until the <<<cursor>>> marker in your answer.
 			- Focus on relevant variables and methods from the context provided.
 			- If the context before the current line ends with a comment, implement what the comment intends to do.
 			- Use the provided last edits by the user to guess what might be an appropriate completion here.
@@ -98,7 +94,7 @@ public interface DefaultPrompts {
 			## Now do this for this code:
 			**Code:**
 			```
-			{{code}}
+			<|fim_prefix|>{{prefix}}<|fim_suffix|>{{suffix}}<|fim_middle|>
 			```
 			**Completion:**
 			""";

@@ -76,12 +76,12 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 			for (FieldEditor editor : myFieldEditors) {
 				editor.load();
 			}
-//			// Special handling for ApiConnectionFieldEditor
-//			for (FieldEditor editor : myFieldEditors) {
-//				if (editor instanceof ApiConnectionFieldEditor) {
-//					((ApiConnectionFieldEditor) editor).refreshConnectionsList();
-//				}
-//			}
+			// // Special handling for ApiConnectionFieldEditor
+			// for (FieldEditor editor : myFieldEditors) {
+			// if (editor instanceof ApiConnectionFieldEditor) {
+			// ((ApiConnectionFieldEditor) editor).refreshConnectionsList();
+			// }
+			// }
 		}));
 
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
@@ -116,6 +116,11 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		addField(completionModelIdFieldEditor);
 		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS, "Max. &response tokens:",
 				getFieldEditorParent()));
+		// Add fields for context lines before and after cursor
+		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_CONTEXT_LINES_BEFORE,
+				"Context lines &before cursor:", getFieldEditorParent()));
+		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_CONTEXT_LINES_AFTER,
+				"Context lines &after cursor:", getFieldEditorParent()));
 
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
@@ -146,7 +151,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 
 	/*
 	 * (non-Javadoc)
-	 * 
+	 *
 	 * @see org.eclipse.ui.IWorkbenchPreferencePage#init(org.eclipse.ui.IWorkbench)
 	 */
 	public void init(IWorkbench workbench) {

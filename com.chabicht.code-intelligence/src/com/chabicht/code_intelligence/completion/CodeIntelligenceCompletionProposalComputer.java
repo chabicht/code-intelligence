@@ -9,6 +9,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.ui.text.java.ContentAssistInvocationContext;
 import org.eclipse.jdt.ui.text.java.IJavaCompletionProposalComputer;
+import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
@@ -51,59 +52,46 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 			IDocument doc = invocationContext.getDocument();
 			ITextSelection textSelection = invocationContext.getTextSelection();
 
+			IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
+			int ctxLinesBefore = prefs.getInt(PreferenceConstants.COMPLETION_CONTEXT_LINES_BEFORE);
+			int ctxLinesAfter = prefs.getInt(PreferenceConstants.COMPLETION_CONTEXT_LINES_BEFORE);
+
 			int selectionStartOffset = textSelection.getOffset();
 			int selectionEndOffset = textSelection.getOffset() + textSelection.getLength();
 
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
 
-			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - 100));
+			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - ctxLinesBefore));
 			int selectedLinesStartOffset = doc.getLineOffset(doc.getLineOfOffset(textSelection.getOffset()));
 			int selectedLinesEndOffset = doc
-					.getLineOffset(doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1);
-			int ctxAfterEndOffset = doc.getLineOffset(Math.min(doc.getNumberOfLines() - 1, endLine + 20));
+					.getLineOffset(Math.min(doc.getNumberOfLines() - 1,
+							doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1));
+			int ctxAfterEndLine = Math.min(doc.getNumberOfLines() - 1, endLine + ctxLinesAfter + 1);
+			int ctxAfterEndOffset = doc.getLineOffset(ctxAfterEndLine);
+			// Special case: last line
+			if (ctxAfterEndLine == doc.getNumberOfLines() - 1) {
+				ctxAfterEndOffset += doc.getLineLength(ctxAfterEndLine);
+			}
 
 			int cursorOffset = invocationContext.getInvocationOffset();
 			int lineOfCursor = doc.getLineOfOffset(cursorOffset);
 			int lineOfCursorOffset = doc.getLineOffset(lineOfCursor);
 			String currentLine = doc.get(selectedLinesStartOffset, selectedLinesEndOffset - selectedLinesStartOffset);
 
-			boolean selectionEmpty = selectionStartOffset == selectionEndOffset;
-			boolean cursorBeforeSelection = cursorOffset <= selectionStartOffset;
-			boolean cursorInSelection = cursorOffset > selectionStartOffset && cursorOffset < selectionEndOffset;
-			String contextStringWithTags = null;
-			if (selectionEmpty) {
-				String startToCursor = doc.get(ctxBeforeStartOffset, cursorOffset - ctxBeforeStartOffset);
-				String cursorToEnd = doc.get(cursorOffset, ctxAfterEndOffset - cursorOffset);
-				contextStringWithTags = startToCursor + "<<<cursor>>>" + cursorToEnd;
-			} else if (cursorBeforeSelection) {
-				String startToCursor = doc.get(ctxBeforeStartOffset, cursorOffset - ctxBeforeStartOffset);
-				String cursorToSelection = doc.get(cursorOffset, selectionStartOffset - cursorOffset);
-				String selection = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
-				String rest = doc.get(selectionEndOffset, ctxAfterEndOffset - selectionEndOffset);
-				contextStringWithTags = startToCursor + "<<<cursor>>>" + cursorToSelection + "<<<selection_start>>>"
-						+ selection + "<<<selection_end>>>" + rest;
-			} else if (cursorInSelection) {
-				String startToSelection = doc.get(ctxBeforeStartOffset, selectionStartOffset - ctxBeforeStartOffset);
-				String selection = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
-				String selectionToCursor = doc.get(selectionEndOffset, cursorOffset - selectionEndOffset);
-				String rest = doc.get(cursorOffset, ctxAfterEndOffset - cursorOffset);
-				contextStringWithTags = startToSelection + "<<<selection_start>>>" + selection + "<<<selection_end>>>"
-						+ selectionToCursor + "<<<cursor>>>" + rest;
-			} else {
-				String startToSelection = doc.get(ctxBeforeStartOffset, selectionStartOffset - ctxBeforeStartOffset);
-				String selection = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
-				String selectionToCursor = doc.get(selectionEndOffset, cursorOffset - selectionEndOffset);
-				String rest = doc.get(cursorOffset, ctxAfterEndOffset - cursorOffset);
-				contextStringWithTags = startToSelection + "<<<selection_start>>>" + selection + "<<<selection_end>>>"
-						+ selectionToCursor + "<<<cursor>>>" + rest;
-			}
+			String contextStringWithTags = addCursorTags(doc, selectionStartOffset, selectionEndOffset,
+					ctxBeforeStartOffset, ctxAfterEndOffset, cursorOffset);
+
+			String prefix = doc.get(ctxBeforeStartOffset, cursorOffset - ctxBeforeStartOffset);
+			String suffix = doc.get(selectionEndOffset, ctxAfterEndOffset - selectionEndOffset);
+			String selection = getSelection(doc, selectionStartOffset, selectionEndOffset);
 
 			String lastEdits = createLastEdits();
 
 			PromptTemplate promptTemplate = selectPromptToUse();
 			CompletionPrompt completionPrompt = new CompletionPrompt(0f, promptTemplate.getPrompt(),
-					Map.of("recentEdits", lastEdits, "code", contextStringWithTags));
+					Map.of("recentEdits", lastEdits, "prefix", prefix, "suffix", suffix, "selection", selection,
+							"contextWithTags", contextStringWithTags));
 
 			if (debugPromptLoggingEnabled) {
 				debugPromptSB.append("Prompt \"" + StringUtils.trim(currentLine) + "\"");
@@ -134,6 +122,53 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 				Activator.logInfo(debugPromptSB.toString());
 			}
 		}
+	}
+
+	private String getSelection(IDocument doc, int selectionStartOffset, int selectionEndOffset)
+			throws BadLocationException {
+		boolean selectionEmpty = selectionStartOffset == selectionEndOffset;
+		String res = null;
+		if (selectionEmpty) {
+			res = "";
+		} else {
+			res = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
+		}
+		return res;
+	}
+
+	private String addCursorTags(IDocument doc, int selectionStartOffset, int selectionEndOffset,
+			int ctxBeforeStartOffset, int ctxAfterEndOffset, int cursorOffset) throws BadLocationException {
+		boolean selectionEmpty = selectionStartOffset == selectionEndOffset;
+		boolean cursorBeforeSelection = cursorOffset <= selectionStartOffset;
+		boolean cursorInSelection = cursorOffset > selectionStartOffset && cursorOffset < selectionEndOffset;
+		String contextStringWithTags = null;
+		if (selectionEmpty) {
+			String startToCursor = doc.get(ctxBeforeStartOffset, cursorOffset - ctxBeforeStartOffset);
+			String cursorToEnd = doc.get(cursorOffset, ctxAfterEndOffset - cursorOffset);
+			contextStringWithTags = startToCursor + "<<<cursor>>>" + cursorToEnd;
+		} else if (cursorBeforeSelection) {
+			String startToCursor = doc.get(ctxBeforeStartOffset, cursorOffset - ctxBeforeStartOffset);
+			String cursorToSelection = doc.get(cursorOffset, selectionStartOffset - cursorOffset);
+			String selection = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
+			String rest = doc.get(selectionEndOffset, ctxAfterEndOffset - selectionEndOffset);
+			contextStringWithTags = startToCursor + "<<<cursor>>>" + cursorToSelection + "<<<selection_start>>>"
+					+ selection + "<<<selection_end>>>" + rest;
+		} else if (cursorInSelection) {
+			String startToSelection = doc.get(ctxBeforeStartOffset, selectionStartOffset - ctxBeforeStartOffset);
+			String selection = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
+			String selectionToCursor = doc.get(selectionEndOffset, cursorOffset - selectionEndOffset);
+			String rest = doc.get(cursorOffset, ctxAfterEndOffset - cursorOffset);
+			contextStringWithTags = startToSelection + "<<<selection_start>>>" + selection + "<<<selection_end>>>"
+					+ selectionToCursor + "<<<cursor>>>" + rest;
+		} else {
+			String startToSelection = doc.get(ctxBeforeStartOffset, selectionStartOffset - ctxBeforeStartOffset);
+			String selection = doc.get(selectionStartOffset, selectionEndOffset - selectionStartOffset);
+			String selectionToCursor = doc.get(selectionEndOffset, cursorOffset - selectionEndOffset);
+			String rest = doc.get(cursorOffset, ctxAfterEndOffset - cursorOffset);
+			contextStringWithTags = startToSelection + "<<<selection_start>>>" + selection + "<<<selection_end>>>"
+					+ selectionToCursor + "<<<cursor>>>" + rest;
+		}
+		return contextStringWithTags;
 	}
 
 	private PromptTemplate selectPromptToUse() {
