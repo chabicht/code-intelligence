@@ -27,6 +27,7 @@ import org.eclipse.jdt.core.ToolFactory;
 import org.eclipse.jdt.core.formatter.CodeFormatter;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
@@ -46,10 +47,11 @@ import org.eclipse.swt.browser.LocationEvent;
 import org.eclipse.swt.browser.ProgressAdapter;
 import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.browser.ProgressListener;
-import org.eclipse.swt.custom.SashForm;
 import org.eclipse.swt.dnd.Clipboard;
 import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
+import org.eclipse.swt.events.ControlAdapter;
+import org.eclipse.swt.events.ControlEvent;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.MouseListener;
@@ -59,6 +61,9 @@ import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.graphics.ImageData;
 import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.layout.FormAttachment;
+import org.eclipse.swt.layout.FormData;
+import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.layout.RowData;
@@ -71,6 +76,7 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
+import org.eclipse.swt.widgets.Sash;
 import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.TextEdit;
 import org.eclipse.text.undo.DocumentUndoManagerRegistry;
@@ -105,6 +111,11 @@ public class ChatView extends ViewPart {
 	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>|<\\|end_of_thought\\|>");
 	private static final Pattern PATTERN_TAGS_TO_REMOVE = Pattern
 			.compile("<\\|begin_of_solution\\|>|<\\|end_of_solution\\|>");
+
+	private static final int MIN_UPPER_HEIGHT = 90;
+	private static final int MIN_LOWER_HEIGHT = 130;
+	private static final int BUTTON_SIZE = 40;
+	private static final int ATTACHMENT_COMP_HEIGHT = 30;
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
 
@@ -287,18 +298,27 @@ public class ChatView extends ViewPart {
 
 	@Override
 	public void createPartControl(Composite parent) {
-		SashForm sashForm = new SashForm(parent, SWT.VERTICAL);
-		sashForm.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+		// Use FormLayout for the main container
+		FormLayout formLayout = new FormLayout();
+		formLayout.marginWidth = 0;
+		formLayout.marginHeight = 0;
+		formLayout.spacing = 0;
 
-		// Upper part: Chat and buttons
-		Composite upperComposite = new Composite(sashForm, SWT.NONE);
+		final Composite outer = new Composite(parent, SWT.NONE);
+		outer.setLayout(formLayout);
+		outer.setLayoutData(GridDataFactory.fillDefaults().grab(true, true).create()); // Use parent's layout data if
+																						// needed
+
+		// --- Upper part: Chat and buttons ---
+		Composite upperComposite = new Composite(outer, SWT.NONE);
+		// Use GridLayout for the upper part's internal layout
 		GridLayout gl_upperComposite = new GridLayout(2, false);
 		gl_upperComposite.marginHeight = 0;
+		gl_upperComposite.marginWidth = 0; // Add marginWidth 0
 		upperComposite.setLayout(gl_upperComposite);
 
 		chat = new ChatComponent(upperComposite, SWT.BORDER);
 		GridData gd_chat = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2);
-		gd_chat.heightHint = 336;
 		chat.setLayoutData(gd_chat);
 
 		Button btnClear = new Button(upperComposite, SWT.NONE);
@@ -308,14 +328,12 @@ public class ChatView extends ViewPart {
 				clearChat();
 			}
 		});
-		GridData gd_btnClear = new GridData(SWT.LEFT, SWT.TOP, false, false, 1, 1);
-		gd_btnClear.heightHint = 40;
-		gd_btnClear.widthHint = 40;
+		GridData gd_btnClear = new GridData(SWT.FILL, SWT.TOP, false, false, 1, 1); // Fill horizontally
+		gd_btnClear.heightHint = BUTTON_SIZE;
+		gd_btnClear.widthHint = BUTTON_SIZE;
 		btnClear.setLayoutData(gd_btnClear);
 		btnClear.setToolTipText("Clear conversation");
-		// Broom 🧹
-		btnClear.setText("\uD83E\uDDF9");
-		btnClear.setToolTipText("Clear Chat");
+		btnClear.setText("\uD83E\uDDF9"); // Broom 🧹
 		btnClear.setFont(buttonSymbolFont);
 
 		btnHistory = new Button(upperComposite, SWT.NONE);
@@ -328,48 +346,48 @@ public class ChatView extends ViewPart {
 					ChatHistoryEntry entry = dlg.getSelectedEntry();
 					if (entry != null) {
 						ChatConversation c = entry.getConversation();
-
-						// If "Reuse as New" was selected, clear the conversation ID
 						if (dlg.getResultMode() == ChatHistoryDialog.ResultMode.REUSE_AS_NEW) {
 							c.setConversationId(null);
 							c.setCaption(null);
 						}
-
 						replaceChat(c);
 					}
 				}
 			}
 		});
-		GridData gd_btnHistory = new GridData(SWT.LEFT, SWT.TOP, false, false, 1, 1);
-		gd_btnHistory.widthHint = 40;
-		gd_btnHistory.heightHint = 40;
+		GridData gd_btnHistory = new GridData(SWT.FILL, SWT.TOP, false, false, 1, 1); // Fill horizontally
+		gd_btnHistory.widthHint = BUTTON_SIZE;
+		gd_btnHistory.heightHint = BUTTON_SIZE;
 		btnHistory.setLayoutData(gd_btnHistory);
-		// Scroll 📜
-		btnHistory.setText("\uD83D\uDCDC");
+		btnHistory.setText("\uD83D\uDCDC"); // Scroll 📜
 		btnHistory.setToolTipText("Recent Conversations");
 		btnHistory.setFont(buttonSymbolFont);
 
-		// Lower part: Input and buttons
-		Composite lowerComposite = new Composite(sashForm, SWT.NONE);
+		// --- Sash ---
+		final Sash sash = new Sash(outer, SWT.HORIZONTAL);
+
+		// --- Lower part: Input and buttons ---
+		Composite lowerComposite = new Composite(outer, SWT.NONE);
+		// Use GridLayout for the lower part's internal layout
 		GridLayout gl_lowerComposite = new GridLayout(2, false);
 		gl_lowerComposite.marginBottom = 5;
 		gl_lowerComposite.marginHeight = 0;
+		gl_lowerComposite.marginWidth = 0; // Add marginWidth 0
 		lowerComposite.setLayout(gl_lowerComposite);
 
 		cmpAttachments = new Composite(lowerComposite, SWT.NONE);
 		GridData gd_cmpAttachments = new GridData(SWT.FILL, SWT.FILL, false, false, 1, 1);
-		gd_cmpAttachments.heightHint = 30;
+		gd_cmpAttachments.heightHint = ATTACHMENT_COMP_HEIGHT;
 		cmpAttachments.setLayoutData(gd_cmpAttachments);
 		RowLayout layoutCmpAttachments = new RowLayout(SWT.HORIZONTAL);
 		layoutCmpAttachments.marginTop = 0;
 		layoutCmpAttachments.marginBottom = 0;
+		layoutCmpAttachments.center = true; // Center items vertically
 		cmpAttachments.setLayout(layoutCmpAttachments);
 		new Label(lowerComposite, SWT.NONE); // empty label for the second column
 
-		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI);
-		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.FILL, true, true);
-		gridDataTvUserInput.verticalSpan = 2;
-		gridDataTvUserInput.heightHint = 80;
+		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI | SWT.WRAP); // Added
+		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2); // Span 1 column, 2 rows
 		tvUserInput.getTextWidget().setLayoutData(gridDataTvUserInput);
 
 		btnSettings = new Button(lowerComposite, SWT.NONE);
@@ -387,15 +405,14 @@ public class ChatView extends ViewPart {
 			}
 		});
 		GridData gd_btnSettings = new GridData(SWT.RIGHT, SWT.TOP, false, false, 1, 1);
-		gd_btnSettings.widthHint = 40;
-		gd_btnSettings.heightHint = 40;
+		gd_btnSettings.widthHint = BUTTON_SIZE;
+		gd_btnSettings.heightHint = BUTTON_SIZE;
 		btnSettings.setLayoutData(gd_btnSettings);
-		btnSettings.setText("\u2699");
+		btnSettings.setText("\u2699"); // Gear ⚙️
+		btnSettings.setToolTipText("Settings");
 		btnSettings.setFont(buttonSymbolFont);
-		GridData gridData = new GridData(SWT.FILL, SWT.CENTER, true, false);
-		gridData.verticalSpan = 2;
-		gridData.heightHint = 80;
 
+		// Send button (moved below settings button)
 		btnSend = new Button(lowerComposite, SWT.NONE);
 		btnSend.addSelectionListener(new SelectionAdapter() {
 			@Override
@@ -403,39 +420,206 @@ public class ChatView extends ViewPart {
 				sendMessageOrAbortChat();
 			}
 		});
+		// Place send button bottom-right of its cell
 		GridData gd_btnSend = new GridData(SWT.RIGHT, SWT.BOTTOM, false, false, 1, 1);
-		gd_btnSend.heightHint = 40;
-		gd_btnSend.widthHint = 40;
+		gd_btnSend.heightHint = BUTTON_SIZE;
+		gd_btnSend.widthHint = BUTTON_SIZE;
 		btnSend.setLayoutData(gd_btnSend);
 		btnSend.setToolTipText("Send message (Ctrl + Enter)");
-		// Set text to "▶️"
-		btnSend.setText("\u25B6");
+		btnSend.setText("\u25B6"); // Play ▶️
 		btnSend.setFont(buttonSymbolFont);
-		sashForm.setWeights(new int[] { 85, 15 });
 
+		// --- Configure FormLayout Attachments ---
+
+		FormData fd_upperComposite = new FormData();
+		fd_upperComposite.top = new FormAttachment(0, 0); // Attach to top of outer
+		fd_upperComposite.left = new FormAttachment(0, 0); // Attach to left of outer
+		fd_upperComposite.right = new FormAttachment(100, 0); // Attach to right of outer
+		fd_upperComposite.bottom = new FormAttachment(sash, 0, SWT.TOP); // Attach bottom to sash top
+		upperComposite.setLayoutData(fd_upperComposite);
+
+		FormData fd_lowerComposite = new FormData();
+		fd_lowerComposite.top = new FormAttachment(sash, 0, SWT.BOTTOM); // Attach top to sash bottom
+		fd_lowerComposite.left = new FormAttachment(0, 0); // Attach to left of outer
+		fd_lowerComposite.right = new FormAttachment(100, 0); // Attach to right of outer
+		fd_lowerComposite.bottom = new FormAttachment(100, 0); // Attach to bottom of outer
+		lowerComposite.setLayoutData(fd_lowerComposite);
+
+		// Initial position of the sash: Start at 70% down (example)
+		final FormData fd_sash = new FormData();
+		fd_sash.top = new FormAttachment(70); // Example: Start at 70% down
+		fd_sash.left = new FormAttachment(0, 0);
+		fd_sash.right = new FormAttachment(100, 0);
+		sash.setLayoutData(fd_sash);
+
+		// --- Sash Listener for Resizing ---
+		sash.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent event) {
+				// The event.y is the proposed new top coordinate of the sash within the outer
+				// composite.
+				int outerHeight = outer.getClientArea().height;
+				int sashHeight = getSashHeight(sash);
+				int proposedTop = event.y;
+				int newSashTop = calculateConstrainedSashTop(proposedTop, outerHeight, sashHeight);
+				applySashPositionUpdate(sash, outer, newSashTop, false); // Apply immediately for drag
+			}
+		});
+
+		// --- Outer Composite Resize Listener ---
+		outer.addControlListener(new ControlAdapter() {
+			@Override
+			public void controlResized(ControlEvent e) {
+				// Recalculate sash position to prioritize keeping the lower composite
+				// at least MIN_LOWER_HEIGHT, letting the upper composite resize,
+				// while still respecting MIN_UPPER_HEIGHT.
+				int outerHeight = outer.getClientArea().height;
+				int sashHeight = getSashHeight(sash);
+
+				// Calculate the target top position for the sash to keep the lower part at its
+				// minimum height
+				int targetSashTop = outerHeight - MIN_LOWER_HEIGHT - sashHeight;
+
+				// Determine the new sash top position, constrained by min/max heights.
+				int newSashTop = calculateConstrainedSashTop(targetSashTop, outerHeight, sashHeight);
+
+				// Apply the update, using asyncExec to avoid potential layout loops during
+				// resize storm.
+				applySashPositionUpdate(sash, outer, newSashTop, true);
+			}
+		});
+
+		// --- Initialization ---
 		init();
 		initUserInputControl();
 		initListeners();
 
 		conversation = createNewChatConversation();
 		conversation.addListener(chatListener);
+
+		// Initial layout trigger after controls are created
+		Display.getCurrent().asyncExec(() -> {
+			if (!outer.isDisposed()) {
+				// Trigger the resize listener logic to set the initial sash position correctly
+				// based on the new priority (lower height fixed, upper resizes).
+				outer.layout(true, true);
+			}
+		});
 	}
 
-	private void init() {
-		String defaultModel = Activator.getDefault().getPreferenceStore()
-				.getString(PreferenceConstants.CHAT_MODEL_NAME);
-		settings.setModel(defaultModel);
+	/**
+	 * Calculates a reasonable height for the sash, providing a default if needed.
+	 * 
+	 * @param sash The sash control.
+	 * @return The sash height.
+	 */
+	private int getSashHeight(Sash sash) {
+		int sashHeight = sash.getSize().y;
+		// Ensure sashHeight is reasonable if not yet sized
+		if (sashHeight <= 0) {
+			sashHeight = 5; // Default sash height estimate
+		}
+		return sashHeight;
+	}
 
-		if (StringUtils.isNotBlank(defaultModel)) {
-			Optional<Tuple<String, String>> modelOpt = ModelUtil.getProviderModelTuple(defaultModel);
-			modelOpt.ifPresent(m -> {
-				String connectionName = m.getFirst();
-				String modelId = m.getSecond();
-				Activator.getDefault().loadPromptTemplates().stream()
-						.filter(pt -> PromptType.CHAT.equals(pt.getType()) && pt.isUseByDefault()
-								&& pt.isApplicable(connectionName, modelId))
-						.findFirst().ifPresent(settings::setPromptTemplate);
+	/**
+	 * Calculates the constrained top position for the sash based on minimum
+	 * heights.
+	 *
+	 * @param proposedTop The desired top position (e.g., from dragging or
+	 *                    calculation).
+	 * @param outerHeight The current height of the container holding the sash and
+	 *                    composites.
+	 * @param sashHeight  The height of the sash itself.
+	 * @return The calculated top position, clamped within the allowed bounds.
+	 */
+	private int calculateConstrainedSashTop(int proposedTop, int outerHeight, int sashHeight) {
+		// Calculate constraints based on outer height and minimum pane heights
+		int minSashTop = MIN_UPPER_HEIGHT;
+		int maxSashTop = outerHeight - MIN_LOWER_HEIGHT - sashHeight;
+
+		// Clamp the proposed position
+		int newSashTop = Math.max(minSashTop, Math.min(proposedTop, maxSashTop));
+
+		// Ensure the calculated position is valid even in extreme cases (very small
+		// outerHeight)
+		// If min heights conflict (MIN_UPPER + MIN_LOWER + sash > outerHeight),
+		// prioritize MIN_UPPER.
+		if (newSashTop > maxSashTop) {
+			newSashTop = minSashTop;
+		}
+		// Final clamp to handle potential negative results if mins are very large
+		newSashTop = Math.max(minSashTop, Math.min(newSashTop, maxSashTop));
+
+		return newSashTop;
+	}
+
+	/**
+	 * Applies the calculated sash position update if it has changed.
+	 *
+	 * @param sash       The sash control.
+	 * @param outer      The containing composite that needs re-layout.
+	 * @param newSashTop The new top position (offset from the top) for the sash.
+	 * @param useAsync   Whether to perform the layout update asynchronously
+	 *                   (recommended for resize events).
+	 */
+	private void applySashPositionUpdate(Sash sash, Composite outer, int newSashTop, boolean useAsync) {
+		if (sash == null || sash.isDisposed() || outer == null || outer.isDisposed()) {
+			return; // Don't proceed if controls are disposed
+		}
+
+		FormData currentSashData = (FormData) sash.getLayoutData();
+		if (currentSashData == null || currentSashData.top == null) {
+			// Layout data might not be fully initialized yet, skip adjustment
+			// Or, if it's null, create a new one (though it should exist)
+			if (currentSashData == null) {
+				currentSashData = new FormData();
+				sash.setLayoutData(currentSashData);
+			}
+			// Set initial attachment relative to top
+			currentSashData.top = new FormAttachment(0, newSashTop);
+			currentSashData.left = new FormAttachment(0, 0); // Ensure left/right are set
+			currentSashData.right = new FormAttachment(100, 0);
+			performLayout(outer, useAsync);
+			return;
+		}
+
+		// Get the current sash top offset if it's already set relative to the top
+		// (numerator == 0)
+		int currentSashTopOffset = -1;
+		if (currentSashData.top.numerator == 0) {
+			currentSashTopOffset = currentSashData.top.offset;
+		}
+
+		// Only update layout if the calculated position is different from the current
+		// one,
+		// or if the current attachment isn't relative to the top (needs fixing).
+		if (newSashTop != currentSashTopOffset || currentSashData.top.numerator != 0) {
+			// Update sash position using FormAttachment relative to top (0)
+			currentSashData.top = new FormAttachment(0, newSashTop);
+			// Re-layout the outer composite to apply the change
+			performLayout(outer, useAsync);
+		}
+	}
+
+	/**
+	 * Performs the layout operation, optionally using asyncExec.
+	 * 
+	 * @param control  The control to layout.
+	 * @param useAsync True to use asyncExec, false otherwise.
+	 */
+	private void performLayout(final Composite control, boolean useAsync) {
+		if (control == null || control.isDisposed()) {
+			return;
+		}
+		if (useAsync) {
+			Display.getCurrent().asyncExec(() -> {
+				if (!control.isDisposed()) {
+					control.layout(true, true);
+				}
 			});
+		} else {
+			control.layout(true, true);
 		}
 	}
 
@@ -475,6 +659,24 @@ public class ChatView extends ViewPart {
 				}
 			}
 		});
+	}
+
+	private void init() {
+		String defaultModel = Activator.getDefault().getPreferenceStore()
+				.getString(PreferenceConstants.CHAT_MODEL_NAME);
+		settings.setModel(defaultModel);
+
+		if (StringUtils.isNotBlank(defaultModel)) {
+			Optional<Tuple<String, String>> modelOpt = ModelUtil.getProviderModelTuple(defaultModel);
+			modelOpt.ifPresent(m -> {
+				String connectionName = m.getFirst();
+				String modelId = m.getSecond();
+				Activator.getDefault().loadPromptTemplates().stream()
+						.filter(pt -> PromptType.CHAT.equals(pt.getType()) && pt.isUseByDefault()
+								&& pt.isApplicable(connectionName, modelId))
+						.findFirst().ifPresent(settings::setPromptTemplate);
+			});
+		}
 	}
 
 	private void initListeners() {
