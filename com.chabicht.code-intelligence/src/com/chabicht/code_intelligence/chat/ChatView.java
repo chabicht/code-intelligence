@@ -107,8 +107,8 @@ import com.chabicht.code_intelligence.util.ThemeUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatView extends ViewPart {
-	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>|<\\|begin_of_thought\\|>");
-	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>|<\\|end_of_thought\\|>");
+	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>|<\\|begin_of_thought\\|>|<thought>");
+	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>|<\\|end_of_thought\\|>|</thought>");
 	private static final Pattern PATTERN_TAGS_TO_REMOVE = Pattern
 			.compile("<\\|begin_of_solution\\|>|<\\|end_of_solution\\|>");
 
@@ -684,22 +684,6 @@ public class ChatView extends ViewPart {
 			// Reset settings, e.g. the chat model.
 			init();
 		});
-
-		// Context menu for the message context labels
-		Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
-		MenuItem deleteItem = new MenuItem(contextMenu, SWT.NONE);
-		deleteItem.setText("Delete");
-		deleteItem.addListener(SWT.Selection, e -> {
-			if (e.widget == null && e.widget.isDisposed()) {
-				return;
-			}
-
-			if (e.widget.getData() instanceof MessageContext context) {
-				externallyAddedContext.remove(context);
-				cmpAttachments.layout();
-			}
-		});
-
 		IListChangeListener<? super MessageContext> listChangeListener = e -> {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
@@ -711,6 +695,21 @@ public class ChatView extends ViewPart {
 					l.setLayoutData(new RowData(15, 25));
 
 					l.addMenuDetectListener(event -> {
+						// Context menu for the message context labels
+						Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
+						MenuItem deleteItem = new MenuItem(contextMenu, SWT.NONE);
+						deleteItem.setText("Delete");
+						deleteItem.addListener(SWT.Selection, evt -> {
+							if (evt.widget == null && evt.widget.isDisposed()) {
+								return;
+							}
+
+							if (evt.widget.getData() instanceof MessageContext context) {
+								externallyAddedContext.remove(context);
+								cmpAttachments.layout();
+							}
+						});
+
 						deleteItem.setData(l.getData());
 						contextMenu.setLocation(event.x, event.y);
 						contextMenu.setVisible(true);

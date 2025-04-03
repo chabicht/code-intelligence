@@ -3,7 +3,11 @@ package com.chabicht.code_intelligence.model;
 public interface DefaultPrompts {
 	static final String INSTRUCT_PROMPT = """
 			## General Instructions:
-			Complete the given code.
+			Complete the given code.    
+			The completion task is formatted in a "Fill in the Middle" (FIM) format separated by `<|fim_prefix|>`, `<|fim_suffix|>`, and `<|fim_middle|>`:
+			- The *prefix* is the text between `<|fim_prefix|>` and `<|fim_suffix|>`.
+			- The *suffix* is the text between `<|fim_suffix|>` and `<|fim_middle|>`.
+			Your task is to provide a completion that fills in the code missing in the *middle*.
 
 			### Example 1:
 			**Code:**

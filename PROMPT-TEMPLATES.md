@@ -20,7 +20,13 @@ You can use these parameters to structure the prompt according to the target mod
 
 ### Example 1: Fill-in-the-Middle (FIM) Prompt
 
-Many modern code generation models are trained with a specific Fill-in-the-Middle (FIM) format. This usually involves special tokens to denote the prefix, suffix, and the point where the model should insert the completion. The exact tokens (e.g. `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>`) depend on the model being used.
+Many modern code generation models are trained with a specific Fill-in-the-Middle (FIM) format. This usually involves special tokens to denote the prefix, suffix, and the point where the model should insert the completion.  
+The exact tokens depend on the model being used. Common examples include:
+- Generic/Older Models: `<PRE>`, `<SUF>`, `<MID>`
+- StarCoder/SantaCoder: `<fim_prefix>`, `<fim_suffix>`, `<fim_middle>`
+- Code Llama/Other HF Models: `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>`
+- Codestral: `[SUFFIX]`, `[PREFIX]`, nothing for the middle 
+- DeepSeek Coder: `<｜fim▁begin｜>`, `<｜fim▁hole｜>`, `<｜fim▁end｜>` (Note the non-standard characters `｜` and `▁`!)
 
 A template for a model expecting `<|fim_prefix|>`, `<|fim_suffix|>`, `<|fim_middle|>` tokens might look like this:
 
