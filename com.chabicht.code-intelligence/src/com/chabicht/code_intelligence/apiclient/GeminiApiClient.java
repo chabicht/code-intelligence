@@ -93,33 +93,60 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 							try {
 								JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
 								JsonArray candidates = jsonChunk.getAsJsonArray("candidates");
-								if (!candidates.isEmpty()) {
+								if (candidates != null && !candidates.isEmpty()) {
 									JsonObject candidate = candidates.get(0).getAsJsonObject();
+									JsonObject content = candidate.getAsJsonObject("content");
 
-									// Process content (if present) to update the message
-									if (candidate.has("content")) {
-										JsonObject content = candidate.get("content").getAsJsonObject();
-										String chunk = content.get("parts").getAsJsonArray().get(0).getAsJsonObject()
-												.get("text").getAsString();
-										assistantMessage.setContent(assistantMessage.getContent() + chunk);
-										chat.notifyMessageUpdated(assistantMessage);
+									if (content != null && content.has("parts")) {
+										JsonArray parts = content.getAsJsonArray("parts");
+										if (parts != null && !parts.isEmpty()) {
+											JsonObject firstPart = parts.get(0).getAsJsonObject();
+
+											if (firstPart.has("text")) {
+												String chunk = firstPart.get("text").getAsString();
+												assistantMessage.setContent(assistantMessage.getContent() + chunk);
+												chat.notifyMessageUpdated(assistantMessage);
+											}
+
+											if (firstPart.has("functionCall")) {
+												JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
+												String functionName = functionCall.get("name").getAsString();
+												JsonObject functionArgs = functionCall.getAsJsonObject("args");
+												String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
+														: "{}";
+												chat.notifyFunctionCalled(assistantMessage, functionName, argsJson);
+											}
+										}
 									}
 
-									// Check for finishReason and if it is "STOP", mark as finished.
-									if (candidate.has("finishReason")
-											&& "STOP".equals(candidate.get("finishReason").getAsString())) {
-										chat.notifyChatResponseFinished(assistantMessage);
-										asyncRequest = null;
+									if (candidate.has("finishReason")) {
+										String reason = candidate.get("finishReason").getAsString();
+										if ("STOP".equals(reason)) {
+											chat.notifyChatResponseFinished(assistantMessage);
+											asyncRequest = null;
+										}
+										// TODO: Handle other finishReasons like FUNCTION_CALL if needed
 									}
 								}
 							} catch (Exception e) {
-								Activator.logError("Exception during streaming chat", e);
-								asyncRequest = null;
+								Activator.logError("Exception processing streaming chat chunk: " + data, e);
+								if (asyncRequest != null) {
+									chat.notifyChatResponseFinished(assistantMessage);
+									asyncRequest = null;
+								}
 							}
 						}
 					});
+					if (asyncRequest != null) {
+						chat.notifyChatResponseFinished(assistantMessage);
+						asyncRequest = null;
+					}
 				}).exceptionally(e -> {
-					Activator.logError("Exception during streaming chat", e);
+					Activator.logError("Exception during streaming chat request", e);
+					if (asyncRequest != null) {
+						chat.notifyChatResponseFinished(assistantMessage);
+						asyncRequest = null;
+					}
 					return null;
 				});
 	}

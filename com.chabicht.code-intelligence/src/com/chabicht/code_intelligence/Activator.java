@@ -97,6 +97,13 @@ public class Activator extends AbstractUIPlugin {
 	/**
 	 * Log an error to the Eclipse Error Log.
 	 */
+	public static void logError(String message) {
+		getDefault().getLog().log(new Status(IStatus.ERROR, PLUGIN_ID, message));
+	}
+
+	/**
+	 * Log an error to the Eclipse Error Log.
+	 */
 	public static void logInfo(String message) {
 		getDefault().getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
 	}
