@@ -200,7 +200,8 @@ public class ChatConversation {
 		/**
 		 * Called when a chat message is added.
 		 *
-		 * @param message the updated message.
+		 * @param message  the updated message.
+		 * @param updating true if the message is still being updated (streamed).
 		 */
 		void onMessageAdded(ChatMessage message, boolean updating);
 
@@ -212,9 +213,22 @@ public class ChatConversation {
 		void onMessageUpdated(ChatMessage message);
 
 		/**
-		 * Called when an async chat response finished updating the message.
+		 * Called when the model requests a function call. This happens when the model's
+		 * response includes a function call instruction instead of or in addition to
+		 * regular text content.
 		 * 
 		 * @param message
+		 *
+		 * @param functionName     The name of the function the model wants to execute.
+		 * @param functionArgsJson The arguments for the function, formatted as a JSON
+		 *                         string.
+		 */
+		void onFunctionCall(ChatMessage message, String functionName, String functionArgsJson);
+
+		/**
+		 * Called when an async chat response finished updating the message.
+		 *
+		 * @param message the message that finished updating.
 		 */
 		void onChatResponseFinished(ChatMessage message);
 	}
@@ -255,7 +269,11 @@ public class ChatConversation {
 	 * @param message the message that was updated.
 	 */
 	public void notifyMessageUpdated(ChatMessage message) {
-		messageUpdated(message);
+		for (ChatListener listener : listeners) {
+			if (listener != null) {
+				listener.onMessageUpdated(message);
+			}
+		}
 	}
 
 	public void notifyChatResponseFinished(ChatMessage message) {
@@ -274,10 +292,10 @@ public class ChatConversation {
 		}
 	}
 
-	private void messageUpdated(ChatMessage message) {
+	public void notifyFunctionCalled(ChatMessage message, String functionName, String functionArgsJson) {
 		for (ChatListener listener : listeners) {
 			if (listener != null) {
-				listener.onMessageUpdated(message);
+				listener.onFunctionCall(message, functionName, functionArgsJson);
 			}
 		}
 	}

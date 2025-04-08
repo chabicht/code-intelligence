@@ -184,6 +184,22 @@ public class ChatView extends ViewPart {
 			});
 		}
 
+		@Override
+		public void onFunctionCall(ChatMessage message, String functionName, String functionArgsJson) {
+			// Ensure UI updates happen on the display thread
+			Display.getDefault().asyncExec(() -> {
+				// Default: log the function call as message.
+				String header = "Unsupported function call: `" + functionName + "`";
+				String argsCodeBlock = "```json\n" + functionArgsJson + "\n```";
+				String combinedMarkdown = header + "\n\n" + argsCodeBlock + "\n\n" + message.getContent();
+
+				// Render the Markdown content to HTML
+				String htmlContent = markdownRenderer.render(markdownParser.parse(combinedMarkdown));
+				UUID functionCallMessageId = UUID.randomUUID();
+				chat.addMessage(functionCallMessageId, Role.ASSISTANT.name().toLowerCase(), htmlContent, false);
+			});
+		}
+
 		private String getAttachmentIconHtml() {
 			String dataUrl = "data:image/png;base64," + paperclipBase64;
 			return String.format("<img src=\"%s\" style=\"width: 15px; height: 25px;\"/>", dataUrl);
