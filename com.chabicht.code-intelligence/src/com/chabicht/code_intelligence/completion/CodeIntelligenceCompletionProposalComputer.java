@@ -117,6 +117,9 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 			return List.of(res);
 		} catch (BadLocationException e) {
 			throw new RuntimeException(e);
+		} catch (RuntimeException e) {
+			Activator.logError("Error when requesting completion: " + e.getMessage(), e);
+			throw e;
 		} finally {
 			if (debugPromptLoggingEnabled) {
 				Activator.logInfo(debugPromptSB.toString());
