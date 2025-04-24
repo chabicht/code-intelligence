@@ -1,166 +1,475 @@
 package com.chabicht.code_intelligence.chat.tools;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-import org.eclipse.compare.CompareConfiguration;
-import org.eclipse.compare.patch.ApplyPatchOperation;
+import org.eclipse.core.filebuffers.FileBuffers;
+import org.eclipse.core.filebuffers.ITextFileBuffer;
+import org.eclipse.core.filebuffers.ITextFileBufferManager;
+import org.eclipse.core.filebuffers.LocationKind;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceVisitor;
-import org.eclipse.core.resources.IStorage;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
-import org.eclipse.core.runtime.PlatformObject;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.NullProgressMonitor; // Import needed
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.ToolFactory;
+import org.eclipse.jdt.core.formatter.CodeFormatter;
+import org.eclipse.jdt.internal.corext.util.CodeFormatterUtil;
+import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.IDocument;
+import org.eclipse.jface.text.IRegion;
+import org.eclipse.jface.text.TextUtilities;
+import org.eclipse.ltk.core.refactoring.Change;
+import org.eclipse.ltk.core.refactoring.CompositeChange;
+import org.eclipse.ltk.core.refactoring.Refactoring;
+import org.eclipse.ltk.core.refactoring.RefactoringStatus;
+import org.eclipse.ltk.core.refactoring.TextFileChange;
+import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
+import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
 import org.eclipse.swt.widgets.Display;
-import org.eclipse.ui.IWorkbenchPart;
+import org.eclipse.text.edits.MalformedTreeException;
+import org.eclipse.text.edits.MultiTextEdit;
+import org.eclipse.text.edits.ReplaceEdit;
+import org.eclipse.text.edits.TextEdit;
+import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
 import com.chabicht.code_intelligence.Activator;
-import com.github.difflib.DiffUtils;
-import com.github.difflib.UnifiedDiffUtils; // Import needed
-import com.github.difflib.patch.Patch;
 
 public class ApplyChangeTool {
-	public void invoke(String fileName, String location, String originalText, String replacement) {
-		// 1. Find the target file resource
-		IFile resource = findFileByNameBestEffort(fileName);
-		if (resource == null) {
-			Activator.logError("Could not find a unique file resource for name: " + fileName);
-			// Consider throwing an exception or providing user feedback
+	// Inner class to hold change information
+	private static class ChangeOperation {
+		private final String fileName;
+		private final String location;
+		private final String originalText; // Keep for potential future validation
+		private final String replacement;
+
+		public ChangeOperation(String fileName, String location, String originalText, String replacement) {
+			this.fileName = fileName;
+			this.location = location;
+			this.originalText = originalText;
+			this.replacement = replacement;
+		}
+
+		public String getFileName() {
+			return fileName;
+		}
+
+		public String getLocation() {
+			return location;
+		}
+
+		public String getOriginalText() {
+			return originalText;
+		}
+
+		public String getReplacement() {
+			return replacement;
+		}
+	}
+
+	// List to store pending changes
+	private List<ChangeOperation> pendingChanges = new ArrayList<>();
+
+	/**
+	 * Add a change to the queue of pending changes.
+	 *
+	 * @param fileName     The name of the file to change.
+	 * @param location     The location string (e.g., "l10:15").
+	 * @param originalText The original text expected at the location (for
+	 *                     validation).
+	 * @param replacement  The text to replace the original content with.
+	 */
+	public void addChange(String fileName, String location, String originalText, String replacement) {
+		pendingChanges.add(new ChangeOperation(fileName, location, originalText, replacement));
+		Activator.logInfo("Added change for file: " + fileName + " at location: " + location);
+	}
+
+	/**
+	 * Clear all pending changes from the queue.
+	 */
+	public void clearChanges() {
+		int count = pendingChanges.size();
+		pendingChanges.clear();
+		Activator.logInfo("Cleared " + count + " pending changes.");
+	}
+
+	/**
+	 * Get the number of changes currently pending.
+	 *
+	 * @return The count of pending changes.
+	 */
+	public int getPendingChangeCount() {
+		return pendingChanges.size();
+	}
+
+	/**
+	 * Apply all pending changes using the Eclipse Refactoring API. This will
+	 * typically open a preview dialog for the user.
+	 */
+	public void applyChanges() {
+		if (pendingChanges.isEmpty()) {
+			Activator.logInfo("No changes to apply.");
 			return;
 		}
 
 		try {
-			// 2. Read original file content
-			List<String> originalLines = readLines(resource);
+			performRefactoring();
+		} catch (Exception e) {
+			// Log the error and potentially inform the user via UI
+			Activator.logError("Failed to initiate refactoring process: " + e.getMessage(), e);
+			// Consider showing a dialog to the user here
+			clearChanges(); // Clear changes to prevent re-attempting a failed operation
+		}
+	}
 
-			// 3. Parse location and construct revised content
-			// Currently supports only line format "l<start>:<end>"
-			int startLine, endLine;
-			if (location.startsWith("l")) {
-				String[] parts = location.substring(1).split(":");
-				if (parts.length != 2) {
-					throw new IllegalArgumentException("Invalid line location format: " + location);
+	/**
+	 * Creates and executes the refactoring operation based on pending changes.
+	 */
+	private void performRefactoring() throws CoreException {
+		// Group changes by filename
+		Map<String, List<ChangeOperation>> changesByFile = new HashMap<>();
+		for (ChangeOperation op : pendingChanges) {
+			changesByFile.computeIfAbsent(op.getFileName(), k -> new ArrayList<>()).add(op);
+		}
+
+		// Create a composite change to hold all individual file changes
+		CompositeChange compositeChange = new CompositeChange("Code Intelligence Changes");
+		Map<IFile, IDocument> documentMap = new HashMap<>(); // To manage documents
+
+		try {
+			// Process changes for each file
+			for (Map.Entry<String, List<ChangeOperation>> entry : changesByFile.entrySet()) {
+				String fileName = entry.getKey();
+				List<ChangeOperation> fileChanges = entry.getValue();
+
+				IFile file = findFileByNameBestEffort(fileName);
+				if (file == null) {
+					Activator.logError("Skipping changes for file not found: " + fileName);
+					continue; // Skip this file if not found
 				}
-				startLine = Integer.parseInt(parts[0]); // 1-based
-				endLine = Integer.parseInt(parts[1]); // 1-based
-			} else if (location.startsWith("c")) {
-				// TODO: Implement character offset to line mapping if needed
-				Activator.logError("Character offset location not yet supported: " + location);
-				throw new UnsupportedOperationException("Character offset location not yet supported: " + location);
-			} else {
-				throw new IllegalArgumentException("Unknown location format: " + location);
+
+				// Get the document for the file, managing connection
+				IDocument document = getDocumentAndConnect(file, documentMap);
+				if (document == null) {
+					Activator.logError("Skipping changes for file, could not get document: " + fileName);
+					continue;
+				}
+
+				// Create a TextFileChange for this file
+				TextFileChange textFileChange = new TextFileChange("Changes in " + fileName, file);
+				textFileChange.setTextType(file.getFileExtension() != null ? file.getFileExtension() : "txt");
+				MultiTextEdit multiEdit = new MultiTextEdit();
+				textFileChange.setEdit(multiEdit);
+
+				// Add all edits for this file
+				for (ChangeOperation op : fileChanges) {
+					try {
+						ReplaceEdit edit = createTextEdit(file, document, op);
+						multiEdit.addChild(edit);
+					} catch (BadLocationException | IllegalArgumentException e) {
+						Activator.logError("Failed to create edit for " + fileName + " at " + op.getLocation() + ": "
+								+ e.getMessage(), e);
+					}
+				}
+
+				// Only add the change if it contains edits
+				if (multiEdit.hasChildren()) {
+					compositeChange.add(textFileChange);
+				}
 			}
 
-			// Convert to 0-based index
-			int startIdx = startLine - 1;
-			int endIdx = endLine - 1;
-
-			if (startIdx < 0 || endIdx >= originalLines.size() || startIdx > endIdx) {
-				throw new IndexOutOfBoundsException("Location [" + location + "] is outside the bounds of the file "
-						+ fileName + " (lines: " + originalLines.size() + ")");
+			// If no valid changes were created, don't proceed
+			if (compositeChange.getChildren().length == 0) {
+				Activator.logInfo("No valid changes could be prepared for refactoring.");
+				clearChanges();
+				return;
 			}
 
-			// Verify originalText matches the content at the location (optional but
-			// recommended)
-			// String actualOriginal = String.join("\n", originalLines.subList(startIdx,
-			// endIdx + 1));
-			// if (!actualOriginal.equals(originalText)) {
-			// Activator.logWarn("Original text provided does not match file content at
-			// location " + location);
-			// // Decide how to handle mismatch: proceed, abort, ask user?
-			// }
+			// Create the refactoring object
+			Refactoring refactoring = new Refactoring() {
+				@Override
+				public String getName() {
+					return "Apply Code Intelligence Changes";
+				}
 
-			List<String> revisedLines = new ArrayList<>();
-			// Add lines before the change
-			revisedLines.addAll(originalLines.subList(0, startIdx));
-			// Add the replacement lines (split replacement text by newline)
-			// Use "\\R" to split by any standard newline sequence
-			revisedLines.addAll(Arrays.asList(replacement.split("\\R")));
-			// Add lines after the change
-			revisedLines.addAll(originalLines.subList(endIdx + 1, originalLines.size()));
+				@Override
+				public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
+					// Can add initial checks here if needed
+					return new RefactoringStatus(); // Assume OK for now
+				}
 
-			// 4. Generate Patch object
-			Patch<String> patch = DiffUtils.diff(originalLines, revisedLines);
+				@Override
+				public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
+					// Can add final checks here, e.g., ensuring files are writable
+					return new RefactoringStatus(); // Assume OK for now
+				}
 
-			// 5. Generate Unified Diff text (use 3 lines of context)
-			List<String> unifiedDiffLines = UnifiedDiffUtils.generateUnifiedDiff(resource.getName(), // Original file
-																										// name
-					resource.getName(), // Revised file name (can be same)
-					originalLines, patch, 3); // Context lines
+				@Override
+				public Change createChange(IProgressMonitor pm) {
+					// Return the composite change containing all file changes
+					return compositeChange;
+				}
+			};
 
-			if (unifiedDiffLines.isEmpty() && !originalLines.equals(revisedLines)) {
-				// Handle cases where diff lib might return empty for certain changes
-				// or if the only changes are whitespace/newlines depending on diff algorithm.
-				// For now, log a warning. A more robust solution might be needed.
-				Activator.logInfo("Generated unified diff is empty, but content has changed for " + fileName);
-				// You might need to manually construct a minimal diff header if
-				// ApplyPatchOperation requires it
-				// even for seemingly empty diffs if the content did change.
-				// Example minimal header (adjust line numbers if possible):
-				// unifiedDiffLines.add("--- " + resource.getName());
-				// unifiedDiffLines.add("+++ " + resource.getName());
-				// unifiedDiffLines.add("@@ -1," + originalLines.size() + " +1," +
-				// revisedLines.size() + " @@");
-				// return; // Or proceed cautiously
-			} else if (unifiedDiffLines.isEmpty() && originalLines.equals(revisedLines)) {
-				Activator.logInfo("No changes detected for file " + fileName);
-				return; // No need to apply patch
-			}
-
-			String unifiedDiffContent = String.join("\n", unifiedDiffLines);
-
-			// 6. Create IStorage for the patch
-			IStorage patchStorage = new InMemoryStorage("change.patch", unifiedDiffContent);
-
-			// 7. Instantiate ApplyPatchOperation
-			// Ensure this runs on the UI thread
+			// Open the refactoring wizard in the UI thread
 			Display.getDefault().asyncExec(() -> {
-				IWorkbenchPart activePart = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage()
-						.getActivePart();
-				// Use a default CompareConfiguration for now
-				CompareConfiguration config = new CompareConfiguration();
-				// You could customize config labels here if needed, e.g.:
-				// config.setLeftLabel("Original Content");
-				// config.setRightLabel("Proposed Changes");
+				try {
+					IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+					if (window == null) {
+						Activator.logError("Cannot apply changes: No active workbench window found.");
+						return; // Cannot proceed without a window/shell
+					}
+					// Use a standard RefactoringWizard
+					RefactoringWizard wizard = new RefactoringWizard(refactoring,
+							RefactoringWizard.DIALOG_BASED_USER_INTERFACE
+									| RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
+						@Override
+						protected void addUserInputPages() {
+							// No custom input pages needed for this simple case
+						}
+					};
+					RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
+					operation.run(window.getShell(), "Preview Code Changes");
 
-				ApplyPatchOperation operation = new ApplyPatchOperation(activePart, patchStorage, resource, config);
+					// Important: Clear pending changes *after* the wizard is potentially closed
+					// The user might cancel, but we assume the operation is "done" either way.
+					pendingChanges.clear();
 
-				// 8. Execute the operation (opens the Apply Patch wizard)
-				operation.openWizard(); // or operation.run()
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					Activator.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
+				} catch (Exception e) { // Catch broader exceptions during wizard operation
+					Activator.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
+				}
 			});
 
-		} catch (CoreException | IOException | IllegalArgumentException | IndexOutOfBoundsException
-				| UnsupportedOperationException e) {
-			Activator.logError("Failed to prepare or apply patch for " + fileName + ": " + e.getMessage(), e);
-			// Provide feedback to the user (e.g., dialog)
+		} finally {
+			// Ensure all connected documents are disconnected
+			disconnectAllDocuments(documentMap);
 		}
 	}
 
-	// Helper method to read file lines
-	private List<String> readLines(IFile file) throws CoreException, IOException {
-		List<String> lines = new ArrayList<>();
-		try (InputStream contentStream = file.getContents();
-				BufferedReader reader = new BufferedReader(new InputStreamReader(contentStream, file.getCharset()))) {
-			String line;
-			while ((line = reader.readLine()) != null) {
-				lines.add(line);
+	/**
+	 * Creates a ReplaceEdit based on searching for the originalText within the
+	 * document. The location string provided during addChange is currently ignored
+	 * by this implementation.
+	 *
+	 * @param file     The file being modified.
+	 * @param document The document to apply the edit to.
+	 * @param op       The change operation details, containing the originalText to
+	 *                 search for.
+	 * @return The created ReplaceEdit.
+	 * @throws BadLocationException     If the location derived from the search is
+	 *                                  invalid (should not happen if found).
+	 * @throws IllegalArgumentException If the originalText cannot be found in the
+	 *                                  document.
+	 */
+	private ReplaceEdit createTextEdit(IFile file, IDocument document, ChangeOperation op)
+			throws BadLocationException, IllegalArgumentException {
+
+		String content = document.get();
+		String originalTextToFind = op.getOriginalText();
+
+		if (originalTextToFind == null || originalTextToFind.isEmpty()) {
+			throw new IllegalArgumentException("Original text cannot be null or empty for search-based replacement.");
+		}
+
+		int startOffset = content.indexOf(originalTextToFind);
+
+		if (startOffset == -1) {
+			// Original text not found in the document
+			// Consider adding more context to the error, like the first few chars of
+			// originalText
+			throw new IllegalArgumentException("Original text not found in file " + file.getName()
+					+ " for change at location hint: " + op.getLocation());
+			// TODO: Add better handling for multiple occurrences? For now, uses the first
+			// match.
+		}
+
+		int length = originalTextToFind.length();
+
+		// Format the replacement text before creating the edit
+		String originalReplacement = op.getReplacement();
+		// Formatting should still use the found startOffset to determine indentation
+		String formattedReplacement = formatReplacementText(originalReplacement, file, document, startOffset);
+
+		// Note: The original text validation block is implicitly handled now,
+		// because we *found* the original text to determine the offset.
+
+		return new ReplaceEdit(startOffset, length, formattedReplacement);
+	}
+
+	/**
+	 * Formats the given replacement text using the CodeFormatter and adjusts its
+	 * indentation to match the insertion point in the target document.
+	 *
+	 * @param replacementText The raw replacement text.
+	 * @param document        The target document where the text will be inserted.
+	 * @param insertionOffset The offset in the document where the replacement will
+	 *                        start.
+	 * @return The formatted and indented replacement text.
+	 */
+	private String formatReplacementText(String replacementText, IFile file, IDocument document, int insertionOffset) {
+		if (replacementText == null || replacementText.isEmpty()) {
+			return replacementText;
+		}
+
+		IProject project = file.getProject();
+		IJavaProject javaProject = null;
+		if (project != null) {
+			javaProject = JavaCore.create(project);
+		}
+
+		int indentationLevel = 0;
+		Map<String, String> options = JavaCore.getOptions(); // Default options
+
+		// 1. Determine target indentation level
+		try {
+			if (javaProject != null) {
+				options = javaProject.getOptions(true); // Use project-specific options if available
+			}
+
+			int lineIndex = document.getLineOfOffset(insertionOffset);
+			IRegion lineInfo = document.getLineInformation(lineIndex);
+			String currentLine = document.get(lineInfo.getOffset(), lineInfo.getLength());
+
+			String leadingWhitespace = "";
+			for (int i = 0; i < currentLine.length(); i++) {
+				char c = currentLine.charAt(i);
+				if (Character.isWhitespace(c)) {
+					leadingWhitespace += c;
+				} else {
+					break;
+				}
+			}
+
+			int indentWidth = CodeFormatterUtil.getIndentWidth(javaProject); // Use project-aware util
+			int tabWidth = CodeFormatterUtil.getTabWidth(javaProject); // Use project-aware util
+			int visualColumn = 0;
+			for (int i = 0; i < leadingWhitespace.length(); i++) {
+				char c = leadingWhitespace.charAt(i);
+				if (c == '\t') {
+					visualColumn += tabWidth - (visualColumn % tabWidth);
+				} else {
+					visualColumn++;
+				}
+			}
+
+			if (indentWidth > 0) {
+				indentationLevel = visualColumn / indentWidth;
+			}
+
+		} catch (BadLocationException e) {
+			Activator.logWarn("Could not determine indentation level for replacement text: " + e.getMessage());
+			// Proceed with indentationLevel = 0 and default options
+			options = JavaCore.getOptions(); // Reset to default if project options failed
+		}
+
+		// 2. Format the code snippet with the determined level
+		CodeFormatter formatter = ToolFactory.createCodeFormatter(options);
+		if (formatter != null) {
+			// Use K_STATEMENTS as a guess, might need adjustment depending on typical
+			// replacement content.
+			String lineSeparator = TextUtilities.getDefaultLineDelimiter(document); // Use document's line delimiter
+			TextEdit edit = formatter.format(CodeFormatter.K_STATEMENTS, replacementText, 0, // offset in
+																								// replacementText
+					replacementText.length(), // length of replacementText
+					indentationLevel, lineSeparator);
+
+			if (edit != null) {
+				try {
+					org.eclipse.jface.text.IDocument tempDoc = new org.eclipse.jface.text.Document(replacementText);
+					edit.apply(tempDoc);
+					return tempDoc.get();
+				} catch (MalformedTreeException | BadLocationException e) {
+					// Log error or warning - formatting the snippet failed, proceed with
+					// unformatted
+					Activator.logWarn("Could not format replacement snippet: " + e.getMessage());
+					return replacementText; // Fallback to original on formatting error
+				}
+			} else {
+				// Formatter returned null edit (e.g., syntax error in snippet), return original
+				return replacementText;
 			}
 		}
-		return lines;
+
+		// Fallback if formatter couldn't be created or formatting failed
+		return replacementText;
 	}
 
-	// findFileByNameBestEffort method remains the same
+	/**
+	 * Gets the IDocument for a file, managing the connection via
+	 * TextFileBufferManager. Stores the connected document in the provided map.
+	 *
+	 * @param file        The file to get the document for.
+	 * @param documentMap A map to store the connected document and its buffer.
+	 * @return The IDocument, or null if connection fails.
+	 */
+	private IDocument getDocumentAndConnect(IFile file, Map<IFile, IDocument> documentMap) {
+		if (documentMap.containsKey(file)) {
+			return documentMap.get(file);
+		}
+
+		ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
+		IPath path = file.getFullPath();
+		IDocument document = null;
+		try {
+			// Connect to the file buffer
+			bufferManager.connect(path, LocationKind.IFILE, new NullProgressMonitor());
+			ITextFileBuffer textFileBuffer = bufferManager.getTextFileBuffer(path, LocationKind.IFILE);
+			if (textFileBuffer != null) {
+				document = textFileBuffer.getDocument();
+				documentMap.put(file, document); // Store for later disconnection
+			} else {
+				Activator.logError("Could not get text file buffer for: " + file.getName());
+			}
+		} catch (CoreException e) {
+			Activator.logError("Failed to connect or get document for " + file.getName() + ": " + e.getMessage(), e);
+			// Ensure disconnection if connection partially succeeded but failed later
+			try {
+				bufferManager.disconnect(path, LocationKind.IFILE, new NullProgressMonitor());
+			} catch (CoreException disconnectEx) {
+				Activator.logError("Error during buffer disconnect cleanup for " + file.getName(), disconnectEx);
+			}
+			return null; // Return null if document couldn't be obtained
+		}
+		return document;
+	}
+
+	/**
+	 * Disconnects all documents managed in the provided map.
+	 *
+	 * @param documentMap The map containing files and their connected documents.
+	 */
+	private void disconnectAllDocuments(Map<IFile, IDocument> documentMap) {
+		ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
+		for (IFile file : documentMap.keySet()) {
+			try {
+				bufferManager.disconnect(file.getFullPath(), LocationKind.IFILE, new NullProgressMonitor());
+			} catch (CoreException e) {
+				Activator.logError("Failed to disconnect document for " + file.getName() + ": " + e.getMessage(), e);
+			}
+		}
+		documentMap.clear(); // Clear the map after disconnecting
+	}
+
+	/**
+	 * Finds the IFile resource corresponding to the given file name. Provides basic
+	 * handling for ambiguity (multiple files with the same name).
+	 *
+	 * @param fileName The simple name of the file (e.g., "MyClass.java").
+	 * @return The IFile if found uniquely, or a best guess, or null.
+	 */
 	private IFile findFileByNameBestEffort(String fileName) {
 		IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 		final List<IFile> foundFiles = new ArrayList<>();
@@ -171,74 +480,35 @@ public class ApplyChangeTool {
 				public boolean visit(IResource resource) throws CoreException {
 					if (resource.getType() == IResource.FILE && resource.getName().equals(fileName)) {
 						foundFiles.add((IFile) resource);
-						// Optional: Stop searching after first match if desired
+						// Optimization: If you only ever want the *first* match, uncomment the next
+						// line
 						// return false;
 					}
-					// Continue searching in subfolders
+					// Continue searching in subfolders regardless
 					return true;
 				}
 			});
 		} catch (CoreException e) {
 			Activator.logError("Error searching for file: " + fileName, e);
-			return null;
+			return null; // Return null on error during search
 		}
 
-		// Check if exactly one file was found
+		// Evaluate search results
 		if (foundFiles.size() == 1) {
-			return foundFiles.get(0);
+			return foundFiles.get(0); // Unique match found
 		} else if (foundFiles.isEmpty()) {
 			Activator.logInfo("No file found with name: " + fileName);
-			return null;
+			return null; // No file found
 		} else {
-			// Handle multiple files found (e.g., log warning, return first, or null)
-			Activator.logInfo("Multiple files found with name: " + fileName + ". Using the first one found: "
+			// Ambiguous case: multiple files found
+			// Log a warning and return the first one found as a best effort.
+			// Consider making this behavior configurable or throwing an error.
+			Activator.logInfo("Multiple files found with name: " + fileName + ". Using the first one: "
 					+ foundFiles.get(0).getFullPath());
-			return foundFiles.get(0); // Or return null if ambiguity is unacceptable
-		}
-	}
-
-	private static class InMemoryStorage extends PlatformObject implements IStorage {
-		private final String name;
-		private final String content;
-		private final byte[] contentBytes;
-
-		public InMemoryStorage(String name, String content) {
-			this.name = name;
-			this.content = content;
-			// Ensure consistent encoding, UTF-8 is standard for patches
-			this.contentBytes = content.getBytes(StandardCharsets.UTF_8);
-		}
-
-		@Override
-		public InputStream getContents() throws CoreException {
-			return new ByteArrayInputStream(contentBytes);
-		}
-
-		@Override
-		public IPath getFullPath() {
-			// Not applicable for in-memory storage
-			return null;
-		}
-
-		@Override
-		public String getName() {
-			return name;
-		}
-
-		@Override
-		public boolean isReadOnly() {
-			return true;
-		}
-
-		@SuppressWarnings("unchecked")
-		@Override
-		public <T> T getAdapter(Class<T> adapter) {
-			// Basic implementation, might need refinement depending on usage
-			return super.getAdapter(adapter);
-		}
-
-		public String getContent() {
-			return content;
+			// You might want to try finding the file in the active editor first here
+			// IFile fileFromEditor = findFileInActiveEditor(fileName);
+			// if (fileFromEditor != null) return fileFromEditor;
+			return foundFiles.get(0); // Return the first match as a fallback
 		}
 	}
 

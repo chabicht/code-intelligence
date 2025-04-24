@@ -146,6 +146,8 @@ public class ChatView extends ViewPart {
 	private Button btnSettings;
 	private Button btnHistory;
 
+	private FunctionCallSession functionCallSession = new FunctionCallSession();
+
 	private ChatListener chatListener = new ChatListener() {
 
 		@Override
@@ -186,18 +188,9 @@ public class ChatView extends ViewPart {
 
 		@Override
 		public void onFunctionCall(ChatMessage message, String functionName, String functionArgsJson) {
-			// Ensure UI updates happen on the display thread
-			Display.getDefault().asyncExec(() -> {
-				// Default: log the function call as message.
-				String header = "Unsupported function call: `" + functionName + "`";
-				String argsCodeBlock = "```json\n" + functionArgsJson + "\n```";
-				String combinedMarkdown = header + "\n\n" + argsCodeBlock + "\n\n" + message.getContent();
-
-				// Render the Markdown content to HTML
-				String htmlContent = markdownRenderer.render(markdownParser.parse(combinedMarkdown));
-				UUID functionCallMessageId = UUID.randomUUID();
-				chat.addMessage(functionCallMessageId, Role.ASSISTANT.name().toLowerCase(), htmlContent, false);
-			});
+			functionCallSession.handleFunctionCall(message, functionName,
+					functionArgsJson);
+			onMessageUpdated(message);
 		}
 
 		private String getAttachmentIconHtml() {
@@ -236,6 +229,10 @@ public class ChatView extends ViewPart {
 
 				if (isDebugPromptLoggingEnabled()) {
 					Activator.logInfo(conversation.toString());
+				}
+
+				if (functionCallSession.hasPendingChanges()) {
+					functionCallSession.applyPendingChanges();
 				}
 			});
 		}
