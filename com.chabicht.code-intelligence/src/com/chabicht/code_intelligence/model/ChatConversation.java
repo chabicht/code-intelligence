@@ -182,6 +182,10 @@ public class ChatConversation {
 		public Optional<FunctionCall> getFunctionCall() {
 			return functionCall;
 		}
+		
+		public void setFunctionCall(Optional<FunctionCall> functionCall) {
+			this.functionCall = functionCall;
+		}
 
 		public void setFunctionCall(FunctionCall functionCall) {
 			this.functionCall = Optional.ofNullable(functionCall);
@@ -189,6 +193,10 @@ public class ChatConversation {
 
 		public Optional<FunctionResult> getFunctionResult() {
 			return functionResult;
+		}
+
+		public void setFunctionResult(Optional<FunctionResult> functionResult) {
+			this.functionResult = functionResult;
 		}
 
 		public void setFunctionResult(FunctionResult functionResult) {
