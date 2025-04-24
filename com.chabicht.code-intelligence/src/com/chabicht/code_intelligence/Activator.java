@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.eclipse.core.runtime.IStatus;
@@ -259,7 +260,8 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	public Gson createGson() {
-		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter()).create();
+		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter())
+				.registerTypeAdapter(Optional.class, new OptionalTypeAdapter()).create();
 	}
 
 	private File getConfigLocationAsFile() throws IOException {

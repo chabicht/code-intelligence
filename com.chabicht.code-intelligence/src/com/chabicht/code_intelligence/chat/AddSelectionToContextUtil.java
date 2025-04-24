@@ -4,12 +4,17 @@ import java.io.BufferedInputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.PropertyUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.core.filebuffers.FileBuffers;
+import org.eclipse.core.filebuffers.ITextFileBuffer;
+import org.eclipse.core.filebuffers.ITextFileBufferManager;
+import org.eclipse.core.filebuffers.LocationKind;
 import org.eclipse.core.internal.resources.File;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IMarker;
@@ -20,6 +25,8 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.ITextSelection;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
@@ -71,17 +78,17 @@ public class AddSelectionToContextUtil {
 		if (obj instanceof ISourceReference sre) {
 			try {
 				String ancestor = getFileOrTypeName(sre);
-				ISourceRange sourceRange = sre.getSourceRange();
+				Range range = getLineRangeInFile(sre);
 				String source = sre.getSource();
 				if (StringUtils.isNotBlank(source)) {
 					String processedText = CodeUtil.removeCommonIndentation(source);
-					ChatView.addContext(new MessageContext(ancestor, RangeType.OFFSET, sourceRange.getOffset(),
-							sourceRange.getOffset() + sourceRange.getLength(), processedText));
+					ChatView.addContext(
+							new MessageContext(ancestor, range.type, range.start(), range.end, processedText));
 				} else {
 					String stringRep = sre.toString();
 					String binaryLabel = "Binary " + stringRep.replaceAll(" \\[.*", "");
-					ChatView.addContext(new MessageContext(binaryLabel, RangeType.OFFSET, sourceRange.getOffset(),
-							sourceRange.getOffset() + sourceRange.getLength(), stringRep) {
+					ChatView.addContext(
+							new MessageContext(binaryLabel, RangeType.OFFSET, range.start, range.end, stringRep) {
 
 						@Override
 						public String getLabel() {
@@ -101,7 +108,6 @@ public class AddSelectionToContextUtil {
 			int line = le.getLine();
 			String parent = le.getParent().getName();
 			ChatView.addContext(new MessageContext(parent, line, line, le.getContents()));
-
 		} else if (obj instanceof File f) {
 			String name = f.getName();
 			try {
@@ -150,6 +156,34 @@ public class AddSelectionToContextUtil {
 		}
 	}
 
+	private static Range getLineRangeInFile(ISourceReference sre) throws JavaModelException {
+		ISourceRange sourceRange = sre.getSourceRange();
+		Optional<IFile> fOpt = getFile(sre);
+		if (fOpt.isPresent()) {
+			IFile file = fOpt.get();
+			try {
+				ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
+				bufferManager.connect(file.getFullPath(), LocationKind.IFILE, null);
+				ITextFileBuffer buffer = bufferManager.getTextFileBuffer(file.getFullPath(), LocationKind.IFILE);
+				IDocument doc = buffer.getDocument();
+				int start = doc.getLineOfOffset(sourceRange.getOffset()) + 1;
+				int end = doc.getLineOfOffset(sourceRange.getOffset() + sourceRange.getLength()) + 1;
+				return new Range(RangeType.LINE, start, end);
+			} catch (CoreException | BadLocationException e) {
+				Activator.logError("Failed to obtain source range in file " + file.getFullPath().toString(), e);
+			}
+		}
+		return new Range(RangeType.OFFSET, sourceRange.getOffset(), sourceRange.getOffset()+sourceRange.getLength());
+	}
+
+	private static Optional<IFile> getFile(ISourceReference sr) {
+		if (sr instanceof IJavaElement je) {
+			return Optional.ofNullable((IFile) je.getResource());
+		}
+
+		return Optional.empty();
+	}
+
 	private static String getFileOrTypeName(ISourceReference sr) {
 		if (sr instanceof IJavaElement je) {
 			for (int type : new int[] { IJavaElement.COMPILATION_UNIT, IJavaElement.TYPE }) {
@@ -194,4 +228,6 @@ public class AddSelectionToContextUtil {
 		return textEditor;
 	}
 
+	private final record Range(RangeType type, int start, int end) {
+	}
 }

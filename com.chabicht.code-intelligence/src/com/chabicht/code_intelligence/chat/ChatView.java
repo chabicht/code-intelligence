@@ -776,6 +776,23 @@ public class ChatView extends ViewPart {
 		};
 		externallyAddedContext.addListChangeListener(listChangeListener);
 
+		// Add context menu listener to the attachment composite itself
+		cmpAttachments.addMenuDetectListener(event -> {
+			Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
+			MenuItem clearAllItem = new MenuItem(contextMenu, SWT.NONE);
+			clearAllItem.setText("Clear All");
+			clearAllItem.addListener(SWT.Selection, evt -> {
+				if (!externallyAddedContext.isEmpty()) {
+					externallyAddedContext.clear();
+				}
+			});
+			// Disable if list is already empty
+			clearAllItem.setEnabled(!externallyAddedContext.isEmpty());
+
+			contextMenu.setLocation(event.x, event.y);
+			contextMenu.setVisible(true);
+		});
+
 		chat.addProgressListener(ProgressListener.completedAdapter(event -> {
 			final Browser bChat = chat.getBrowser();
 			final BrowserFunction function = new OnClickFunction(bChat, "elementClicked");
@@ -945,7 +962,7 @@ public class ChatView extends ViewPart {
 			}
 		}
 		if (!duplicate) {
-			chatMessage.getContext().add(new MessageContext(fileName, start, end, processedText));
+			chatMessage.getContext().add(newCtx);
 		}
 	}
 
