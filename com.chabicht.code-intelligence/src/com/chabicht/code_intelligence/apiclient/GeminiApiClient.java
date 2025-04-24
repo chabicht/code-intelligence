@@ -6,7 +6,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -14,6 +16,8 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
@@ -85,66 +89,87 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		String requestBody = gson.toJson(req);
 		HttpRequest request = buildHttpRequest(modelName + ":streamGenerateContent?alt=sse&", requestBody);
 
+		AtomicBoolean responseFinished = new AtomicBoolean(false);
+
 		asyncRequest = HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofLines())
 				.thenAccept(response -> {
-					response.body().forEach(line -> {
-						if (line.startsWith("data: ")) {
-							String data = line.substring(6).trim();
-							try {
-								JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
-								JsonArray candidates = jsonChunk.getAsJsonArray("candidates");
-								if (candidates != null && !candidates.isEmpty()) {
-									JsonObject candidate = candidates.get(0).getAsJsonObject();
-									JsonObject content = candidate.getAsJsonObject("content");
+					if (response.statusCode() >= 200 && response.statusCode() < 300) {
+						response.body().forEach(line -> {
+							if (line.startsWith("data: ")) {
+								String data = line.substring(6).trim();
+								try {
+									JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
+									JsonArray candidates = jsonChunk.getAsJsonArray("candidates");
+									if (candidates != null && !candidates.isEmpty()) {
+										JsonObject candidate = candidates.get(0).getAsJsonObject();
+										JsonObject content = candidate.getAsJsonObject("content");
 
-									if (content != null && content.has("parts")) {
-										JsonArray parts = content.getAsJsonArray("parts");
-										if (parts != null && !parts.isEmpty()) {
-											JsonObject firstPart = parts.get(0).getAsJsonObject();
+										if (content != null && content.has("parts")) {
+											JsonArray parts = content.getAsJsonArray("parts");
+											if (parts != null && !parts.isEmpty()) {
+												JsonObject firstPart = parts.get(0).getAsJsonObject();
 
-											if (firstPart.has("text")) {
-												String chunk = firstPart.get("text").getAsString();
-												assistantMessage.setContent(assistantMessage.getContent() + chunk);
-												chat.notifyMessageUpdated(assistantMessage);
-											}
+												if (firstPart.has("text")) {
+													String chunk = firstPart.get("text").getAsString();
+													assistantMessage.setContent(assistantMessage.getContent() + chunk);
+													chat.notifyMessageUpdated(assistantMessage);
+												}
 
-											if (firstPart.has("functionCall")) {
-												JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
-												String functionName = functionCall.get("name").getAsString();
-												JsonObject functionArgs = functionCall.getAsJsonObject("args");
-												String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
-														: "{}";
-												chat.notifyFunctionCalled(assistantMessage, functionName, argsJson);
+												if (firstPart.has("functionCall")) {
+													JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
+													String id = Optional.ofNullable(functionCall.get("id"))
+															.map(JsonElement::getAsString).orElse(null);
+													String functionName = functionCall.get("name").getAsString();
+													JsonObject functionArgs = functionCall.getAsJsonObject("args");
+													String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
+															: "{}";
+													assistantMessage.setFunctionCall(
+															new FunctionCall(id, functionName, argsJson));
+													chat.notifyFunctionCalled(assistantMessage);
+												}
 											}
 										}
-									}
 
-									if (candidate.has("finishReason")) {
-										String reason = candidate.get("finishReason").getAsString();
-										if ("STOP".equals(reason)) {
+										if (candidate.has("finishReason")) {
+											String reason = candidate.get("finishReason").getAsString();
+											if ("MALFORMED_FUNCTION_CALL".equals(reason)) {
+												Activator.logError("Error " + reason + " in API response.\n");
+											}
 											chat.notifyChatResponseFinished(assistantMessage);
+											responseFinished.set(true);
 											asyncRequest = null;
 										}
-										// TODO: Handle other finishReasons like FUNCTION_CALL if needed
+									}
+								} catch (Exception e) {
+									Activator.logError("Exception processing streaming chat chunk: " + data, e);
+									if (asyncRequest != null) {
+										if (!responseFinished.get()) {
+											chat.notifyChatResponseFinished(assistantMessage);
+											responseFinished.set(true);
+										}
+										asyncRequest = null;
 									}
 								}
-							} catch (Exception e) {
-								Activator.logError("Exception processing streaming chat chunk: " + data, e);
-								if (asyncRequest != null) {
-									chat.notifyChatResponseFinished(assistantMessage);
-									asyncRequest = null;
-								}
 							}
+						});
+					} else {
+						String body = response.body().collect(Collectors.joining("\n"));
+						Activator.logError("Error " + response.statusCode() + " in API call:\n" + body);
+						if (asyncRequest != null) {
+							if (!responseFinished.get()) {
+								chat.notifyChatResponseFinished(assistantMessage);
+								responseFinished.set(true);
+							}
+							asyncRequest = null;
 						}
-					});
-					if (asyncRequest != null) {
-						chat.notifyChatResponseFinished(assistantMessage);
-						asyncRequest = null;
 					}
 				}).exceptionally(e -> {
 					Activator.logError("Exception during streaming chat request", e);
 					if (asyncRequest != null) {
-						chat.notifyChatResponseFinished(assistantMessage);
+						if (!responseFinished.get()) {
+							chat.notifyChatResponseFinished(assistantMessage);
+							responseFinished.set(true);
+						}
 						asyncRequest = null;
 					}
 					return null;
@@ -210,39 +235,80 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 				continue;
 			}
 
-			JsonObject jsonMsg = new JsonObject();
+			JsonObject jsonMsg = createMessage(msg.getRole());
 
-			// Convert role to lowercase. If your API expects "model" for assistant
-			// messages, you might need to map it.
-			String role = msg.getRole().toString().toLowerCase();
-			if ("assistant".equals(role)) {
-				// Some APIs expect the role to be "model" for responses.
-				role = "model";
+			if (msg.getFunctionCall().isPresent()) {
+				fillFunctionCall(jsonMsg, msg);
+			} else {
+				fillTextMessage(jsonMsg, msg);
 			}
-			jsonMsg.addProperty("role", role);
-
-			// Build the full text content including any context information.
-			StringBuilder contentBuilder = new StringBuilder();
-			if (!msg.getContext().isEmpty()) {
-				contentBuilder.append("Context information:\n\n");
-				for (MessageContext ctx : msg.getContext()) {
-					contentBuilder.append(ctx.compile());
-					contentBuilder.append("\n");
-				}
-			}
-			contentBuilder.append(msg.getContent());
-
-			// Instead of "content", create a "parts" array with an object containing
-			// "text".
-			JsonArray partsArray = new JsonArray();
-			JsonObject partObj = new JsonObject();
-			partObj.addProperty("text", contentBuilder.toString());
-			partsArray.add(partObj);
-			jsonMsg.add("parts", partsArray);
-
 			messagesJson.add(jsonMsg);
+
+			if (msg.getFunctionResult().isPresent()) {
+				JsonObject resultUserMessage = createMessage(Role.USER);
+				fillFunctionResult(resultUserMessage, msg);
+				messagesJson.add(resultUserMessage);
+			}
 		}
 		return messagesJson;
+	}
+
+	private void fillFunctionCall(JsonObject jsonMsg, ChatMessage msg) {
+		FunctionCall fc = msg.getFunctionCall().get();
+		JsonObject functionCallObj = new JsonObject();
+		functionCallObj.addProperty("id", fc.getId());
+		functionCallObj.addProperty("name", fc.getFunctionName());
+		functionCallObj.add("args", gson.fromJson(fc.getArgsJson(), JsonObject.class));
+		JsonObject partObj = new JsonObject();
+		partObj.add("functionCall", functionCallObj);
+		jsonMsg.getAsJsonArray("parts").add(partObj);
+	}
+
+	private void fillFunctionResult(JsonObject jsonMsg, ChatMessage msg) {
+		FunctionResult fr = msg.getFunctionResult().get();
+		JsonObject functionCallObj = new JsonObject();
+		functionCallObj.addProperty("id", fr.getId());
+		functionCallObj.addProperty("name", fr.getFunctionName());
+		functionCallObj.add("response", gson.fromJson(fr.getResultJson(), JsonObject.class));
+		JsonObject partObj = new JsonObject();
+		partObj.add("functionResponse", functionCallObj);
+		jsonMsg.getAsJsonArray("parts").add(partObj);
+	}
+
+	private void fillTextMessage(JsonObject jsonMsg, ChatConversation.ChatMessage msg) {
+		// Build the full text content including any context information.
+		StringBuilder contentBuilder = new StringBuilder();
+		if (!msg.getContext().isEmpty()) {
+			contentBuilder.append("Context information:\n\n");
+			for (MessageContext ctx : msg.getContext()) {
+				contentBuilder.append(ctx.compile());
+				contentBuilder.append("\n");
+			}
+		}
+		contentBuilder.append(msg.getContent());
+
+		JsonArray partsArray = jsonMsg.getAsJsonArray("parts");
+		JsonObject partObj = new JsonObject();
+		partObj.addProperty("text", contentBuilder.toString());
+		partsArray.add(partObj);
+	}
+
+	private JsonObject createMessage(Role role) {
+		JsonObject jsonMsg = new JsonObject();
+
+		// Convert role to lowercase. If your API expects "model" for assistant
+		// messages, you might need to map it.
+		String roleStr = role.toString().toLowerCase();
+		if ("assistant".equals(roleStr)) {
+			// Some APIs expect the role to be "model" for responses.
+			roleStr = "model";
+		}
+		jsonMsg.addProperty("role", roleStr);
+
+		JsonArray partsArray = new JsonArray();
+		jsonMsg.add("parts", partsArray);
+
+		return jsonMsg;
 	}
 
 	private HttpRequest buildHttpRequest(String relPath, String body) {
