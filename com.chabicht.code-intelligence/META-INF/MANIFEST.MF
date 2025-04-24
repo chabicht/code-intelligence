@@ -32,7 +32,10 @@ Require-Bundle: org.eclipse.ui,
  org.apache.commons.commons-io;bundle-version="2.17.0",
  org.eclipse.core.expressions;bundle-version="3.9.100",
  org.eclipse.ui.console;bundle-version="3.13.0",
- org.eclipse.compare;bundle-version="3.9.0"
+ org.eclipse.compare;bundle-version="3.9.0",
+ org.eclipse.core.filebuffers;bundle-version="3.8.100",
+ org.eclipse.ltk.core.refactoring;bundle-version="3.14.100",
+ org.eclipse.ltk.ui.refactoring;bundle-version="3.13.100"
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: com.chabicht.code.intelligence
 Bundle-ActivationPolicy: lazy

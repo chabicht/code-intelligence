@@ -102,10 +102,17 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	/**
-	 * Log an error to the Eclipse Error Log.
+	 * Log a message to the Eclipse Error Log.
 	 */
 	public static void logInfo(String message) {
 		getDefault().getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
+	}
+
+	/**
+	 * Log a warning to the Eclipse Error Log.
+	 */
+	public static void logWarn(String message) {
+		getDefault().getLog().log(new Status(IStatus.WARNING, PLUGIN_ID, message));
 	}
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
