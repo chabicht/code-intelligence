@@ -1,14 +1,13 @@
 package com.chabicht.code_intelligence.chat;
 
 import java.util.Map;
-
-import org.commonmark.parser.Parser;
-import org.commonmark.renderer.html.HtmlRenderer;
+import java.util.Optional;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
-import com.chabicht.code_intelligence.util.MarkdownUtil;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken; // Import needed for Map type
@@ -17,9 +16,6 @@ public class FunctionCallSession {
 
 	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool();
 	private final Gson gson;
-
-	private Parser markdownParser = MarkdownUtil.createParser();
-	private HtmlRenderer markdownRenderer = MarkdownUtil.createRenderer();
 
 	public FunctionCallSession() {
 		this.gson = Activator.getDefault().createGson();
@@ -37,22 +33,25 @@ public class FunctionCallSession {
 	 *                         function.
 	 * @return
 	 */
-	public void handleFunctionCall(ChatMessage message, String functionName, String functionArgsJson) {
-		String caption = "Handling function call: " + functionName;
+	public void handleFunctionCall(ChatMessage message) {
+		Optional<FunctionCall> callOpt = message.getFunctionCall();
+		if (callOpt.isPresent()) {
+			FunctionCall call = callOpt.get();
+			String functionName = call.getFunctionName();
+			String argsJson = call.getArgsJson();
+			String resultJson = null;
 
-		switch (functionName) {
-		case "apply_change":
-			handleApplyChange(functionArgsJson);
-			break;
-		default:
-			caption = "Unsupported function call received: " + functionName;
-			break;
+			switch (functionName) {
+			case "apply_change":
+				handleApplyChange(argsJson);
+				break;
+			default:
+				Activator.logError("Unsupported function call: " + functionName);
+				break;
+			}
+
+			message.setFunctionResult(new FunctionResult(call.getId(), functionName, resultJson));
 		}
-
-		// Default: log the function call as message.
-		String argsCodeBlock = "```json\n" + functionArgsJson + "\n```";
-		String combinedMarkdown = caption + "\n\n" + argsCodeBlock + "\n\n" + message.getContent();
-		message.setContent(message.getContent() + "\n\n" + combinedMarkdown);
 	}
 
 	/**
