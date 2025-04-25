@@ -9,20 +9,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import org.eclipse.core.filebuffers.FileBuffers;
-import org.eclipse.core.filebuffers.ITextFileBuffer;
-import org.eclipse.core.filebuffers.ITextFileBufferManager;
-import org.eclipse.core.filebuffers.LocationKind;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.IResourceVisitor;
-import org.eclipse.core.resources.IWorkspaceRoot;
-import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.NullProgressMonitor; // Import needed
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.ToolFactory;
@@ -48,12 +38,15 @@ import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.util.GsonUtil;
+import com.chabicht.code_intelligence.util.Log;
+import com.google.gson.Gson;
 
 public class ApplyChangeTool {
 	private static final int SEARCH_WINDOW_RADIUS_CHARS = 500;
 
 	// Inner class to hold change information
-	private static class ChangeOperation {
+	static class ChangeOperation {
 		private final String fileName;
 		private final String location;
 		private final String originalText; // Keep for potential future validation
@@ -85,6 +78,11 @@ public class ApplyChangeTool {
 
 	// List to store pending changes
 	private List<ChangeOperation> pendingChanges = new ArrayList<>();
+	private IResourceAccess resourceAccess;
+
+	public ApplyChangeTool(IResourceAccess resourceAccess) {
+		this.resourceAccess = resourceAccess;
+	}
 
 	/**
 	 * Add a change to the queue of pending changes.
@@ -96,17 +94,21 @@ public class ApplyChangeTool {
 	 * @param replacement  The text to replace the original content with.
 	 */
 	public void addChange(String fileName, String location, String originalText, String replacement) {
-		pendingChanges.add(new ChangeOperation(fileName, location, originalText, replacement));
-		Activator.logInfo("Added change for file: " + fileName + " at location: " + location);
+		ChangeOperation op = new ChangeOperation(fileName, location, originalText, replacement);
+		pendingChanges.add(op);
+
+		Gson gson = GsonUtil.createGson();
+		String json = gson.toJson(op);
+		Log.logInfo("Added change for file: " + fileName + " at location: " + location + "\n\nJSON:\n" + json);
 	}
 
 	/**
 	 * Clear all pending changes from the queue.
-	 */
+	 	 */
 	public void clearChanges() {
 		int count = pendingChanges.size();
 		pendingChanges.clear();
-		Activator.logInfo("Cleared " + count + " pending changes.");
+		Log.logInfo("Cleared " + count + " pending changes.");
 	}
 
 	/**
@@ -123,8 +125,8 @@ public class ApplyChangeTool {
 	 * typically open a preview dialog for the user.
 	 */
 	public void applyChanges() {
-		if (pendingChanges.isEmpty()) {
-			Activator.logInfo("No changes to apply.");
+				if (pendingChanges.isEmpty()) {
+			Log.logInfo("No changes to apply.");
 			return;
 		}
 
@@ -132,7 +134,7 @@ public class ApplyChangeTool {
 			performRefactoring();
 		} catch (Exception e) {
 			// Log the error and potentially inform the user via UI
-			Activator.logError("Failed to initiate refactoring process: " + e.getMessage(), e);
+			Log.logError("Failed to initiate refactoring process: " + e.getMessage(), e);
 			// Consider showing a dialog to the user here
 			clearChanges(); // Clear changes to prevent re-attempting a failed operation
 		}
@@ -158,16 +160,16 @@ public class ApplyChangeTool {
 				String fileName = entry.getKey();
 				List<ChangeOperation> fileChanges = entry.getValue();
 
-				IFile file = findFileByNameBestEffort(fileName);
+				IFile file = resourceAccess.findFileByNameBestEffort(fileName);
 				if (file == null) {
-					Activator.logError("Skipping changes for file not found: " + fileName);
+					Log.logError("Skipping changes for file not found: " + fileName);
 					continue; // Skip this file if not found
 				}
 
 				// Get the document for the file, managing connection
-				IDocument document = getDocumentAndConnect(file, documentMap);
+				IDocument document = resourceAccess.getDocumentAndConnect(file, documentMap);
 				if (document == null) {
-					Activator.logError("Skipping changes for file, could not get document: " + fileName);
+					Log.logError("Skipping changes for file, could not get document: " + fileName);
 					continue;
 				}
 
@@ -183,8 +185,10 @@ public class ApplyChangeTool {
 						ReplaceEdit edit = createTextEdit(file, document, op);
 						multiEdit.addChild(edit);
 					} catch (BadLocationException | IllegalArgumentException | MalformedTreeException e) {
-						Activator.logError("Failed to create edit for " + fileName + " at " + op.getLocation() + ": "
-								+ e.getMessage(), e);
+						Gson gson = GsonUtil.createGson();
+						String json = gson.toJson(op);
+						Log.logError("Failed to create edit for " + fileName + " at " + op.getLocation() + ": "
+								+ e.getMessage() + "\n\nJSON:\n" + json, e);
 					}
 				}
 
@@ -196,7 +200,7 @@ public class ApplyChangeTool {
 
 			// If no valid changes were created, don't proceed
 			if (compositeChange.getChildren().length == 0) {
-				Activator.logInfo("No valid changes could be prepared for refactoring.");
+				Log.logInfo("No valid changes could be prepared for refactoring.");
 				clearChanges();
 				return;
 			}
@@ -228,11 +232,11 @@ public class ApplyChangeTool {
 			};
 
 			// Open the refactoring wizard in the UI thread
-			Display.getDefault().asyncExec(() -> {
+						Display.getDefault().asyncExec(() -> {
 				try {
 					IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
 					if (window == null) {
-						Activator.logError("Cannot apply changes: No active workbench window found.");
+						Log.logError("Cannot apply changes: No active workbench window found.");
 						return; // Cannot proceed without a window/shell
 					}
 					// Use a standard RefactoringWizard
@@ -251,17 +255,18 @@ public class ApplyChangeTool {
 					// The user might cancel, but we assume the operation is "done" either way.
 					pendingChanges.clear();
 
+				
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
-					Activator.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
-				} catch (Exception e) { // Catch broader exceptions during wizard operation
-					Activator.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
+					Log.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
+								} catch (Exception e) { // Catch broader exceptions during wizard operation
+					Log.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
 				}
 			});
 
 		} finally {
 			// Ensure all connected documents are disconnected
-			disconnectAllDocuments(documentMap);
+			resourceAccess.disconnectAllDocuments(documentMap);
 		}
 	}
 
@@ -424,7 +429,7 @@ public class ApplyChangeTool {
 			return new int[] { matchStartOffset, matchEndOffset };
 		} else {
 			// Log the pattern for debugging if needed
-			// Activator.logInfo("Pattern not found: " + regexPattern + " within bounds [" +
+			// Log.logInfo("Pattern not found: " + regexPattern + " within bounds [" +
 			// searchBounds[0] + "," + searchBounds[1] + "]");
 			throw new IllegalArgumentException(
 					"Could not find the specified pattern derived from original text within the location bounds ["
@@ -436,7 +441,7 @@ public class ApplyChangeTool {
 	 * Parses a location string (line or character based) into start and end
 	 * character offsets. Line numbers are 1-based, character offsets are 0-based.
 	 *
-	 * @param location The location string (e.g., "l10:12", "c150:200").
+	 * @param location The location string (e.g., "l10:12", "o150:200").
 	 * @param document The document to resolve line numbers against.
 	 * @return An array of two integers [startOffset, endOffset], or null if parsing
 	 *         fails or location is invalid.
@@ -451,7 +456,7 @@ public class ApplyChangeTool {
 			String range = location.substring(1);
 			String[] parts = range.split(":");
 			if (parts.length != 2) {
-				Activator.logWarn("Invalid location format: " + location);
+				Log.logWarn("Invalid location format: " + location);
 				return null;
 			}
 
@@ -464,7 +469,7 @@ public class ApplyChangeTool {
 				int numDocLines = document.getNumberOfLines(); // Get total lines once
 
 				if (startLine < 1 || endLine < startLine || startLine > numDocLines) {
-					Activator.logWarn(
+					Log.logWarn(
 							"Invalid line numbers in location: " + location + " (Doc lines: " + numDocLines + ")");
 					return null;
 				}
@@ -492,7 +497,7 @@ public class ApplyChangeTool {
 				} catch (BadLocationException e) {
 					// This should theoretically not happen due to boundary checks, but handle
 					// defensively
-					Activator.logError("Error calculating offsets with context for location: " + location, e);
+					Log.logError("Error calculating offsets with context for location: " + location, e);
 					return null; // Or handle error appropriately
 				}
 
@@ -502,7 +507,7 @@ public class ApplyChangeTool {
 				end = Integer.parseInt(parts[1]);
 
 				if (start < 0 || end < start || start > document.getLength()) {
-					Activator.logWarn("Invalid character offsets in location: " + location + " (Doc length: "
+					Log.logWarn("Invalid character offsets in location: " + location + " (Doc length: "
 							+ document.getLength() + ")");
 					return null;
 				}
@@ -510,14 +515,14 @@ public class ApplyChangeTool {
 				end = Math.min(end, document.getLength());
 
 			} else {
-				Activator.logWarn("Unknown location type prefix: " + location);
+				Log.logWarn("Unknown location type prefix: " + location);
 				return null;
 			}
 
 			return new int[] { start, end };
 
 		} catch (NumberFormatException | IndexOutOfBoundsException e) {
-			Activator.logWarn("Failed to parse location string '" + location + "': " + e.getMessage());
+			Log.logWarn("Failed to parse location string '" + location + "': " + e.getMessage());
 			return null;
 		}
 	}
@@ -586,7 +591,7 @@ public class ApplyChangeTool {
 			}
 
 		} catch (BadLocationException e) {
-			Activator.logWarn("Could not determine indentation level for formatting region: " + e.getMessage());
+			Log.logWarn("Could not determine indentation level for formatting region: " + e.getMessage());
 			// Proceed with indentationLevel = 0 and default options
 			options = JavaCore.getOptions(); // Reset to default
 		}
@@ -616,120 +621,15 @@ public class ApplyChangeTool {
 				}
 			} else {
 				// Formatter returned null edit (e.g., syntax error in the modified region)
-				Activator.logWarn(
+				Log.logWarn(
 						"Code formatter returned null edit for region, possibly due to syntax errors. Returning unformatted.");
 				return regionText;
 			}
 		}
 
 		// Fallback if formatter couldn't be created
-		Activator.logWarn("Could not create code formatter. Returning unformatted region text.");
+		Log.logWarn("Could not create code formatter. Returning unformatted region text.");
 		return regionText;
-	}
-
-	/**
-	 * Gets the IDocument for a file, managing the connection via
-	 * TextFileBufferManager. Stores the connected document in the provided map.
-	 *
-	 * @param file        The file to get the document for.
-	 * @param documentMap A map to store the connected document and its buffer.
-	 * @return The IDocument, or null if connection fails.
-	 */
-	private IDocument getDocumentAndConnect(IFile file, Map<IFile, IDocument> documentMap) {
-		if (documentMap.containsKey(file)) {
-			return documentMap.get(file);
-		}
-
-		ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
-		IPath path = file.getFullPath();
-		IDocument document = null;
-		try {
-			// Connect to the file buffer
-			bufferManager.connect(path, LocationKind.IFILE, new NullProgressMonitor());
-			ITextFileBuffer textFileBuffer = bufferManager.getTextFileBuffer(path, LocationKind.IFILE);
-			if (textFileBuffer != null) {
-				document = textFileBuffer.getDocument();
-				documentMap.put(file, document); // Store for later disconnection
-			} else {
-				Activator.logError("Could not get text file buffer for: " + file.getName());
-			}
-		} catch (CoreException e) {
-			Activator.logError("Failed to connect or get document for " + file.getName() + ": " + e.getMessage(), e);
-			// Ensure disconnection if connection partially succeeded but failed later
-			try {
-				bufferManager.disconnect(path, LocationKind.IFILE, new NullProgressMonitor());
-			} catch (CoreException disconnectEx) {
-				Activator.logError("Error during buffer disconnect cleanup for " + file.getName(), disconnectEx);
-			}
-			return null; // Return null if document couldn't be obtained
-		}
-		return document;
-	}
-
-	/**
-	 * Disconnects all documents managed in the provided map.
-	 *
-	 * @param documentMap The map containing files and their connected documents.
-	 */
-	private void disconnectAllDocuments(Map<IFile, IDocument> documentMap) {
-		ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
-		for (IFile file : documentMap.keySet()) {
-			try {
-				bufferManager.disconnect(file.getFullPath(), LocationKind.IFILE, new NullProgressMonitor());
-			} catch (CoreException e) {
-				Activator.logError("Failed to disconnect document for " + file.getName() + ": " + e.getMessage(), e);
-			}
-		}
-		documentMap.clear(); // Clear the map after disconnecting
-	}
-
-	/**
-	 * Finds the IFile resource corresponding to the given file name. Provides basic
-	 * handling for ambiguity (multiple files with the same name).
-	 *
-	 * @param fileName The simple name of the file (e.g., "MyClass.java").
-	 * @return The IFile if found uniquely, or a best guess, or null.
-	 */
-	private IFile findFileByNameBestEffort(String fileName) {
-		IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-		final List<IFile> foundFiles = new ArrayList<>();
-
-		try {
-			root.accept(new IResourceVisitor() {
-				@Override
-				public boolean visit(IResource resource) throws CoreException {
-					if (resource.getType() == IResource.FILE && resource.getName().equals(fileName)) {
-						foundFiles.add((IFile) resource);
-						// Optimization: If you only ever want the *first* match, uncomment the next
-						// line
-						// return false;
-					}
-					// Continue searching in subfolders regardless
-					return true;
-				}
-			});
-		} catch (CoreException e) {
-			Activator.logError("Error searching for file: " + fileName, e);
-			return null; // Return null on error during search
-		}
-
-		// Evaluate search results
-		if (foundFiles.size() == 1) {
-			return foundFiles.get(0); // Unique match found
-		} else if (foundFiles.isEmpty()) {
-			Activator.logInfo("No file found with name: " + fileName);
-			return null; // No file found
-		} else {
-			// Ambiguous case: multiple files found
-			// Log a warning and return the first one found as a best effort.
-			// Consider making this behavior configurable or throwing an error.
-			Activator.logInfo("Multiple files found with name: " + fileName + ". Using the first one: "
-					+ foundFiles.get(0).getFullPath());
-			// You might want to try finding the file in the active editor first here
-			// IFile fileFromEditor = findFileInActiveEditor(fileName);
-			// if (fileFromEditor != null) return fileFromEditor;
-			return foundFiles.get(0); // Return the first match as a fallback
-		}
 	}
 
 }

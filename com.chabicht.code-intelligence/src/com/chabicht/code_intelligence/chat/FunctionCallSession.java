@@ -5,20 +5,22 @@ import java.util.Optional;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
+import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
+import com.chabicht.code_intelligence.util.GsonUtil;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken; // Import needed for Map type
 
 public class FunctionCallSession {
 
-	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool();
-	private final Gson gson;
+	private final ResourceAccess resourceAccess = new ResourceAccess();
+	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
+	private final Gson gson = GsonUtil.createGson();
 
 	public FunctionCallSession() {
-		this.gson = Activator.getDefault().createGson();
 	}
 
 	/**

@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Tests
+Bundle-SymbolicName: com.chabicht.code-intelligence.tests
+Bundle-Version: 1.0.0.qualifier
+Bundle-Vendor: chabicht.com
+Fragment-Host: com.chabicht.code-intelligence
+Require-Bundle: junit-jupiter-api;bundle-version="5.10.0"
+Automatic-Module-Name: com.chabicht.code.intelligence.tests
+Bundle-RequiredExecutionEnvironment: JavaSE-17
