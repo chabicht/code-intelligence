@@ -9,13 +9,11 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Type;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.eclipse.core.runtime.IStatus;
@@ -31,9 +29,9 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.ProviderDefaults;
+import com.chabicht.code_intelligence.util.GsonUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
@@ -260,8 +258,7 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	public Gson createGson() {
-		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter())
-				.registerTypeAdapter(Optional.class, new OptionalTypeAdapter()).create();
+		return GsonUtil.createGson();
 	}
 
 	private File getConfigLocationAsFile() throws IOException {
