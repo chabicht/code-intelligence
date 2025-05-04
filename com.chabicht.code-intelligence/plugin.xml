@@ -29,8 +29,12 @@
 			needsSortingAfterFiltering="true"
 			activate="true">
 				<partition type="__dftl_partition_content_type"/>
+				<partition type="__java_singleline_comment"/>
+				<partition type="__java_multiline_comment"/>
+				<partition type="__java_javadoc"/>
 				<partition type="__java_string"/>
-				<partition type="__java_singleline_comment"/> <!-- to get NLS templates -->
+				<partition type="__java_character"/>
+				<partition type="__java_multiline_string"/>
 		</javaCompletionProposalComputer>
    </extension>
    <extension
@@ -89,5 +93,5 @@
       <startup
             class="com.chabicht.code_intelligence.Startup">
       </startup>
-   </extension>     
+   </extension>
 </plugin>
