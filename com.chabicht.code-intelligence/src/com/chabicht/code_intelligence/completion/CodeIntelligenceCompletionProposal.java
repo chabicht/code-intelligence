@@ -27,6 +27,7 @@ public class CodeIntelligenceCompletionProposal implements IJavaCompletionPropos
 	private final int replacementLength;
 	private final Image image;
 	private final String displayString;
+	private final String proposalInfo;
 	private final int relevance;
 	private int cursorOffset;
 
@@ -41,14 +42,16 @@ public class CodeIntelligenceCompletionProposal implements IJavaCompletionPropos
 	 *                          dropdown
 	 * @param relevance         the relative importance of this proposal compared to
 	 *                          others
+	 * @param proposalInfo      the proposal info string
 	 */
 	public CodeIntelligenceCompletionProposal(String replacementString, int replacementOffset, int replacementLength,
-			Image image, String displayString, int relevance) {
+			Image image, String displayString, int relevance, String proposalInfo) {
 		this.replacementString = replacementString;
 		this.replacementOffset = replacementOffset;
 		this.replacementLength = replacementLength;
 		this.image = image;
 		this.displayString = displayString;
+		this.proposalInfo = proposalInfo;
 		this.relevance = relevance;
 	}
 
@@ -234,6 +237,6 @@ public class CodeIntelligenceCompletionProposal implements IJavaCompletionPropos
 
 	@Override
 	public Object getAdditionalProposalInfo(IProgressMonitor monitor) {
-		return replacementString;
+		return proposalInfo;
 	}
 }
