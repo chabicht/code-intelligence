@@ -3,7 +3,6 @@ package com.chabicht.code_intelligence.completion;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -29,8 +28,6 @@ import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class CodeIntelligenceCompletionProposalComputer implements IJavaCompletionProposalComputer {
-
-	private static final Pattern WHITESPACE_PATTERN = Pattern.compile("^(\\h*)");
 
 	private Image completionIcon;
 
@@ -104,7 +101,7 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 
 			if (debugPromptLoggingEnabled) {
 				debugPromptSB.append("Completion:\n").append("===================================================\n");
-				debugPromptSB.append(completionResult.getCompletion()).append("\n");
+				debugPromptSB.append(completionResult.getRawResult()).append("\n");
 				debugPromptSB.append("===================================================\n");
 			}
 
@@ -112,7 +109,7 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 
 			CodeIntelligenceCompletionProposal res = new CodeIntelligenceCompletionProposal(completion,
 					lineOfCursorOffset, cursorOffset - lineOfCursorOffset, completionIcon,
-					completionResult.getCaption(), 10000);
+					completionResult.getCaption(), 10000, completionResult.getDescription());
 
 			return List.of(res);
 		} catch (BadLocationException e) {

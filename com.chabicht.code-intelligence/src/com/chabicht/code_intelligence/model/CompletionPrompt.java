@@ -11,6 +11,7 @@ public class CompletionPrompt {
 	private final float temperature;
 	private final String promptString;
 	private final Map<String, Object> promptArgs;
+	private String markdown;
 
 	public CompletionPrompt(float temperature, String promptString, Map<String, Object> promptArgs) {
 		this.temperature = temperature;
@@ -31,8 +32,11 @@ public class CompletionPrompt {
 	}
 
 	public String compile() {
+		if (markdown != null)
+			return markdown;
+		
 		Template tmpl = Mustache.compiler().escapeHTML(false).compile(StringUtils.stripToEmpty(promptString));
-		String markdown = tmpl.execute(promptArgs);
+		markdown = tmpl.execute(promptArgs);
 		return markdown;
 	}
 }
