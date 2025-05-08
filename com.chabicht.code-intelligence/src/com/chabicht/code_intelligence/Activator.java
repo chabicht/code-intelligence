@@ -230,7 +230,7 @@ public class Activator extends AbstractUIPlugin {
 			if (!file.exists()) {
 				return Collections.emptyList();
 			} else {
-				try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+				try (BufferedReader reader = new BufferedReader(new FileReader(file), 1 << 18)) {
 					Type listType = token.getType();
 					List<T> res = createGson().fromJson(reader, listType);
 
@@ -249,7 +249,7 @@ public class Activator extends AbstractUIPlugin {
 			File parentDirectory = getConfigLocationAsFile();
 			File file = new File(parentDirectory, filename);
 
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file), 1 << 18)) {
 				createGson().toJson(items, writer);
 			}
 		} catch (IOException | JsonIOException e) {

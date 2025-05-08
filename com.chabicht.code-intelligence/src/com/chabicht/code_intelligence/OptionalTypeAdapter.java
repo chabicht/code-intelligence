@@ -30,7 +30,7 @@ public class OptionalTypeAdapter implements JsonSerializer<Optional<?>>, JsonDes
 	@Override
 	public Optional<?> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
 			throws JsonParseException {
-		if (json.isJsonNull()) {
+		if (json.isJsonNull() || isEmptyObject(json)) {
 			// Deserialize JSON null as empty Optional
 			return Optional.empty();
 		} else {
@@ -41,5 +41,9 @@ public class OptionalTypeAdapter implements JsonSerializer<Optional<?>>, JsonDes
 			// Wrap the deserialized value in an Optional
 			return Optional.ofNullable(value);
 		}
+	}
+
+	private boolean isEmptyObject(JsonElement json) {
+		return json.isJsonObject() && json.getAsJsonObject().isEmpty();
 	}
 }

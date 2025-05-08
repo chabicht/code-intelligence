@@ -107,6 +107,10 @@ import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 
 public class ChatView extends ViewPart {
 	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>|<\\|begin_of_thought\\|>|<thought>");
@@ -209,23 +213,28 @@ public class ChatView extends ViewPart {
 						thoughtsAndMessage.isEndOfReasoningReached() ? "Thoughts" : "Thinking...",
 						markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getThoughts())));
 			}
-			
-			String functionCallHtml="";
-			if(message.getFunctionCall().isPresent()) {
+
+			String functionCallHtml = "";
+			if (message.getFunctionCall().isPresent()) {
 				FunctionCall call = message.getFunctionCall().get();
 				FunctionResult result = message.getFunctionResult()
 						.orElse(new FunctionResult(call.getId(), call.getFunctionName(), null));
-				String argsCodeBlock = "```json\n" + call.getArgsJson() + "\n```";
-				String resultCodeBlock = "```json\n" + result.getResultJson() + "\n```";
-				functionCallHtml = String.format(
-						"<details><summary>Function call: %s</summary>" //
-								+ "<b>Args:</b><blockquote>%s</blockquote>" //
-								+ "<b>Result:</b><blockquote>%s</blockquote>" //
-						+ "</details>",
-						call.getFunctionName(), markdownRenderer.render(markdownParser.parse(argsCodeBlock)),
-						markdownRenderer.render(markdownParser.parse(resultCodeBlock)));
+
+				String argsHtml = String.format("<blockquote><p>Args:</p>%s</blockquote>", markdownRenderer
+						.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```")));
+
+				String resultHtml = "";
+				if (StringUtils.isNotBlank(result.getResultJson())) {
+					resultHtml = String.format("<blockquote><p>Result:</p>%s</blockquote>", markdownRenderer.render(
+							markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```")));
+				}
+
+				functionCallHtml = String.format("<details><summary>Function call: %s</summary>" //
+						+ "%s" // Args
+						+ "%s" // Result
+						+ "</details>", call.getFunctionName(), argsHtml, resultHtml);
 			}
-			
+
 			String messageHtml = markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getMessage()));
 			String combinedHtml = thinkHtml + messageHtml + functionCallHtml;
 			return combinedHtml;
@@ -271,6 +280,15 @@ public class ChatView extends ViewPart {
 		});
 
 		connection.chat(conversation, settings.getMaxResponseTokens());
+	}
+
+	protected String prettyPrintJson(String jsonString) {
+		JsonElement json = JsonParser.parseString(jsonString);
+
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		String prettyJson = gson.toJson(json);
+
+		return prettyJson;
 	}
 
 	private static class MessageContentWithReasoning {
