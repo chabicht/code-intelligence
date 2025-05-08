@@ -109,16 +109,25 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	public CompletionResult performCompletion(String modelName, CompletionPrompt completionPrompt) {
 		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
-		req.addProperty("prompt", completionPrompt.compile());
+		req.addProperty("prompt", (String) completionPrompt.getPromptArgs().get("prefix"));
+		req.addProperty("suffix", (String) completionPrompt.getPromptArgs().get("suffix"));
 		JsonObject options = getOrAddJsonObject(req, "options");
 		setPropertyIfNotPresent(options, "temperature", completionPrompt.getTemperature());
 		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
 		setPropertyIfNotPresent(options, "num_predict", Activator.getDefault().getMaxCompletionTokens());
 		req.addProperty("stream", false);
 
-		JsonObject res = performPost(JsonObject.class, "api/generate", req);
+		try {
+			JsonObject res = performPost(JsonObject.class, "api/generate", req);
+			return new CompletionResult(res.get("response").getAsString());
+		} catch (RuntimeException e) {
+			req.remove("suffix");
+			req.remove("prompt");
+			req.addProperty("prompt", completionPrompt.compile());
+			JsonObject res = performPost(JsonObject.class, "api/generate", req);
+			return new CompletionResult(res.get("response").getAsString());
+		}
 
-		return new CompletionResult(res.get("response").getAsString());
 	}
 
 	/**
