@@ -1,6 +1,7 @@
 package com.chabicht.code_intelligence.chat.tools;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,9 @@ import org.eclipse.ui.PlatformUI;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.util.GsonUtil;
 import com.chabicht.code_intelligence.util.Log;
+import com.github.difflib.DiffUtils;
+import com.github.difflib.UnifiedDiffUtils;
+import com.github.difflib.patch.Patch;
 import com.google.gson.Gson;
 
 public class ApplyChangeTool {
@@ -704,4 +708,51 @@ public class ApplyChangeTool {
 		return regionText;
 	}
 
+	/**
+	 * Creates a human-readable diff preview between original text and replacement
+	 * text. This shows what will be removed and added in a readable format.
+	 * 
+	 * @param originalText    The text being replaced
+	 * @param replacementText The new text being inserted
+	 * @return A markdown-formatted string showing the differences
+	 */
+	public String generateDiffPreview(String originalText, String replacementText) {
+		// Handle null inputs safely
+		if (originalText == null)
+			originalText = "";
+		if (replacementText == null)
+			replacementText = "";
+
+		// Split both texts into separate lines
+		// The split limit -1 ensures trailing empty strings are included
+		List<String> originalLines = Arrays.asList(originalText.split("\n", -1));
+		List<String> replacementLines = Arrays.asList(replacementText.split("\n", -1));
+
+		// Generate unified diff format
+		try {
+			// Create the patch from the original and replacement lines
+			Patch<String> patch = DiffUtils.diff(originalLines, replacementLines);
+
+			// Convert the patch to unified diff format
+			List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff("Original", "Replacement", originalLines,
+					patch, 3); // Context size of 3 lines
+
+			// Build a nicely formatted unified diff output
+			StringBuilder diffPreview = new StringBuilder();
+			diffPreview.append("```diff\n"); // Start a code block with diff syntax highlighting
+
+			// Add each line of the unified diff to our preview
+			for (String line : unifiedDiff) {
+				diffPreview.append(line).append("\n");
+			}
+
+			diffPreview.append("```"); // End the code block
+			return diffPreview.toString();
+
+		} catch (Exception e) {
+			// If something goes wrong, return a simple error message
+			Log.logError("Error generating diff preview", e);
+			return "```\nError generating diff preview: " + e.getMessage() + "\n```";
+		}
+	}
 }

@@ -181,7 +181,7 @@ public class ChatConversation {
 	/**
 	 * Message in a Chat.
 	 */
-	public static class ChatMessage {
+		public static class ChatMessage {
 		private final UUID id;
 		private final Role role;
 		private String content;
@@ -189,6 +189,11 @@ public class ChatConversation {
 
 		private Optional<FunctionCall> functionCall = Optional.empty();
 		private Optional<FunctionResult> functionResult = Optional.empty();
+		
+		// Fields for thinking/reasoning content
+		private String thinkingContent;
+		private boolean isThinkingComplete;
+		private Map<String, Object> thinkingMetadata = new HashMap<>();
 
 		private ChatMessage() {
 			id = UUID.randomUUID();
@@ -241,8 +246,74 @@ public class ChatConversation {
 			this.functionResult = functionResult;
 		}
 
-		public void setFunctionResult(FunctionResult functionResult) {
+				public void setFunctionResult(FunctionResult functionResult) {
 			this.functionResult = Optional.ofNullable(functionResult);
+		}
+		
+		/**
+		 * Gets the thinking/reasoning content of this message.
+		 * 
+		 * @return the thinking content
+		 */
+		public String getThinkingContent() {
+			return thinkingContent;
+		}
+		
+		/**
+		 * Sets the thinking/reasoning content of this message.
+		 * 
+		 * @param thinkingContent the thinking content to set
+		 */
+		public void setThinkingContent(String thinkingContent) {
+			this.thinkingContent = thinkingContent;
+		}
+		
+		/**
+		 * Checks if the thinking process is complete.
+		 * 
+		 * @return true if thinking is complete, false otherwise
+		 */
+		public boolean isThinkingComplete() {
+			return isThinkingComplete;
+		}
+		
+		/**
+		 * Sets whether the thinking process is complete.
+		 * 
+		 * @param isThinkingComplete true if thinking is complete, false otherwise
+		 */
+				public void setThinkingComplete(boolean isThinkingComplete) {
+			this.isThinkingComplete = isThinkingComplete;
+		}
+		
+		/**
+		 * Gets the metadata map for thinking content.
+		 * This can be used to store API-specific properties.
+		 * 
+		 * @return the thinking metadata map
+		 */
+		public Map<String, Object> getThinkingMetadata() {
+			return thinkingMetadata;
+		}
+		
+		/**
+		 * Sets a metadata property for thinking content.
+		 * 
+		 * @param key the metadata key
+		 * @param value the metadata value
+		 */
+		public void setThinkingMetadata(String key, Object value) {
+			this.thinkingMetadata.put(key, value);
+		}
+		
+		/**
+		 * Gets a specific metadata property for thinking content.
+		 * 
+		 * @param key the metadata key
+		 * @return the metadata value, or null if not present
+		 */
+		public Object getThinkingMetadata(String key) {
+			return this.thinkingMetadata.get(key);
 		}
 
 		@Override
@@ -251,6 +322,13 @@ public class ChatConversation {
 			sb.append("  id=").append(id);
 			sb.append(", role=").append(role).append("\n");
 			sb.append("  content:\n  ===\n").append(content).append("\n  ===\n");
+			if (StringUtils.isNotBlank(thinkingContent)) {
+				sb.append("  thinkingContent:\n  ===\n").append(thinkingContent).append("\n  ===\n");
+				sb.append("  isThinkingComplete=").append(isThinkingComplete).append("\n");
+				if (!thinkingMetadata.isEmpty()) {
+					sb.append("  thinkingMetadata=").append(thinkingMetadata).append("\n");
+				}
+			}
 			if (context != null && !context.isEmpty()) {
 				sb.append("  context=").append(context).append("\n");
 			} else {
