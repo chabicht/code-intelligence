@@ -210,6 +210,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 												// Handle thinking delta
 												String thinking = delta.get("thinking").getAsString();
 												assistantMessage.setContent(assistantMessage.getContent() + thinking);
+												assistantMessage.setThinkingContent(
+														(assistantMessage.getThinkingContent() == null ? ""
+																: assistantMessage.getThinkingContent()) + thinking);
 												chat.notifyMessageUpdated(assistantMessage);
 											} else if (deltaType.equals("input_json_delta")) {
 												// Accumulate tool input JSON
@@ -222,8 +225,8 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 													}
 												}
 											} else if (deltaType.equals("signature_delta")) {
-												// Handle signature delta for thinking content
-												// No additional action required here
+												assistantMessage.getThinkingMetadata().put("signature",
+														delta.get("signature").getAsString());
 											}
 										}
 										break;
@@ -334,16 +337,6 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				continue;
 			}
 
-			// First, always add the regular message content
-			JsonObject jsonMsg = new JsonObject();
-			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
-
-			JsonArray contentArray = new JsonArray();
-
-			// Add text content block
-			JsonObject textContent = new JsonObject();
-			textContent.addProperty("type", "text");
-
 			// Build message text with context
 			StringBuilder contentBuilder = new StringBuilder();
 			if (!msg.getContext().isEmpty()) {
@@ -355,8 +348,38 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			}
 			contentBuilder.append(msg.getContent());
 
-			textContent.addProperty("text", contentBuilder.toString());
-			contentArray.add(textContent);
+			String messageContent = contentBuilder.toString();
+
+			// Skip if both message content and thinking content are blank
+			if (StringUtils.isBlank(messageContent) && StringUtils.isBlank(msg.getThinkingContent())) {
+				continue;
+			}
+
+			// Create the message JSON object
+			JsonObject jsonMsg = new JsonObject();
+			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
+
+			JsonArray contentArray = new JsonArray();
+
+			// For assistant messages, add thinking content first if available
+			if (Role.ASSISTANT.equals(msg.getRole()) && StringUtils.isNotBlank(msg.getThinkingContent())) {
+				JsonObject thinkingContent = new JsonObject();
+				thinkingContent.addProperty("type", "thinking");
+				thinkingContent.addProperty("thinking", msg.getThinkingContent());
+
+				// Add signature field required by Anthropic API
+				thinkingContent.addProperty("signature", (String) msg.getThinkingMetadata().get("signature"));
+
+				contentArray.add(thinkingContent);
+			}
+
+			// Add text content block if message content is not blank
+			if (StringUtils.isNotBlank(messageContent)) {
+				JsonObject textContent = new JsonObject();
+				textContent.addProperty("type", "text");
+				textContent.addProperty("text", messageContent);
+				contentArray.add(textContent);
+			}
 
 			// If this is an assistant message with a function call, add a tool_use content
 			// block
@@ -400,6 +423,32 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		}
 
 		return messagesJson;
+	}
+
+	/**
+	 * Helper method to add a property to a JsonObject based on its type.
+	 * 
+	 * @param jsonObject The JsonObject to add the property to
+	 * @param key        The property key
+	 * @param value      The property value
+	 */
+	private void addJsonProperty(JsonObject jsonObject, String key, Object value) {
+		if (value == null) {
+			jsonObject.add(key, null);
+		} else if (value instanceof String) {
+			jsonObject.addProperty(key, (String) value);
+		} else if (value instanceof Number) {
+			jsonObject.addProperty(key, (Number) value);
+		} else if (value instanceof Boolean) {
+			jsonObject.addProperty(key, (Boolean) value);
+		} else if (value instanceof Character) {
+			jsonObject.addProperty(key, (Character) value);
+		} else if (value instanceof JsonElement) {
+			jsonObject.add(key, (JsonElement) value);
+		} else {
+			// For other types, convert to string
+			jsonObject.addProperty(key, value.toString());
+		}
 	}
 
 	@SuppressWarnings("unchecked")
