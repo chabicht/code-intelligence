@@ -9,6 +9,7 @@ import org.eclipse.core.filebuffers.ITextFileBuffer;
 import org.eclipse.core.filebuffers.ITextFileBufferManager;
 import org.eclipse.core.filebuffers.LocationKind;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceVisitor;
 import org.eclipse.core.resources.IWorkspaceRoot;
@@ -16,6 +17,8 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jface.text.IDocument;
 
 import com.chabicht.code_intelligence.util.Log;
@@ -35,17 +38,31 @@ public class ResourceAccess implements IResourceAccess {
 
 		try {
 			root.accept(new IResourceVisitor() {
-				@Override
-				public boolean visit(IResource resource) throws CoreException {
-					if (resource.getType() == IResource.FILE && resource.getName().equals(fileName)) {
+							@Override
+			public boolean visit(IResource resource) throws CoreException {
+				if (resource.getType() == IResource.FILE && resource.getName().equals(fileName)) {
+					IProject project = resource.getProject();
+					IJavaProject javaProject = JavaCore.create(project);
+
+					// Check if it's a Java project and if the resource is within the output location
+					boolean isInOutputLocation = false;
+					if (javaProject != null && javaProject.exists()) {
+						IPath outputLocation = javaProject.getOutputLocation();
+						if (outputLocation != null && outputLocation.isPrefixOf(resource.getFullPath())) {
+							isInOutputLocation = true;
+						}
+					}
+
+					if (!isInOutputLocation) {
 						foundFiles.add((IFile) resource);
 						// Optimization: If you only ever want the *first* match, uncomment the next
 						// line
 						// return false;
 					}
-					// Continue searching in subfolders regardless
-					return true;
 				}
+				// Continue searching in subfolders regardless
+				return true;
+			}
 			});
 		} catch (CoreException e) {
 			Log.logError("Error searching for file: " + fileName, e);
