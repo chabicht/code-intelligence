@@ -104,6 +104,7 @@ public class ApplyChangeTool {
 			return operation;
 		}
 	}
+
 	// List to store pending changes
 	private List<ChangeOperation> pendingChanges = new ArrayList<>();
 	private IResourceAccess resourceAccess;
@@ -186,7 +187,7 @@ public class ApplyChangeTool {
 
 	/**
 	 * Clear all pending changes from the queue.
-	 	 */
+	 */
 	public void clearChanges() {
 		int count = pendingChanges.size();
 		pendingChanges.clear();
@@ -314,7 +315,7 @@ public class ApplyChangeTool {
 			};
 
 			// Open the refactoring wizard in the UI thread
-						Display.getDefault().asyncExec(() -> {
+			Display.getDefault().asyncExec(() -> {
 				try {
 					IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
 					if (window == null) {
@@ -337,11 +338,10 @@ public class ApplyChangeTool {
 					// The user might cancel, but we assume the operation is "done" either way.
 					pendingChanges.clear();
 
-				
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 					Log.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
-								} catch (Exception e) { // Catch broader exceptions during wizard operation
+				} catch (Exception e) { // Catch broader exceptions during wizard operation
 					Log.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
 				}
 			});
@@ -492,9 +492,10 @@ public class ApplyChangeTool {
 		// Extract the search region text
 		String searchRegionText = document.get(searchStart, searchLength);
 
-		// Use the ChunkSearcher to find matching region
-		ChunkSearcher chunkSearcher = new ChunkSearcher();
-		int[] matchingRegion = chunkSearcher.findMatchingRegion(originalText, searchRegionText);
+		// Use a "searcher" to find matching region
+		// ChunkSearcher searcher = new ChunkSearcher();
+		SmithWatermanSearcher searcher = new SmithWatermanSearcher();
+		int[] matchingRegion = searcher.findMatchingRegion(originalText, searchRegionText);
 
 		if (matchingRegion != null) {
 			// Adjust offsets relative to the document start
@@ -540,8 +541,7 @@ public class ApplyChangeTool {
 				int numDocLines = document.getNumberOfLines(); // Get total lines once
 
 				if (startLine < 1 || endLine < startLine || startLine > numDocLines) {
-					Log.logWarn(
-							"Invalid line numbers in location: " + location + " (Doc lines: " + numDocLines + ")");
+					Log.logWarn("Invalid line numbers in location: " + location + " (Doc lines: " + numDocLines + ")");
 					return null;
 				}
 
@@ -552,7 +552,8 @@ public class ApplyChangeTool {
 				// Ensure original endLineIndex doesn't exceed document bounds
 				int originalEndLineIndex = Math.min(endLine - 1, numDocLines - 1);
 
-				// Calculate the start line index including context, clamped to document start (0)
+				// Calculate the start line index including context, clamped to document start
+				// (0)
 				int contextStartLineIndex = Math.max(0, originalStartLineIndex - CONTEXT_LINES);
 
 				// Calculate the end line index including context, clamped to document end
