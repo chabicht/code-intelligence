@@ -111,7 +111,7 @@
 	.attachment-container:hover .tooltip {
 	  display: block;
 	}
-	
+
 	.code-block {
 	  position: relative;
 	  margin: 1em 0;
@@ -121,11 +121,29 @@
 	}
 
 	.code-block-header {
+	  position: absolute;
 	  display: flex;
 	  justify-content: flex-end;
 	  padding: 5px;
-	  background-color: #F5F5F5;
-	  border-bottom: 1px solid #E0E0E0;
+	  background-color: rgba(245, 245, 245, 0.9);
+	  border: 1px solid #E0E0E0;
+	  border-radius: 4px;
+	  top: 5px;
+	  right: 5px;
+	  z-index: 100;
+	  opacity: 0;
+	  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+	  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+	  pointer-events: auto;
+	}
+
+	.code-block:hover .code-block-header {
+	  opacity: 1;
+	}
+
+	/* Ensure the floating header doesn't disappear when mouse leaves the header itself */
+	.floating-header:hover {
+	  opacity: 1 !important;
 	}
 
 	.copy-button {
@@ -136,12 +154,20 @@
 	  font-size: 12px;
 	  padding: 3px 8px;
 	  border-radius: 4px;
+	  margin-left: 5px;
 	}
 
 	.code-block pre {
 	  margin: 0;
 	  padding: 10px;
 	  overflow: auto;
+	}
+
+	.floating-header {
+	  position: fixed !important;
+	  top: 10px !important;
+	  right: 10px !important;
+	  z-index: 1000 !important;
 	}
 
 	/* Add this to the style section in chat-template.html */
@@ -163,7 +189,7 @@
       border-radius: 4px;
       margin-left: 5px;
     }
-	
+
 	/* Table Styles */
 	table {
 	  width: 100%;
@@ -476,59 +502,108 @@ function isScrolledToBottom() {
  * @param {HTMLElement} container - The container element to search for code blocks.
  */
  /**
+   /**
   * Processes code blocks within a container to add copy and apply buttons.
   * @param {HTMLElement} container - The container element to search for code blocks.
   */
- function processCodeBlocks(container) {
-   var preElements = container.getElementsByTagName('pre');
-   
-   for (var i = 0; i < preElements.length; i++) {
-     var preElement = preElements[i];
-     var codeElement = preElement.querySelector('code');
-     
-     // Skip if already processed
-     if (preElement.parentNode.className.indexOf('code-block') !== -1) {
-       continue;
-     }
-
-     // Create wrapper container
-     var codeBlock = document.createElement('div');
-     codeBlock.className = 'code-block';
+ /**
+ * Processes code blocks within a container to add copy and apply buttons.
+ * @param {HTMLElement} container - The container element to search for code blocks.
+ */
+function processCodeBlocks(container) {
+  var preElements = container.getElementsByTagName('pre');
   
-     if(window.Prism) {
-       window.Prism.highlightElement(codeElement || preElement);
-     }
-	    
-     // Create header for the buttons
-     var codeBlockHeader = document.createElement('div');
-     codeBlockHeader.className = 'code-block-header';
-     
-     // Create the apply button
-     var applyButton = document.createElement('button');
-     applyButton.className = 'copy-button';
-     applyButton.title = 'Apply to Editor';
-     setApplyButtonIcon(applyButton);
-     
-     // Create the copy button
-     var copyButton = document.createElement('button');
-     copyButton.className = 'copy-button';
-     copyButton.title = 'Copy';
-     setCopyButtonIcon(copyButton);
-     
-     // Add buttons to header
-     codeBlockHeader.appendChild(applyButton);
-     codeBlockHeader.appendChild(copyButton);
-     
-     // Insert the code block elements
-     preElement.parentNode.insertBefore(codeBlock, preElement);
-     codeBlock.appendChild(codeBlockHeader);
-     codeBlock.appendChild(preElement);
-     
-     // Attach click events to the buttons
-     attachApplyEvent(applyButton, codeElement || preElement);
-     attachCopyEvent(copyButton, codeElement || preElement);
-   }
- }
+  for (var i = 0; i < preElements.length; i++) {
+    var preElement = preElements[i];
+    var codeElement = preElement.querySelector('code');
+    
+    // Skip if already processed
+    if (preElement.parentNode.className.indexOf('code-block') !== -1) {
+      continue;
+    }
+
+    // Create wrapper container
+    var codeBlock = document.createElement('div');
+    codeBlock.className = 'code-block';
+ 
+    if(window.Prism) {
+      window.Prism.highlightElement(codeElement || preElement);
+    }
+    
+    // Create header for the buttons
+    var codeBlockHeader = document.createElement('div');
+    codeBlockHeader.className = 'code-block-header';
+    
+    // Create the apply button
+    var applyButton = document.createElement('button');
+    applyButton.className = 'copy-button';
+    applyButton.title = 'Apply to Editor';
+    setApplyButtonIcon(applyButton);
+    
+    // Create the copy button
+    var copyButton = document.createElement('button');
+    copyButton.className = 'copy-button';
+    copyButton.title = 'Copy';
+    setCopyButtonIcon(copyButton);
+    
+    // Add buttons to header
+    codeBlockHeader.appendChild(applyButton);
+    codeBlockHeader.appendChild(copyButton);
+    
+    // Insert the code block elements
+    preElement.parentNode.insertBefore(codeBlock, preElement);
+    codeBlock.appendChild(codeBlockHeader);
+    codeBlock.appendChild(preElement);
+    
+    // Attach click events to the buttons
+    attachApplyEvent(applyButton, codeElement || preElement);
+    attachCopyEvent(copyButton, codeElement || preElement);
+    
+    // Add smart positioning for the header
+    (function(block, header) {
+      // Function to update header position based on visibility
+      function updateHeaderPosition() {
+        var blockRect = block.getBoundingClientRect();
+        
+        // If the code block is visible at all
+        if (blockRect.bottom > 0 && blockRect.top < window.innerHeight) {
+          // If the top of the block is not visible (scrolled up out of view)
+          if (blockRect.top < 0) {
+            header.classList.add('floating-header');
+          } else {
+            header.classList.remove('floating-header');
+          }
+          
+          // Show header when code block is visible and either hovered or floating
+          if (block.matches(':hover') || header.classList.contains('floating-header')) {
+            header.style.opacity = '1';
+          }
+        } else {
+          // Hide header when code block is not visible
+          header.classList.remove('floating-header');
+          header.style.opacity = '';
+        }
+      }
+      
+      // Listen for scroll events
+      window.addEventListener('scroll', updateHeaderPosition);
+      
+      // Listen for mouse enter/leave on the code block
+      block.addEventListener('mouseenter', function() {
+        updateHeaderPosition();
+      });
+      
+      block.addEventListener('mouseleave', function() {
+        if (!header.classList.contains('floating-header')) {
+          header.style.opacity = '';
+        }
+      });
+      
+      // Initial positioning check
+      updateHeaderPosition();
+    })(codeBlock, codeBlockHeader);
+  }
+}
 
   /**
   * Processes attachment containers to add double-click functionality.
