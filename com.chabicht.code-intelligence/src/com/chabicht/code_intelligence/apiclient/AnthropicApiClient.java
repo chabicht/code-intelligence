@@ -22,6 +22,9 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
+import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -116,30 +119,18 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
 
-		JsonArray messages = new JsonArray();
+		// Add system prompt if present
 		for (ChatConversation.ChatMessage msg : chat.getMessages()) {
 			if (Role.SYSTEM.equals(msg.getRole())) {
 				req.add("system", new JsonPrimitive(msg.getContent()));
-				continue;
+				break;
 			}
-
-			JsonObject jsonMsg = new JsonObject();
-			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
-
-			StringBuilder content = new StringBuilder(256);
-			if (!msg.getContext().isEmpty()) {
-				content.append("Context information:\n\n");
-			}
-			for (ChatConversation.MessageContext ctx : msg.getContext()) {
-				content.append(ctx.compile());
-				content.append("\n");
-			}
-			content.append(msg.getContent());
-			jsonMsg.addProperty("content", content.toString());
-			messages.add(jsonMsg);
 		}
-		req.add("messages", messages);
 
+		// Add messages array
+		req.add("messages", createMessagesArray(chat));
+
+		// Set max tokens
 		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
 			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);
@@ -152,10 +143,12 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			req.addProperty("max_tokens", maxResponseTokens);
 		}
 
+		// Create assistant message that will be populated with the response
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
 		chat.addMessage(assistantMessage, true);
 
+		// Build request and initiate streaming
 		String requestBody = gson.toJson(req);
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
@@ -165,11 +158,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("x-api-key", apiConnection.getApiKey())
 				.header("Content-Type", "application/json").header("anthropic-version", ANTHROPIC_VERSION);
 
-		if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
-			requestBuilder.header("x-api-key", apiConnection.getApiKey());
-		}
-
 		HttpRequest request = requestBuilder.build();
+		AtomicBoolean responseFinished = new AtomicBoolean(false);
+		AtomicReference<ToolUseInfo> currentToolUse = new AtomicReference<>(null);
 
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
@@ -190,67 +181,225 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 							try {
 								JsonObject jsonResponse = JsonParser.parseString(data).getAsJsonObject();
 
-								switch (currentEvent.get()) {
-								case "content_block_delta":
-									JsonObject delta = jsonResponse.getAsJsonObject("delta");
-									String deltaType = delta.get("type").getAsString();
+								// Extract the event type from the JSON response
+								if (jsonResponse.has("type")) {
+									String eventType = jsonResponse.get("type").getAsString();
+									currentEvent.set(eventType);
 
-									if (deltaType.equals("text_delta")) {
-										if (thinkingStarted.get()) {
-											assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
-											thinkingStarted.set(false);
+									switch (eventType) {
+									case "content_block_delta":
+										if (jsonResponse.has("delta")) {
+											JsonObject delta = jsonResponse.getAsJsonObject("delta");
+											String deltaType = delta.get("type").getAsString();
+
+											if (deltaType.equals("text_delta")) {
+												if (thinkingStarted.get()) {
+													assistantMessage
+															.setContent(assistantMessage.getContent() + "\n</think>\n");
+													thinkingStarted.set(false);
+												}
+												String text = delta.get("text").getAsString();
+												assistantMessage.setContent(assistantMessage.getContent() + text);
+												chat.notifyMessageUpdated(assistantMessage);
+											} else if (deltaType.equals("thinking_delta")) {
+												if (!thinkingStarted.get()) {
+													assistantMessage
+															.setContent(assistantMessage.getContent() + "\n<think>\n");
+													thinkingStarted.set(true);
+												}
+												// Handle thinking delta
+												String thinking = delta.get("thinking").getAsString();
+												assistantMessage.setContent(assistantMessage.getContent() + thinking);
+												chat.notifyMessageUpdated(assistantMessage);
+											} else if (deltaType.equals("input_json_delta")) {
+												// Accumulate tool input JSON
+												if (jsonResponse.has("index")) {
+													int index = jsonResponse.get("index").getAsInt();
+													ToolUseInfo toolUse = currentToolUse.get();
+													if (toolUse != null) {
+														String partialJson = delta.get("partial_json").getAsString();
+														toolUse.addInputJson(partialJson);
+													}
+												}
+											} else if (deltaType.equals("signature_delta")) {
+												// Handle signature delta for thinking content
+												// No additional action required here
+											}
 										}
-										String text = delta.get("text").getAsString();
-										assistantMessage.setContent(assistantMessage.getContent() + text);
-										chat.notifyMessageUpdated(assistantMessage);
-									} else if (deltaType.equals("thinking_delta")) {
-										if (!thinkingStarted.get()) {
-											assistantMessage.setContent(assistantMessage.getContent() + "\n<think>\n");
-											thinkingStarted.set(true);
+										break;
+
+									case "content_block_start":
+										if (jsonResponse.has("content_block")) {
+											JsonObject contentBlock = jsonResponse.getAsJsonObject("content_block");
+											String blockType = contentBlock.get("type").getAsString();
+
+											if (blockType.equals("tool_use")) {
+												// Store the tool use information for later when we receive
+												// input_json_delta events
+												String id = contentBlock.get("id").getAsString();
+												String name = contentBlock.get("name").getAsString();
+												currentToolUse.set(new ToolUseInfo(id, name));
+											} else if (blockType.equals("thinking")) {
+												if (!thinkingStarted.get()) {
+													assistantMessage
+															.setContent(assistantMessage.getContent() + "\n<think>\n");
+													thinkingStarted.set(true);
+												}
+											}
 										}
-										// Handle thinking delta
-										String thinking = delta.get("thinking").getAsString();
-										assistantMessage.setContent(assistantMessage.getContent() + thinking);
-										chat.notifyMessageUpdated(assistantMessage);
-									} else if (deltaType.equals("signature_delta")) {
-										// Handle signature delta for thinking content
-										// This signals the end of a thinking block
-										// No additional action required here
+										break;
+
+									case "content_block_stop":
+										if (jsonResponse.has("index")) {
+											int index = jsonResponse.get("index").getAsInt();
+
+											// If we have a completed tool use
+											ToolUseInfo toolUse = currentToolUse.get();
+											if (toolUse != null && toolUse.isComplete()) {
+												JsonObject input = JsonParser.parseString(toolUse.getCompleteJson())
+														.getAsJsonObject();
+												String argsJson = gson.toJson(input);
+
+												assistantMessage.setFunctionCall(
+														new FunctionCall(toolUse.getId(), toolUse.getName(), argsJson));
+												chat.notifyFunctionCalled(assistantMessage);
+												currentToolUse.set(null);
+											}
+										}
+										break;
+
+									case "message_delta":
+										if (jsonResponse.has("delta")) {
+											JsonObject delta = jsonResponse.getAsJsonObject("delta");
+											if (delta.has("stop_reason")
+													&& "tool_use".equals(delta.get("stop_reason").getAsString())) {
+												if (!responseFinished.get()) {
+													chat.notifyChatResponseFinished(assistantMessage);
+													responseFinished.set(true);
+												}
+											}
+										}
+										break;
+
+									case "message_stop":
+										// Handle end of message
+										if (!responseFinished.get()) {
+											chat.notifyChatResponseFinished(assistantMessage);
+											responseFinished.set(true);
+										}
+										break;
+
+									case "message_start":
+									case "ping":
+										// These events can be handled if needed
+										break;
+
+									default:
+										Activator.logError("Unknown event type in stream: " + eventType, null);
 									}
-									break;
-
-								case "message_stop":
-									// Handle end of message
-									break;
-
-								case "content_block_start":
-								case "content_block_stop":
-								case "message_start":
-								case "message_delta":
-								case "ping":
-									// These events can be handled if needed
-									break;
-
-								default:
-									Activator.logError("Unknown event type in stream: " + currentEvent, null);
 								}
 							} catch (JsonSyntaxException e) {
 								Activator.logError("Error parsing stream chunk: " + data, e);
 							}
+
 						}
 					});
 				} else {
 					Activator.logError("Streaming chat failed with status: " + response.statusCode() + "\n"
-							+ response.body().collect(Collectors.joining()), null);
+							+ response.body().collect(Collectors.joining()) + "\n\nRequest JSON:\n" + requestBody,
+							null);
 				}
 			} finally {
-				chat.notifyChatResponseFinished(assistantMessage);
+				if (!responseFinished.get()) {
+					chat.notifyChatResponseFinished(assistantMessage);
+				}
 				asyncRequest = null;
 			}
 		}).exceptionally(e -> {
-		    Activator.logError("Exception during streaming chat", e);
-		    return null;
+			Activator.logError("Exception during streaming chat", e);
+			if (!responseFinished.get()) {
+				chat.notifyChatResponseFinished(assistantMessage);
+			}
+			asyncRequest = null;
+			return null;
 		});
+	}
+
+	private JsonArray createMessagesArray(ChatConversation chat) {
+		JsonArray messagesJson = new JsonArray();
+
+		for (ChatConversation.ChatMessage msg : chat.getMessages()) {
+			// Skip system messages, they're handled separately
+			if (Role.SYSTEM.equals(msg.getRole())) {
+				continue;
+			}
+
+			// First, always add the regular message content
+			JsonObject jsonMsg = new JsonObject();
+			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
+
+			JsonArray contentArray = new JsonArray();
+
+			// Add text content block
+			JsonObject textContent = new JsonObject();
+			textContent.addProperty("type", "text");
+
+			// Build message text with context
+			StringBuilder contentBuilder = new StringBuilder();
+			if (!msg.getContext().isEmpty()) {
+				contentBuilder.append("Context information:\n\n");
+				for (MessageContext ctx : msg.getContext()) {
+					contentBuilder.append(ctx.compile(true));
+					contentBuilder.append("\n");
+				}
+			}
+			contentBuilder.append(msg.getContent());
+
+			textContent.addProperty("text", contentBuilder.toString());
+			contentArray.add(textContent);
+
+			// If this is an assistant message with a function call, add a tool_use content
+			// block
+			if (Role.ASSISTANT.equals(msg.getRole()) && msg.getFunctionCall().isPresent()) {
+				FunctionCall fc = msg.getFunctionCall().get();
+
+				JsonObject toolUseBlock = new JsonObject();
+				toolUseBlock.addProperty("type", "tool_use");
+				toolUseBlock.addProperty("id", fc.getId());
+				toolUseBlock.addProperty("name", fc.getFunctionName());
+
+				// Parse the argsJson back to a JsonObject
+				JsonObject inputObject = JsonParser.parseString(fc.getArgsJson()).getAsJsonObject();
+				toolUseBlock.add("input", inputObject);
+
+				contentArray.add(toolUseBlock);
+			}
+
+			jsonMsg.add("content", contentArray);
+			messagesJson.add(jsonMsg);
+
+			// Then, if there's a function result, add it as a separate user message
+			if (msg.getFunctionResult().isPresent()) {
+				FunctionResult fr = msg.getFunctionResult().get();
+
+				JsonObject resultMsg = new JsonObject();
+				resultMsg.addProperty("role", "user");
+
+				JsonArray resultContentArray = new JsonArray();
+
+				// Add the tool result block
+				JsonObject toolResult = new JsonObject();
+				toolResult.addProperty("type", "tool_result");
+				toolResult.addProperty("tool_use_id", fr.getId());
+				toolResult.addProperty("content", fr.getResultJson());
+				resultContentArray.add(toolResult);
+
+				resultMsg.add("content", resultContentArray);
+				messagesJson.add(resultMsg);
+			}
+		}
+
+		return messagesJson;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -327,6 +476,38 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		if (asyncRequest != null) {
 			asyncRequest.cancel(true);
 			asyncRequest = null;
+		}
+	}
+
+	private static class ToolUseInfo {
+		private final String id;
+		private final String name;
+		private final StringBuilder inputJson = new StringBuilder();
+
+		public ToolUseInfo(String id, String name) {
+			this.id = id;
+			this.name = name;
+		}
+
+		public void addInputJson(String partialJson) {
+			inputJson.append(partialJson);
+		}
+
+		public boolean isComplete() {
+			String json = inputJson.toString();
+			return json.startsWith("{") && json.endsWith("}");
+		}
+
+		public String getCompleteJson() {
+			return inputJson.toString();
+		}
+
+		public String getId() {
+			return id;
+		}
+
+		public String getName() {
+			return name;
 		}
 	}
 }

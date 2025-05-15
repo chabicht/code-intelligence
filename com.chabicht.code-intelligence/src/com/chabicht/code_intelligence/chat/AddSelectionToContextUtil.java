@@ -96,7 +96,7 @@ public class AddSelectionToContextUtil {
 						}
 
 						@Override
-						public String getDescriptor() {
+								public String getDescriptor(boolean prefixLineNumbers) {
 							return "";
 						}
 					});
@@ -145,7 +145,7 @@ public class AddSelectionToContextUtil {
 
 					ChatView.addContext(new MessageContext(file.getName(), startLine, endLine, sb.toString()) {
 						@Override
-						public String getDescriptor() {
+						public String getDescriptor(boolean prefixLineNumbers) {
 							return ""; // No comment above this.
 						}
 					});
