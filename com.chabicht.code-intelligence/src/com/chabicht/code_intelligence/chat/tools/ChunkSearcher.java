@@ -81,7 +81,7 @@ public class ChunkSearcher {
 	 * @return An array [startIndex, endIndex] of the matching region, or null if no
 	 *         match found
 	 */
-    public int[] findMatchingRegion(String originalText, String searchText) {
+	public int[] findMatchingRegion(String originalText, String searchText) {
 		// For very large search texts, extract representative sections
 		if (searchText.length() > config.maxSearchTextLength) {
 			return findMatchingRegionInLargeText(originalText, searchText);
@@ -216,7 +216,7 @@ public class ChunkSearcher {
         }
         
         // If we have very few chunks, try to split more aggressively
-        if (chunks.size() < 3 && text.length() > config.maxChunkSize) {
+		if (chunks.size() < 3 && text.length() > config.minChunkSize) {
             chunks.clear();
             
             // Split by line and group into reasonable chunks
@@ -249,24 +249,85 @@ public class ChunkSearcher {
 	 */
 	private int[] findChunkPosition(String chunk, String searchText) {
 		// Normalize texts for better matching
-		String normalizedChunk = normalizeForMatching(chunk);
-		String normalizedSearch = normalizeForMatching(searchText);
+		String normalizedChunk = chunk.replaceAll("\\s+", " ").trim();
+		String normalizedSearch = searchText.replaceAll("\\s+", " "); // No trim so we don't need to re-calculate the
+																		// string below for s1.
 
 		// First try an exact match (after normalization)
 		int exactIndex = normalizedSearch.indexOf(normalizedChunk);
 		if (exactIndex != -1) {
-			return new int[] { exactIndex, exactIndex + normalizedChunk.length() };
+			// Map positions from normalizedSearch back to original searchText
+			if (normalizedChunk.isEmpty()) { // Handle empty chunk match
+				// An empty chunk matches an empty region.
+				// Find where the empty normalizedSearch would be in original searchText.
+				// If searchText is all whitespace, normalizedSearch is empty.
+				// The "location" of this empty match can be tricky.
+				// Let's place it at the start of where content would be, or end if all
+				// whitespace.
+				int i = 0;
+				while (i < searchText.length() && Character.isWhitespace(searchText.charAt(i))) {
+					i++;
+				}
+				// If searchText was " ", i=2. Match is [2,2].
+				// If searchText was "a b", i=0. Match is [0,0].
+				// This behavior aligns with "" matching at a specific point.
+				return new int[] { i, i };
+			}
+
+			String s1 = normalizedSearch;
+			int s1LeadingSpaceCount = 0;
+			while (s1LeadingSpaceCount < s1.length() && Character.isWhitespace(s1.charAt(s1LeadingSpaceCount))) {
+				s1LeadingSpaceCount++;
+			}
+
+			int matchStartInS1 = exactIndex + s1LeadingSpaceCount;
+			int matchEndInS1 = exactIndex + normalizedChunk.length() + s1LeadingSpaceCount;
+
+			int originalStart = mapS1ToOriginalOffset(searchText, matchStartInS1);
+			int originalEnd = mapS1ToOriginalOffset(searchText, matchEndInS1);
+
+			return new int[] { originalStart, originalEnd };
 		}
 
 		// If exact match fails, try fuzzy matching
-		return findFuzzyChunkMatch(normalizedChunk, normalizedSearch);
+		return findFuzzyChunkMatch(normalizedChunk, normalizedSearch); // Assuming fuzzy match handles indices correctly
+																		// or is out of scope
 	}
 
 	/**
-	 * Normalizes text for better matching by removing excess whitespace.
+	 * Maps an offset from a string with collapsed whitespace (s1) back to an offset
+	 * in the original text. s1 is effectively originalText.replaceAll("\\s+", " ").
+	 * 
+	 * @param originalText The original text.
+	 * @param s1Offset     The offset in the s1 string.
+	 * @return The corresponding offset in the originalText.
 	 */
-	private String normalizeForMatching(String text) {
-		return text.replaceAll("\\s+", " ").trim();
+	private int mapS1ToOriginalOffset(String originalText, int s1Offset) {
+		int originalIdx = 0;
+		int currentS1Offset = 0;
+
+		if (s1Offset == 0) {
+			return 0;
+		}
+
+		while (originalIdx < originalText.length() && currentS1Offset < s1Offset) {
+			char currentChar = originalText.charAt(originalIdx);
+			if (Character.isWhitespace(currentChar)) {
+				// Consume the entire block of whitespace in originalText
+				originalIdx++;
+				while (originalIdx < originalText.length()
+						&& Character.isWhitespace(originalText.charAt(originalIdx))) {
+					originalIdx++;
+				}
+				// This block corresponds to a single space in s1 (or contributes to trimming)
+				currentS1Offset++;
+			} else {
+				// Non-whitespace character
+				originalIdx++;
+				currentS1Offset++;
+			}
+		}
+		return originalIdx;
 	}
 
 	/**

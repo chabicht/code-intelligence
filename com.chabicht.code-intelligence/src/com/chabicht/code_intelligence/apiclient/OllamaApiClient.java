@@ -166,7 +166,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 				content.append("Context information:\n\n");
 			}
 			for (MessageContext ctx : msg.getContext()) {
-				content.append(ctx.compile());
+				content.append(ctx.compile(true));
 				content.append("\n");
 			}
 			content.append(msg.getContent());
