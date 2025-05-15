@@ -93,6 +93,13 @@ public class FunctionCallSession {
 				return;
 			}
 
+			// Generate a diff preview showing what will change
+			String diffPreview = applyChangeTool.generateDiffPreview(originalText, replacementText);
+
+			// Store it in the result object so it can be displayed to the user
+			// The 'true' parameter marks this as markdown content for proper rendering
+			result.addPrettyResult("preview", diffPreview, true);
+
 			// Add the change to the tool's queue with validation
 			ApplyChangeTool.ApplyChangeResult changeResult = applyChangeTool.addChange(fileName, location, originalText,
 					replacementText);
@@ -120,6 +127,9 @@ public class FunctionCallSession {
 				jsonResult.addProperty("status", "Error");
 				jsonResult.addProperty("message", changeResult.getMessage());
 			}
+
+			// Include the diff preview in the JSON result
+			jsonResult.addProperty("diffPreview", diffPreview);
 
 			// Set the JSON result
 			result.setResultJson(gson.toJson(jsonResult));
