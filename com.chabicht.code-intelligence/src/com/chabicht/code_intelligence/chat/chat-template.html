@@ -281,6 +281,34 @@
 	        border-right: none;
 	    }
 	}
+
+	.tool-actions {
+      margin-top: 10px;
+      text-align: right; /* Adjust alignment as needed */
+    }
+
+    .tool-action-button {
+      background-color: #FFFFFF;
+      border: 1px solid #CCCCCC;
+      color: #333333;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      margin-left: 5px;
+      display: inline-flex; /* Helps align icon and text */
+      align-items: center;
+      gap: 5px; /* Space between icon (if any) and text */
+    }
+
+    .tool-action-button:hover {
+      background-color: #F0F0F0; /* Or your theme's hover color */
+    }
+
+    /* Ensure img within button is aligned if not handled by inline styles */
+    .tool-action-button img {
+      vertical-align: middle;
+    }
   </style>
 
   <style>
@@ -1045,6 +1073,22 @@ function updateScrollToBottomButtonVisibility() {
     scrollToBottomButton.style.display = "block";
   } else {
     scrollToBottomButton.style.display = "none";
+  }
+}
+
+function reexecuteFunctionCallJs(uuid, buttonElement) {
+  // Show visual feedback on the button
+  if (typeof showCheckIconFeedback === 'function') {
+    showCheckIconFeedback(buttonElement);
+  } else {
+    console.warn("JavaScript Warning: showCheckIconFeedback function is not defined.");
+  }
+
+  // Call the Java backend
+  if (window.elementClicked) {
+    window.elementClicked("reexecute:" + uuid);
+  } else {
+    console.error("JavaScript Error: elementClicked function is not defined on window.");
   }
 }
 
