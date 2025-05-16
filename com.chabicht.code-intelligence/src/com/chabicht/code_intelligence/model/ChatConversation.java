@@ -124,7 +124,7 @@ public class ChatConversation {
 		}
 
 		public String compile() {
-			return compile(false);
+			return compile(true);
 		}
 
 		public String compile(boolean prefixLineNumbers) {

@@ -264,7 +264,10 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 									}
 								}
 								if (jsonChunk.has("done") && jsonChunk.get("done").getAsBoolean()) {
-									responseFinished.set(true);
+									if (!responseFinished.get()) {
+										chat.notifyChatResponseFinished(assistantMessage);
+										responseFinished.set(true);
+									}
 									return; // End of stream for this line processor
 								}
 							} catch (JsonSyntaxException e) {
