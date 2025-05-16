@@ -257,7 +257,7 @@ public class ChatView extends ViewPart {
 
 						if (resultValue.isMarkdown()) {
 							displayValue = markdownRenderer
-									.render(markdownParser.parse("```\n" + resultValue.getValue() + "\n```"));
+									.render(markdownParser.parse(resultValue.getValue()));
 						} else {
 							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
 						}
