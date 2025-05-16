@@ -115,12 +115,11 @@ public class ChatConversation {
 			StringBuilder sb = new StringBuilder().append(this.getFileName()).append(" ")
 					.append(this.getRangeDescription());
 			if (prefixLineNumbers) {
-						sb.append(
-								" (CAUTION! Each line is prefixed with the line number"
-										+ " followed by a colon and a space. These are added for your convenience."
-										+ " Make sure to remove them before you cite code for the user or call tools.)");
+				sb.append(" (CAUTION! Each line is prefixed with the line number"
+						+ " followed by a colon and a space. These are added for your convenience."
+						+ " Make sure to remove them before you cite code for the user or call tools.)");
 			}
-					return sb.append("\n").toString();
+			return sb.append("\n").toString();
 		}
 
 		public String compile() {
@@ -129,8 +128,7 @@ public class ChatConversation {
 
 		public String compile(boolean prefixLineNumbers) {
 			return new StringBuilder().append("```").append(getDescriptor(prefixLineNumbers))
-					.append(prefixLineNumbers ? getPrefixedContent() : getContent())
-					.append("\n```\n").toString();
+					.append(prefixLineNumbers ? getPrefixedContent() : getContent()).append("\n```\n").toString();
 		}
 
 		private String getPrefixedContent() {
@@ -181,7 +179,7 @@ public class ChatConversation {
 	/**
 	 * Message in a Chat.
 	 */
-		public static class ChatMessage {
+	public static class ChatMessage {
 		private final UUID id;
 		private final Role role;
 		private String content;
@@ -189,7 +187,7 @@ public class ChatConversation {
 
 		private Optional<FunctionCall> functionCall = Optional.empty();
 		private Optional<FunctionResult> functionResult = Optional.empty();
-		
+
 		// Fields for thinking/reasoning content
 		private String thinkingContent;
 		private boolean isThinkingComplete;
@@ -229,7 +227,7 @@ public class ChatConversation {
 		public Optional<FunctionCall> getFunctionCall() {
 			return functionCall;
 		}
-		
+
 		public void setFunctionCall(Optional<FunctionCall> functionCall) {
 			this.functionCall = functionCall;
 		}
@@ -246,66 +244,96 @@ public class ChatConversation {
 			this.functionResult = functionResult;
 		}
 
-				public void setFunctionResult(FunctionResult functionResult) {
+		public void setFunctionResult(FunctionResult functionResult) {
 			this.functionResult = Optional.ofNullable(functionResult);
 		}
-		
+
 		/**
 		 * Gets the thinking/reasoning content of this message.
+		 * 
+		 * <p>
+		 * This field is used only for reasoning content that is sent "out of band" via
+		 * the API. This is the case for e.g. the Anthropic API, where the original
+		 * thinking content must be reconstructed for subsequent calls.
 		 * 
 		 * @return the thinking content
 		 */
 		public String getThinkingContent() {
 			return thinkingContent;
 		}
-		
+
 		/**
 		 * Sets the thinking/reasoning content of this message.
+		 * 
+		 * <p>
+		 * This field is used only for reasoning content that is sent "out of band" via
+		 * the API. This is the case for e.g. the Anthropic API, where the original
+		 * thinking content must be reconstructed for subsequent calls.
 		 * 
 		 * @param thinkingContent the thinking content to set
 		 */
 		public void setThinkingContent(String thinkingContent) {
 			this.thinkingContent = thinkingContent;
 		}
-		
+
 		/**
 		 * Checks if the thinking process is complete.
+		 * 
+		 * <p>
+		 * This field is used only for reasoning content that is sent "out of band" via
+		 * the API. This is the case for e.g. the Anthropic API, where the original
+		 * thinking content must be reconstructed for subsequent calls.
 		 * 
 		 * @return true if thinking is complete, false otherwise
 		 */
 		public boolean isThinkingComplete() {
 			return isThinkingComplete;
 		}
-		
+
 		/**
 		 * Sets whether the thinking process is complete.
 		 * 
+		 * <p>
+		 * This field is used only for reasoning content that is sent "out of band" via
+		 * the API. This is the case for e.g. the Anthropic API, where the original
+		 * thinking content must be reconstructed for subsequent calls.
+		 * 
 		 * @param isThinkingComplete true if thinking is complete, false otherwise
 		 */
-				public void setThinkingComplete(boolean isThinkingComplete) {
+		public void setThinkingComplete(boolean isThinkingComplete) {
 			this.isThinkingComplete = isThinkingComplete;
 		}
-		
+
 		/**
-		 * Gets the metadata map for thinking content.
-		 * This can be used to store API-specific properties.
+		 * Gets the metadata map for thinking content. This can be used to store
+		 * API-specific properties.
+		 * 
+		 * <p>
+		 * This field is used only for reasoning content that is sent "out of band" via
+		 * the API. This is the case for e.g. the Anthropic API, where the original
+		 * thinking content must be reconstructed for subsequent calls.
 		 * 
 		 * @return the thinking metadata map
 		 */
 		public Map<String, Object> getThinkingMetadata() {
 			return thinkingMetadata;
 		}
-		
+
 		/**
 		 * Sets a metadata property for thinking content.
 		 * 
-		 * @param key the metadata key
+		 * <p>
+		 * This field is used only for reasoning content that is sent "out of band" via
+		 * the API. This is the case for e.g. the Anthropic API, where the original
+		 * thinking content must be reconstructed for subsequent calls.
+		 * 
+		 * @param key   the metadata key
 		 * @param value the metadata value
 		 */
 		public void setThinkingMetadata(String key, Object value) {
 			this.thinkingMetadata.put(key, value);
 		}
-		
+
 		/**
 		 * Gets a specific metadata property for thinking content.
 		 * 

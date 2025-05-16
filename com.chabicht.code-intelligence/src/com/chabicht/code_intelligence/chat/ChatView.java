@@ -201,6 +201,11 @@ public class ChatView extends ViewPart {
 			onMessageUpdated(message);
 		}
 
+		private String getReexecuteIconBase64() {
+			// Material Design "replay" icon, fill #333333
+			return "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAwIDI0IDI0IiB3aWR0aD0iMjRweCIgZmlsbD0iIzMzMzMzMyI+PHBhdGggZD0iTTAgMGgyNHYyNEgweiIgZmlsbD0ibm9uZSIvPjxwYXRoIGQ9Ik0xMiA1VjFMNyA2bDUgNVY3YzMuMzEgMCA2IDIuNjkgNiA2cy0yLjY5IDYtNiA2LTYtMi42OS02LTZINGMwIDQuNDIgMy41OCA4IDggOHM4LTMuNTggOC04LTMuNTgtOC04LTh6Ii8+PC9zdmc+";
+		}
+
 		private String getAttachmentIconHtml() {
 			String dataUrl = "data:image/png;base64," + paperclipBase64;
 			return String.format("<img src=\"%s\" style=\"width: 15px; height: 25px;\"/>", dataUrl);
@@ -217,6 +222,14 @@ public class ChatView extends ViewPart {
 						markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getThoughts())));
 			}
 
+			String functionCallHtml = messageToolUseToHtml(message);
+
+			String messageHtml = markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getMessage()));
+			String combinedHtml = thinkHtml + messageHtml + functionCallHtml;
+			return combinedHtml;
+		}
+
+		private String messageToolUseToHtml(ChatMessage message) {
 			String functionCallHtml = "";
 			if (message.getFunctionCall().isPresent()) {
 				FunctionCall call = message.getFunctionCall().get();
@@ -295,18 +308,31 @@ public class ChatView extends ViewPart {
 				}
 
 				// Combine everything into the final structure
-				functionCallHtml = String
-						.format("<details><summary>Function call: %s</summary>" + "<blockquote>" + "%s" + // Params
-																											// table
-								"%s" + // Result table
-								"</blockquote>" + "%s" + // Raw JSON section
-								"</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
-								paramsTable.toString(), resultTable.toString(), rawJsonSection);
-			}
+				// Build re-execute button HTML
+				String reexecuteButtonHtml = String.format(
+					"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">" +
+					"<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute" +
+					"</button>",
+					message.getId(), // Pass the message UUID
+					getReexecuteIconBase64() // Assuming this method is added to the class
+				);
 
-			String messageHtml = markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getMessage()));
-			String combinedHtml = thinkHtml + messageHtml + functionCallHtml;
-			return combinedHtml;
+				functionCallHtml = String
+						.format("<details class=\"function-call-details\"><summary>Function call: %s</summary>" +
+										"<blockquote>" +
+										"%s" + // Params table
+										"%s" + // Result table
+										"%s" + // Raw JSON section
+										"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
+										"</blockquote>" +
+										"</details>",
+								StringEscapeUtils.escapeHtml4(call.getFunctionName()),
+								paramsTable.toString(),
+								resultTable.toString(),
+								rawJsonSection,
+								reexecuteButtonHtml); // Add the re-execute button HTML
+			}
+			return functionCallHtml;
 		}
 
 		@Override
@@ -338,6 +364,50 @@ public class ChatView extends ViewPart {
 			});
 		}
 	};
+
+	private void reexecuteToolCall(String messageUuidString) {
+		// Ensure conversation, functionCallSession, and chat (ChatComponent) are initialized and available
+		if (conversation == null || this.functionCallSession == null || this.chat == null) {
+			System.err.println(
+					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
+			return;
+		}
+
+		UUID messageUuid = UUID.fromString(messageUuidString);
+
+		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
+				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+
+		if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
+			FunctionCall call = messageToReexecute.getFunctionCall().get();
+			System.out.println("ChatView: Re-executing tool call: " + call.getFunctionName() + " for message UUID: "
+					+ messageUuidString);
+
+			// Prepare the message for re-execution:
+			// Create a new, empty FunctionResult shell associated with the original call's ID and name.
+			// This ensures that handleFunctionCall populates this new shell.
+			FunctionResult newResultShell = new FunctionResult(call.getId(), call.getFunctionName());
+			messageToReexecute.setFunctionResult(newResultShell);
+
+			// Execute the function call again.
+			// This is expected to populate the 'newResultShell' within 'messageToReexecute'.
+			this.functionCallSession.handleFunctionCall(messageToReexecute);
+
+			// Update this specific message in the UI to display the new result,
+			// using the listener's method to ensure correct HTML generation.
+			if (chatListener != null) {
+				 chatListener.onMessageUpdated(messageToReexecute);
+			} else {
+				System.err.println("ChatView: chatListener is null, cannot update message view for re-execute.");
+			}
+
+			this.functionCallSession.applyPendingChanges();
+		} else {
+			System.err.println(
+					"ChatView: Cannot re-execute. Message not found, not a function call, or function call details missing for UUID: "
+							+ messageUuidString);
+		}
+	}
 
 	private void sendFunctionResult(ChatMessage message) {
 		if (connection.isChatPending()) {
@@ -1141,6 +1211,9 @@ public class ChatView extends ViewPart {
 				} else if (str.startsWith("attachment:")) { // Add this case
 					String attachmentUuid = str.substring("attachment:".length());
 					openAttachmentDialog(attachmentUuid);
+				} else if (str.startsWith("reexecute:")) {
+					String messageUuid = str.substring("reexecute:".length());
+					reexecuteToolCall(messageUuid); // Call a new method to handle re-execution
 				}
 			}
 			return null;
