@@ -275,6 +275,13 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 											handleToolCallDelta(delta.getAsJsonArray("tool_calls"), activeToolCalls,
 													assistantMessage, chat);
 										}
+                                        
+                                        // Check for function_call in the delta (deprecated format)
+                                        if (delta.has("function_call") && !delta.get("function_call").isJsonNull()) {
+                                            // Process function call (deprecated format)
+                                            handleFunctionCallDelta(delta.getAsJsonObject("function_call"), activeToolCalls,
+                                                    assistantMessage, chat);
+                                        }
 
 										if (StringUtils.isNotBlank(chunk)) {
 											// Append the received chunk to the assistant message.
@@ -284,11 +291,11 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 										}
 									}
 
-									// Check for finish_reason to detect completed tool calls
+									// Check for finish_reason to detect completed tool calls or function calls
 									if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
 										String finishReason = choice.get("finish_reason").getAsString();
 										if ("tool_calls".equals(finishReason) || "function_call".equals(finishReason)) {
-											// All tool calls are complete - finalize any pending tool calls
+											// All tool calls or function calls are complete - finalize any pending calls
 											finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 										}
 									}
@@ -313,6 +320,14 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			}
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat", e);
+			
+			// Clean up any pending tool/function calls
+			if (!activeToolCalls.isEmpty()) {
+				finalizeToolCalls(activeToolCalls, assistantMessage, chat);
+			}
+			
+			chat.notifyChatResponseFinished(assistantMessage);
+			asyncRequest = null;
 			return null;
 		});
 	}
@@ -439,6 +454,59 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		activeToolCalls.clear();
 	}
 
+	/**
+	 * Processes function call deltas from the streaming API response (deprecated format).
+	 * 
+	 * @param functionCallDelta  The function call delta from the current chunk
+	 * @param activeToolCalls    Map of active tool calls being tracked
+	 * @param assistantMessage   The assistant message to update
+	 * @param chat               The chat conversation
+	 */
+	private void handleFunctionCallDelta(JsonObject functionCallDelta, 
+	                                   Map<Integer, ToolCallInfo> activeToolCalls,
+	                                   ChatConversation.ChatMessage assistantMessage, 
+	                                   ChatConversation chat) {
+		try {
+			// For the deprecated function_call format, we always use index 0 
+			// (there is only one function call in this format)
+			int index = 0;
+			
+			// Check if this is a new function call or an update to an existing one
+			if (!activeToolCalls.containsKey(index)) {
+				// This is a new function call, extract the name
+				String name = null;
+				
+				if (functionCallDelta.has("name") && !functionCallDelta.get("name").isJsonNull()) {
+					name = functionCallDelta.get("name").getAsString();
+					
+					// Generate a unique ID for the function call
+					String id = "call_func_" + System.currentTimeMillis();
+					activeToolCalls.put(index, new ToolCallInfo(index, id, name));
+				}
+			}
+			
+			// Now update the existing function call with any new argument chunks
+			if (activeToolCalls.containsKey(index) && 
+				functionCallDelta.has("arguments") && 
+				!functionCallDelta.get("arguments").isJsonNull()) {
+				
+				String argumentChunk = functionCallDelta.get("arguments").getAsString();
+				activeToolCalls.get(index).appendArguments(argumentChunk);
+				
+				// Check if this function call is now complete
+				if (activeToolCalls.get(index).isComplete()) {
+					ToolCallInfo toolCall = activeToolCalls.get(index);
+					
+					// Convert to the standard FunctionCall format used by both tools and functions
+					assistantMessage.setFunctionCall(toolCall.toFunctionCall());
+					chat.notifyFunctionCalled(assistantMessage);
+				}
+			}
+		} catch (Exception e) {
+			Activator.logError("Error processing function call delta: " + functionCallDelta, e);
+		}
+	}
+	
 	/**
 	 * Helper class to track and accumulate tool call information from streaming
 	 * responses.
