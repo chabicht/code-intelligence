@@ -5,6 +5,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
@@ -45,17 +48,20 @@ import com.google.gson.Gson;
 
 public class ApplyChangeTool {
 	private static final int SEARCH_WINDOW_RADIUS_CHARS = 500;
+	private static final Pattern INDENT_SEARCH_PATTERN = Pattern.compile("^\s*");
 
 	// Inner class to hold change information
 	static class ChangeOperation {
 		private final String fileName;
-		private final String location;
 		private final String originalText; // Keep for potential future validation
 		private final String replacement;
+		private int startLine;
+		private int endLine;
 
-		public ChangeOperation(String fileName, String location, String originalText, String replacement) {
+		public ChangeOperation(String fileName, int startLine, int endLine, String originalText, String replacement) {
 			this.fileName = fileName;
-			this.location = location;
+			this.startLine = startLine;
+			this.endLine = endLine;
 			this.originalText = originalText;
 			this.replacement = replacement;
 		}
@@ -64,8 +70,12 @@ public class ApplyChangeTool {
 			return fileName;
 		}
 
-		public String getLocation() {
-			return location;
+		public int getStartLine() {
+			return startLine;
+		}
+
+		public int getEndLine() {
+			return endLine;
 		}
 
 		public String getOriginalText() {
@@ -81,19 +91,21 @@ public class ApplyChangeTool {
 		private final boolean success;
 		private final String message;
 		private final ChangeOperation operation; // null if failed
+		private String diffPreview;
 
-		private ApplyChangeResult(boolean success, String message, ChangeOperation operation) {
+		private ApplyChangeResult(boolean success, String message, ChangeOperation operation, String diffPreview) {
 			this.success = success;
 			this.message = message;
 			this.operation = operation;
+			this.diffPreview = diffPreview;
 		}
 
-		public static ApplyChangeResult success(String message, ChangeOperation operation) {
-			return new ApplyChangeResult(true, message, operation);
+		public static ApplyChangeResult success(String message, ChangeOperation operation, String diffPreview) {
+			return new ApplyChangeResult(true, message, operation, diffPreview);
 		}
 
 		public static ApplyChangeResult failure(String message) {
-			return new ApplyChangeResult(false, message, null);
+			return new ApplyChangeResult(false, message, null, null);
 		}
 
 		public boolean isSuccess() {
@@ -106,6 +118,10 @@ public class ApplyChangeTool {
 
 		public ChangeOperation getOperation() {
 			return operation;
+		}
+
+		public String getDiffPreview() {
+			return diffPreview;
 		}
 	}
 
@@ -170,16 +186,23 @@ public class ApplyChangeTool {
 				// This will throw an exception if the text can't be found
 				int[] matchOffsets = findOffsetsByPattern(originalText, document, searchBounds);
 
+				// Generate diff preview the document
+				DiffPreviewResult diffResult = generateDiffPreview(file, document, matchOffsets, replacement);
+
 				// Validation successful - create and store the operation
-				ChangeOperation op = new ChangeOperation(fileName, location, originalText, replacement);
+				ChangeOperation op = new ChangeOperation(fileName, diffResult.getStartLine(), diffResult.getEndLine(),
+						originalText, replacement);
 				pendingChanges.add(op);
 
 				Gson gson = GsonUtil.createGson();
 				String json = gson.toJson(op);
+//				Log.logInfo("Validated and added change for file: " + fileName + " at location: " + location
+//						+ "\n\nJSON:\n" + json);
 				Log.logInfo("Validated and added change for file: " + fileName + " at location: " + location
-						+ "\n\nJSON:\n" + json);
+				);
 
-				return ApplyChangeResult.success("Change validated and queued for preview", op);
+				return ApplyChangeResult.success("Change validated and queued for preview", op,
+						diffResult.getDiffPreview());
 			} catch (IllegalArgumentException | BadLocationException e) {
 				return ApplyChangeResult.failure("Failed to locate original text: " + e.getMessage());
 			}
@@ -188,6 +211,58 @@ public class ApplyChangeTool {
 			resourceAccess.disconnectAllDocuments(tempDocMap);
 		}
 	}
+
+	/**
+	 * Generates a diff preview with context from the document.
+	 * 
+	 * @param file            The file being modified
+	 * @param document        The document containing the file content
+	 * @param matchOffsets    The actual start and end offsets of the matched text
+	 *                        [start, end]
+	 * @param replacementText The text that will replace the matched content
+	 * @return A DiffPreviewResult containing the markdown-formatted diff preview
+	 *         and line information
+	 */
+	private DiffPreviewResult generateDiffPreview(IFile file, IDocument document, int[] matchOffsets,
+			String replacementText) {
+		try {
+			String original = document.get(matchOffsets[0], matchOffsets[1] - matchOffsets[0]);
+
+			int startLine = document.getLineOfOffset(matchOffsets[0]);
+			int endLine = document.getLineOfOffset(matchOffsets[1]);
+
+			// Do we have some indentation missing from the original text?
+			IRegion startLineInfo = document.getLineInformation(startLine);
+			Matcher indentMatcher = INDENT_SEARCH_PATTERN.matcher(original);
+			String indentation = indentMatcher.find() ? indentMatcher.group() : "";
+			if (startLineInfo.getOffset() < matchOffsets[0]) {
+				int startLineOffset = startLineInfo.getOffset();
+				String indentationText = document.get(startLineOffset, matchOffsets[0] - startLineOffset);
+				if (indentationText.matches("^\s*$")) {
+					indentation = indentation + indentationText;
+					original = indentation + original;
+				}
+			}
+			if (!replacementText.startsWith(indentation)) {
+				String indentFinal = indentation;
+				// Add indentation to each line (preserving empty lines)
+				replacementText = Arrays.stream(replacementText.split("\\R"))
+						.map(line -> line.isEmpty() ? line : indentFinal + line).collect(Collectors.joining("\n"));
+			}
+
+			// Use the enhanced diff generator with file path and real line numbers
+			// startLine + 1 because line numbers are 0-based in IDocument
+			String diffText = generateDiffPreview(original, replacementText, file, startLine + 1);
+
+			// Return both the diff preview and the line range information
+			return new DiffPreviewResult(diffText, startLine + 1, endLine + 1);
+		} catch (BadLocationException e) {
+			Log.logError("Error generating diff preview with context", e);
+			String errorDiff = "```\nError generating diff preview: " + e.getMessage() + "\n```";
+			return new DiffPreviewResult(errorDiff, 0, 0);
+		}
+	}
+
 
 	/**
 	 * Clear all pending changes from the queue.
@@ -274,8 +349,8 @@ public class ApplyChangeTool {
 					} catch (BadLocationException | IllegalArgumentException | MalformedTreeException e) {
 						Gson gson = GsonUtil.createGson();
 						String json = gson.toJson(op);
-						Log.logError("Failed to create edit for " + fileName + " at " + op.getLocation() + ": "
-								+ e.getMessage() + "\n\nJSON:\n" + json, e);
+						Log.logError("Failed to create edit for " + fileName + " at line " + op.getStartLine() + " to "
+								+ op.getEndLine() + ": " + e.getMessage() + "\n\nJSON:\n" + json, e);
 					}
 				}
 
@@ -373,91 +448,28 @@ public class ApplyChangeTool {
 	 */
 	private ReplaceEdit createTextEdit(IFile file, IDocument document, ChangeOperation op)
 			throws BadLocationException, IllegalArgumentException {
-
 		String originalTextToFind = op.getOriginalText();
 		if (originalTextToFind == null || originalTextToFind.isEmpty()) {
 			throw new IllegalArgumentException("Original text cannot be null or empty for pattern-based replacement.");
 		}
-		String rawReplacementText = op.getReplacement() != null ? op.getReplacement() : ""; // Handle null replacement
 
-		// 1. Parse the location string to get initial search bounds [startOffset,
-		// endOffset]
-		int[] searchBounds = parseLocationToOffsets(op.getLocation(), document);
-		if (searchBounds == null) {
-			throw new IllegalArgumentException("Invalid location string provided: " + op.getLocation());
+		int[] offsets = getStartEndOffsets(op.getStartLine() - 1, op.getEndLine() - 1, document);
+		if (offsets == null) {
+			throw new IllegalArgumentException(
+					"Invalid location string provided: " + op.getStartLine() + ":" + op.getEndLine());
 		}
 
-		// 2. Find the precise offsets of the match within the bounds
-		int[] matchOffsets = findOffsetsByPattern(originalTextToFind, document, searchBounds);
-		// findOffsetsByPattern throws IllegalArgumentException if not found
-		int matchStartOffset = matchOffsets[0];
-		int matchEndOffset = matchOffsets[1];
-		// int matchLength = matchEndOffset - matchStartOffset; // Length of the exact
-		// match
+		return new ReplaceEdit(offsets[0], offsets[1] - offsets[0], op.replacement);
+	}
 
-		// 3. Determine the full lines affected by the match
-		int startLine = document.getLineOfOffset(matchStartOffset);
-		// If the match ends exactly at the beginning of a line, consider the previous
-		// line as the end line
-		int endLine = (matchEndOffset > 0
-				&& document.getLineOfOffset(matchEndOffset) > document.getLineOfOffset(matchEndOffset - 1))
-						? document.getLineOfOffset(matchEndOffset - 1)
-						: document.getLineOfOffset(matchEndOffset);
-
-		IRegion startLineInfo = document.getLineInformation(startLine);
-		IRegion endLineInfo = document.getLineInformation(endLine);
-
-		int originalLinesStartOffset = startLineInfo.getOffset();
-		int originalLinesEndOffset = endLineInfo.getOffset() + endLineInfo.getLength();
-		int originalLinesLength = originalLinesEndOffset - originalLinesStartOffset;
-
-		// Include the line delimiter at the end if the original region had one
-		// This helps preserve the overall line structure after replacement.
-		String originalRegionWithTrailingDelimiter = document.get(originalLinesStartOffset, originalLinesLength);
-		String lineDelimiter = TextUtilities.getDefaultLineDelimiter(document);
-		boolean endsWithDelimiter = originalRegionWithTrailingDelimiter.endsWith(lineDelimiter);
-
-		// 4. Get the text of the original lines
-		String originalLinesText = document.get(originalLinesStartOffset, originalLinesLength);
-
-		// 5. Create the unformatted text of the lines *after* replacement
-		// Calculate the start offset of the match *relative* to the start of the
-		// original lines region
-		int relativeMatchStart = matchStartOffset - originalLinesStartOffset;
-		int relativeMatchEnd = matchEndOffset - originalLinesStartOffset;
-
-		// Build the text block with the replacement applied
-		StringBuilder modifiedLinesBuilder = new StringBuilder();
-		modifiedLinesBuilder.append(originalLinesText.substring(0, relativeMatchStart));
-		modifiedLinesBuilder.append(rawReplacementText);
-		modifiedLinesBuilder.append(originalLinesText.substring(relativeMatchEnd));
-		String unformattedModifiedLines = modifiedLinesBuilder.toString();
-
-		// 6. Format the modified lines region
-		// We pass the start offset of the *first line* to determine base indentation
-		String formattedModifiedLines = formatRegionText(unformattedModifiedLines, file, document,
-				originalLinesStartOffset);
-
-		// 7. Ensure the formatted text ends with a line delimiter if the original did,
-		// unless the formatted text is now empty.
-		if (endsWithDelimiter && !formattedModifiedLines.isEmpty() && !formattedModifiedLines.endsWith(lineDelimiter)) {
-			// Check if the *content* ends with the delimiter, ignoring trailing whitespace
-			// potentially added by formatter
-			String trimmedFormatted = formattedModifiedLines.stripTrailing();
-			if (!trimmedFormatted.endsWith(lineDelimiter)) {
-				formattedModifiedLines += lineDelimiter;
-			}
+	private int[] getStartEndOffsets(int startLine, int endLine, IDocument document) {
+		try {
+			IRegion slInfo = document.getLineInformation(startLine);
+			IRegion elInfo = document.getLineInformation(endLine);
+			return new int[] { slInfo.getOffset(), elInfo.getOffset() + elInfo.getLength() };
+		} catch (BadLocationException e) {
+			return null;
 		}
-		// Conversely, if the original didn't end with a delimiter (e.g. end of file),
-		// but the formatter added one, remove it. This is less common but possible.
-		else if (!endsWithDelimiter && formattedModifiedLines.endsWith(lineDelimiter)) {
-			formattedModifiedLines = formattedModifiedLines.substring(0,
-					formattedModifiedLines.length() - lineDelimiter.length());
-		}
-
-		// 8. Create the edit replacing the original lines with the formatted modified
-		// lines
-		return new ReplaceEdit(originalLinesStartOffset, originalLinesLength, formattedModifiedLines);
 	}
 
 	/**
@@ -496,6 +508,14 @@ public class ApplyChangeTool {
 		// Extract the search region text
 		String searchRegionText = document.get(searchStart, searchLength);
 
+		// Shortcut for identical match.
+		if (StringUtils.stripToEmpty(originalText).equals(StringUtils.stripToEmpty(searchRegionText))) {
+			return searchBounds;
+		}
+
+		int[] extendedRegion = extendRegion(document, searchStart, searchLength);
+		searchRegionText = document.get(extendedRegion[0], extendedRegion[1]-extendedRegion[0]);
+		
 		// Use a "searcher" to find matching region
 		// ChunkSearcher searcher = new ChunkSearcher();
 		SmithWatermanSearcher searcher = new SmithWatermanSearcher();
@@ -503,13 +523,38 @@ public class ApplyChangeTool {
 
 		if (matchingRegion != null) {
 			// Adjust offsets relative to the document start
-			return new int[] { searchStart + matchingRegion[0], searchStart + matchingRegion[1] };
+			return new int[] { extendedRegion[0] + matchingRegion[0], extendedRegion[0] + matchingRegion[1] };
 		}
 
 		// If we get here, no match was found
 		throw new IllegalArgumentException(
 				"Could not find the specified pattern derived from original text within the location bounds ["
 						+ searchBounds[0] + "," + searchBounds[1] + "].");
+	}
+
+	private int[] extendRegion(IDocument document, int searchStart, int searchLength) throws BadLocationException {
+		// Get the line numbers for the search region
+		int searchStartLine = document.getLineOfOffset(searchStart);
+		int searchEndLine = document.getLineOfOffset(Math.min(searchStart + searchLength, document.getLength() - 1));
+
+		// Count the total number of lines in the search region
+		int searchLineCount = searchEndLine - searchStartLine + 1;
+
+		// Add 50% of the line count above and below, but at least 5 lines
+		int linesToAdd = Math.max(5, (int) Math.ceil(0.5 * searchLineCount));
+
+		// Calculate the extended start and end lines
+		int extendedStartLine = Math.max(0, searchStartLine - linesToAdd);
+		int extendedEndLine = Math.min(document.getNumberOfLines() - 1, searchEndLine + linesToAdd);
+
+		// Get the corresponding offsets
+		IRegion startLineInfo = document.getLineInformation(extendedStartLine);
+		IRegion endLineInfo = document.getLineInformation(extendedEndLine);
+
+		int extendedStart = startLineInfo.getOffset();
+		int extendedEnd = endLineInfo.getOffset() + endLineInfo.getLength();
+
+		return new int[] { extendedStart, extendedEnd };
 	}
 
 	/**
@@ -543,40 +588,52 @@ public class ApplyChangeTool {
 				parts[1] = StringUtils.stripToEmpty(parts[1]).replaceAll("[^0-9]", "");
 				int endLine = Integer.parseInt(parts[1]);
 				int numDocLines = document.getNumberOfLines(); // Get total lines once
-
-				if (startLine < 1 || endLine < startLine || startLine > numDocLines) {
-					Log.logWarn("Invalid line numbers in location: " + location + " (Doc lines: " + numDocLines + ")");
-					return null;
-				}
-
-				final int CONTEXT_LINES = 3; // Number of context lines to add before and after
-
+//
+//				if (startLine < 1 || endLine < startLine || startLine > numDocLines) {
+//					Log.logWarn("Invalid line numbers in location: " + location + " (Doc lines: " + numDocLines + ")");
+//					return null;
+//				}
+//
+//				final int CONTEXT_LINES = 3; // Number of context lines to add before and after
+//
 				// Convert 1-based line numbers to 0-based indices for the *original* selection
 				int originalStartLineIndex = startLine - 1;
 				// Ensure original endLineIndex doesn't exceed document bounds
 				int originalEndLineIndex = Math.min(endLine - 1, numDocLines - 1);
+//
+//				// Calculate the start line index including context, clamped to document start
+//				// (0)
+//				int contextStartLineIndex = Math.max(0, originalStartLineIndex - CONTEXT_LINES);
+//
+//				// Calculate the end line index including context, clamped to document end
+//				int contextEndLineIndex = Math.min(numDocLines - 1, originalEndLineIndex + CONTEXT_LINES);
+//
+//				try {
+//					// Get start offset from the beginning of the context start line
+//					start = document.getLineOffset(contextStartLineIndex);
+//
+//					// Get end offset from the end of the context end line
+//					IRegion contextEndLineInfo = document.getLineInformation(contextEndLineIndex);
+//					end = contextEndLineInfo.getOffset() + contextEndLineInfo.getLength();
+//				} catch (BadLocationException e) {
+//					// This should theoretically not happen due to boundary checks, but handle
+//					// defensively
+//					Log.logError("Error calculating offsets with context for location: " + location, e);
+//					return null; // Or handle error appropriately
+//				}
 
-				// Calculate the start line index including context, clamped to document start
-				// (0)
-				int contextStartLineIndex = Math.max(0, originalStartLineIndex - CONTEXT_LINES);
-
-				// Calculate the end line index including context, clamped to document end
-				int contextEndLineIndex = Math.min(numDocLines - 1, originalEndLineIndex + CONTEXT_LINES);
+				int safeStartLineIndex = Math.max(0, originalStartLineIndex);
+				int safeEndLineIndex = Math.min(numDocLines - 1, originalEndLineIndex);
 
 				try {
-					// Get start offset from the beginning of the context start line
-					start = document.getLineOffset(contextStartLineIndex);
-
-					// Get end offset from the end of the context end line
-					IRegion contextEndLineInfo = document.getLineInformation(contextEndLineIndex);
+					IRegion contextEndLineInfo = document.getLineInformation(safeEndLineIndex);
 					end = contextEndLineInfo.getOffset() + contextEndLineInfo.getLength();
+					return new int[] { document.getLineOffset(safeStartLineIndex),
+							end };
 				} catch (BadLocationException e) {
-					// This should theoretically not happen due to boundary checks, but handle
-					// defensively
 					Log.logError("Error calculating offsets with context for location: " + location, e);
-					return null; // Or handle error appropriately
+					return null;
 				}
-
 			} else if (type == 'o' || type == 'O') {
 				// Character-based location (0-based)
 				start = Integer.parseInt(parts[0]);
@@ -710,49 +767,125 @@ public class ApplyChangeTool {
 
 	/**
 	 * Creates a human-readable diff preview between original text and replacement
-	 * text. This shows what will be removed and added in a readable format.
+	 * text, using actual file path and line numbers.
 	 * 
 	 * @param originalText    The text being replaced
 	 * @param replacementText The new text being inserted
+	 * @param file            The file being modified
+	 * @param startLineNumber The starting line number for context
+	 * @param indentation
 	 * @return A markdown-formatted string showing the differences
 	 */
-	public String generateDiffPreview(String originalText, String replacementText) {
+	public String generateDiffPreview(String originalText, String replacementText, IFile file, int startLineNumber) {
 		// Handle null inputs safely
 		if (originalText == null)
 			originalText = "";
 		if (replacementText == null)
 			replacementText = "";
 
+		// Get the file path for the diff header
+		String filePath = file != null ? file.getFullPath().toString() : "Unknown file";
+
 		// Split both texts into separate lines
 		// The split limit -1 ensures trailing empty strings are included
-		List<String> originalLines = Arrays.asList(originalText.split("\n", -1));
-		List<String> replacementLines = Arrays.asList(replacementText.split("\n", -1));
+		List<String> originalLines = Arrays.asList(originalText.split("\\R", -1));
+		List<String> replacementLines = Arrays.asList(replacementText.split("\\R", -1));
 
 		// Generate unified diff format
 		try {
 			// Create the patch from the original and replacement lines
 			Patch<String> patch = DiffUtils.diff(originalLines, replacementLines);
 
-			// Convert the patch to unified diff format
-			List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff("Original", "Replacement", originalLines,
-					patch, 3); // Context size of 3 lines
+			// Convert the patch to unified diff format with real file path
+			List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(filePath, filePath, originalLines, patch,
+					3); // Context size of 3 lines
+
+			// Adjust line numbers in the unified diff headers to match actual file
+			unifiedDiff = adjustLineNumbers(unifiedDiff, startLineNumber);
 
 			// Build a nicely formatted unified diff output
 			StringBuilder diffPreview = new StringBuilder();
-			diffPreview.append("```diff\n"); // Start a code block with diff syntax highlighting
 
 			// Add each line of the unified diff to our preview
 			for (String line : unifiedDiff) {
 				diffPreview.append(line).append("\n");
 			}
 
-			diffPreview.append("```"); // End the code block
 			return diffPreview.toString();
 
 		} catch (Exception e) {
 			// If something goes wrong, return a simple error message
 			Log.logError("Error generating diff preview", e);
 			return "```\nError generating diff preview: " + e.getMessage() + "\n```";
+		}
+	}
+
+	/**
+	 * Adjusts line numbers in the diff output to match actual file line numbers.
+	 */
+	private List<String> adjustLineNumbers(List<String> unifiedDiff, int startLineNumber) {
+		List<String> result = new ArrayList<>();
+
+		for (String line : unifiedDiff) {
+			// For @@ lines that contain line number info, adjust them
+			if (line.startsWith("@@") && line.contains("@@")) {
+				// Parse line range information (format: @@ -1,7 +1,7 @@)
+				Pattern pattern = Pattern.compile("@@ -(\\d+),(\\d+) \\+(\\d+),(\\d+) @@");
+				Matcher matcher = pattern.matcher(line);
+
+				if (matcher.find()) {
+					int origStart = Integer.parseInt(matcher.group(1));
+					int origCount = Integer.parseInt(matcher.group(2));
+					int newStart = Integer.parseInt(matcher.group(3));
+					int newCount = Integer.parseInt(matcher.group(4));
+
+					// Adjust the line numbers by adding the startLineNumber offset
+					int adjustedOrigStart = origStart + startLineNumber - 1;
+					int adjustedNewStart = newStart + startLineNumber - 1;
+
+					// Create new line with adjusted line numbers
+					String adjustedLine = String.format("@@ -%d,%d +%d,%d @@", adjustedOrigStart, origCount,
+							adjustedNewStart, newCount);
+					result.add(adjustedLine);
+					continue;
+				}
+			}
+			result.add(line);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Class representing a diff preview with line range information.
+	 */
+	public class DiffPreviewResult {
+		private final String diffPreview;
+		private final int startLine;
+		private final int endLine;
+		private final int lineCount;
+
+		public DiffPreviewResult(String diffPreview, int startLine, int endLine) {
+			this.diffPreview = diffPreview;
+			this.startLine = startLine;
+			this.endLine = endLine;
+			this.lineCount = endLine - startLine + 1;
+		}
+
+		public String getDiffPreview() {
+			return diffPreview;
+		}
+
+		public int getStartLine() {
+			return startLine;
+		}
+
+		public int getEndLine() {
+			return endLine;
+		}
+
+		public int getLineCount() {
+			return lineCount;
 		}
 	}
 }

@@ -15,7 +15,7 @@ public class ApplyChangeToolErrorsTest {
 
 	@Test
 	public void createsEdit1() {
-		final String JSON = "{\"fileName\":\"OllamaApiClient.java\",\"location\":\"l249:254\",\"originalText\":\"\\t@Override\\n\\tpublic synchronized void abortChat() {\\n\\t\\tif (asyncRequest !\\u003d null) {\\n\\t\\t\\tasyncRequest.cancel(true);\\n\\t\\t\\tasyncRequest \\u003d null;\\n\\t\\t}\\n\",\"replacement\":\"\\t@Override\\n\\tpublic synchronized void abortChat() {\\n\\t\\tif (asyncRequest !\\u003d null) {\\n\\t\\t\\tasyncRequest.cancel(true);\\n\\t\\t\\t// Ensure finished is notified if not already due to cancellation\\n\\t\\t\\tif (chatResponseFinished.compareAndSet(false, true)) {\\n\\t\\t\\t\\t// We don\\u0027t have the assistantMessage here, this might be a limitation.\\n\\t\\t\\t\\t// The ChatConversation might need a method to notify finish without a message,\\n\\t\\t\\t\\t// or we need to store the assistantMessage in the class.\\n\\t\\t\\t\\t// For now, we\\u0027ll log a warning and skip the chat notification here.\\n\\t\\t\\t\\tActivator.logWarning(\\\"Chat aborted, but cannot notify ChatConversation without assistant message.\\\");\\n\\t\\t\\t\\t// chat.notifyChatResponseFinished(assistantMessage); // Cannot call this\\n\\t\\t\\t}\\n\\t\\t\\tasyncRequest \\u003d null;\\n\\t\\t}\\n\"}";
+		final String JSON = "{\"fileName\":\"OllamaApiClient.java\",\"startLine\":249,\"endLine\":254,\"originalText\":\"\\t@Override\\n\\tpublic synchronized void abortChat() {\\n\\t\\tif (asyncRequest !\\u003d null) {\\n\\t\\t\\tasyncRequest.cancel(true);\\n\\t\\t\\tasyncRequest \\u003d null;\\n\\t\\t}\\n\",\"replacement\":\"\\t@Override\\n\\tpublic synchronized void abortChat() {\\n\\t\\tif (asyncRequest !\\u003d null) {\\n\\t\\t\\tasyncRequest.cancel(true);\\n\\t\\t\\t// Ensure finished is notified if not already due to cancellation\\n\\t\\t\\tif (chatResponseFinished.compareAndSet(false, true)) {\\n\\t\\t\\t\\t// We don\\u0027t have the assistantMessage here, this might be a limitation.\\n\\t\\t\\t\\t// The ChatConversation might need a method to notify finish without a message,\\n\\t\\t\\t\\t// or we need to store the assistantMessage in the class.\\n\\t\\t\\t\\t// For now, we\\u0027ll log a warning and skip the chat notification here.\\n\\t\\t\\t\\tActivator.logWarning(\\\"Chat aborted, but cannot notify ChatConversation without assistant message.\\\");\\n\\t\\t\\t\\t// chat.notifyChatResponseFinished(assistantMessage); // Cannot call this\\n\\t\\t\\t}\\n\\t\\t\\tasyncRequest \\u003d null;\\n\\t\\t}\\n\"}";
 		ApplyChangeTool cut = new ApplyChangeTool(RESOURCE_ACCESS);
 		addChange(cut, JSON);
 		cut.applyChanges();
@@ -23,7 +23,8 @@ public class ApplyChangeToolErrorsTest {
 
 	private void addChange(ApplyChangeTool cut, String json) {
 		ChangeOperation op = GSON.fromJson(json, ChangeOperation.class);
-		cut.addChange(op.getFileName(), op.getLocation(), op.getOriginalText(), op.getReplacement());
+		cut.addChange(op.getFileName(), "l" + op.getStartLine() + ":" + op.getEndLine(), op.getOriginalText(),
+				op.getReplacement());
 	}
 
 	private static String getOllamaApiClientSource() {

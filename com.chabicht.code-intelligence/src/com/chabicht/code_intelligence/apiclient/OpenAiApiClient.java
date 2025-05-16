@@ -8,7 +8,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -17,6 +19,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -188,7 +191,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 				content.append("Context information:\n\n");
 			}
 			for (MessageContext ctx : msg.getContext()) {
-				content.append(ctx.compile());
+				content.append(ctx.compile(true));
 				content.append("\n");
 			}
 			content.append(msg.getContent());
@@ -221,6 +224,9 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
 		}
 		HttpRequest request = requestBuilder.build();
+
+		// Map to keep track of tool calls by their index
+		Map<Integer, ToolCallInfo> activeToolCalls = new HashMap<>();
 
 		// Send the request asynchronously and process the streamed response
 		// line-by-line.
@@ -263,11 +269,27 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 											chunk = "";
 										}
 
+										// Check for tool_calls in the delta
+										if (delta.has("tool_calls") && !delta.get("tool_calls").isJsonNull()) {
+											// Process tool calls
+											handleToolCallDelta(delta.getAsJsonArray("tool_calls"), activeToolCalls,
+													assistantMessage, chat);
+										}
+
 										if (StringUtils.isNotBlank(chunk)) {
 											// Append the received chunk to the assistant message.
 											assistantMessage.setContent(assistantMessage.getContent() + chunk);
 											// Notify the conversation listeners that the assistant message was updated.
 											chat.notifyMessageUpdated(assistantMessage);
+										}
+									}
+
+									// Check for finish_reason to detect completed tool calls
+									if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
+										String finishReason = choice.get("finish_reason").getAsString();
+										if ("tool_calls".equals(finishReason) || "function_call".equals(finishReason)) {
+											// All tool calls are complete - finalize any pending tool calls
+											finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 										}
 									}
 								}
@@ -281,6 +303,11 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 							+ response.body().collect(Collectors.joining("\n")), null);
 				}
 			} finally {
+				// Check if any tool calls are still pending finalization
+				if (!activeToolCalls.isEmpty()) {
+					finalizeToolCalls(activeToolCalls, assistantMessage, chat);
+				}
+
 				chat.notifyChatResponseFinished(assistantMessage);
 				asyncRequest = null;
 			}
@@ -319,6 +346,200 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		if (asyncRequest != null) {
 			asyncRequest.cancel(true);
 			asyncRequest = null;
+		}
+	}
+
+	/**
+	 * Processes tool call deltas from the streaming API response.
+	 * 
+	 * @param toolCallDeltas   The tool call deltas from the current chunk
+	 * @param activeToolCalls  Map of active tool calls being tracked
+	 * @param assistantMessage The assistant message to update
+	 * @param chat             The chat conversation
+	 */
+	private void handleToolCallDelta(JsonArray toolCallDeltas, Map<Integer, ToolCallInfo> activeToolCalls,
+			ChatConversation.ChatMessage assistantMessage, ChatConversation chat) {
+		for (JsonElement toolCallElement : toolCallDeltas) {
+			JsonObject toolCallDelta = toolCallElement.getAsJsonObject();
+
+			try {
+				// Get the index to identify which tool call this belongs to
+				int index = toolCallDelta.get("index").getAsInt();
+
+				// Check if this is a new tool call or an update to an existing one
+				if (!activeToolCalls.containsKey(index)) {
+					// This is a new tool call, extract ID and function name
+					String id = null;
+					String functionName = null;
+
+					if (toolCallDelta.has("id") && !toolCallDelta.get("id").isJsonNull()) {
+						id = toolCallDelta.get("id").getAsString();
+					}
+
+					if (toolCallDelta.has("function")) {
+						JsonObject function = toolCallDelta.getAsJsonObject("function");
+						if (function.has("name") && !function.get("name").isJsonNull()) {
+							functionName = function.get("name").getAsString();
+						}
+					}
+
+					// Only create a new tool call info if we have both id and name
+					if (id != null && functionName != null) {
+						activeToolCalls.put(index, new ToolCallInfo(index, id, functionName));
+					}
+				}
+
+				// Now update the existing tool call with any new argument chunks
+				if (activeToolCalls.containsKey(index) && toolCallDelta.has("function")) {
+					JsonObject function = toolCallDelta.getAsJsonObject("function");
+					if (function.has("arguments") && !function.get("arguments").isJsonNull()) {
+						String argumentChunk = function.get("arguments").getAsString();
+						activeToolCalls.get(index).appendArguments(argumentChunk);
+
+						// Check if this tool call is now complete
+						if (activeToolCalls.get(index).isComplete()) {
+							ToolCallInfo toolCall = activeToolCalls.get(index);
+							assistantMessage.setFunctionCall(toolCall.toFunctionCall());
+							chat.notifyFunctionCalled(assistantMessage);
+						}
+					}
+				}
+			} catch (Exception e) {
+				Activator.logError("Error processing tool call delta: " + toolCallDelta, e);
+				// We catch the exception but don't rethrow to allow processing to continue
+			}
+		}
+	}
+
+	/**
+	 * Finalizes any pending tool calls when streaming ends.
+	 * 
+	 * @param activeToolCalls  Map of active tool calls being tracked
+	 * @param assistantMessage The assistant message to update
+	 * @param chat             The chat conversation
+	 */
+	private void finalizeToolCalls(Map<Integer, ToolCallInfo> activeToolCalls,
+			ChatConversation.ChatMessage assistantMessage, ChatConversation chat) {
+		// Find any remaining tool calls that haven't been finalized yet
+		for (ToolCallInfo toolCall : activeToolCalls.values()) {
+			if (!toolCall.isComplete()) {
+				toolCall.markComplete();
+
+				// Only notify for the first tool call if there are multiple
+				// (This is just one approach - you might want to handle multiple tools
+				// differently)
+				if (!assistantMessage.getFunctionCall().isPresent()) {
+					assistantMessage.setFunctionCall(toolCall.toFunctionCall());
+					chat.notifyFunctionCalled(assistantMessage);
+				}
+			}
+		}
+
+		// Clear the active tool calls map
+		activeToolCalls.clear();
+	}
+
+	/**
+	 * Helper class to track and accumulate tool call information from streaming
+	 * responses.
+	 */
+	private static class ToolCallInfo {
+		private final int index; // The position of this tool call in the array
+		private final String id; // The unique ID of the tool call
+		private final String name; // The function name
+		private final StringBuilder argumentsJson = new StringBuilder(); // Accumulating JSON arguments
+		private boolean isComplete = false; // Whether the tool call is complete
+		private String errorMessage = null; // Any error message if the tool call failed
+
+		public ToolCallInfo(int index, String id, String name) {
+			this.index = index;
+			this.id = id;
+			this.name = name;
+		}
+
+		public void appendArguments(String argumentChunk) {
+			argumentsJson.append(argumentChunk);
+
+			// Validate if the JSON might be complete
+			try {
+				String jsonStr = argumentsJson.toString().trim();
+				if (jsonStr.startsWith("{") && jsonStr.endsWith("}")) {
+					// Try to parse it as JSON to verify it's valid
+					JsonParser.parseString(jsonStr);
+					// If we get here, the JSON is valid
+					isComplete = true;
+				}
+			} catch (JsonSyntaxException e) {
+				// JSON is not yet valid/complete - this is normal during streaming
+			}
+		}
+
+		public boolean isComplete() {
+			if (isComplete) {
+				return true;
+			}
+
+			String args = argumentsJson.toString().trim();
+
+			// Basic JSON structure validation
+			if (args.startsWith("{") && args.endsWith("}")) {
+				// Count braces to handle nested objects
+				int openBraces = 0;
+				int closeBraces = 0;
+
+				for (char c : args.toCharArray()) {
+					if (c == '{')
+						openBraces++;
+					if (c == '}')
+						closeBraces++;
+				}
+
+				// If balanced braces, assume JSON is complete
+				if (openBraces == closeBraces) {
+					isComplete = true;
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		public void markComplete() {
+			isComplete = true;
+		}
+
+		public void markFailure(String message) {
+			this.errorMessage = message;
+			this.isComplete = true; // Mark as complete to avoid further processing
+		}
+
+		public FunctionCall toFunctionCall() {
+			return new FunctionCall(id, name, argumentsJson.toString());
+		}
+
+		// Getters
+		public int getIndex() {
+			return index;
+		}
+
+		public String getId() {
+			return id;
+		}
+
+		public String getName() {
+			return name;
+		}
+
+		public String getArgumentsJson() {
+			return argumentsJson.toString();
+		}
+
+		public boolean hasFailed() {
+			return errorMessage != null;
+		}
+
+		public String getErrorMessage() {
+			return errorMessage;
 		}
 	}
 }
