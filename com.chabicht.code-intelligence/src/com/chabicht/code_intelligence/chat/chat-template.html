@@ -913,9 +913,12 @@ window.onload = function() {
   updateThemeSetting();
   
   // Listen for scroll events on the window
-  window.addEventListener('scroll', function() {
-    autoScrollEnabled = isScrolledToBottom();
-  });
+  if (typeof document.onscrollend !== 'undefined') {
+      window.addEventListener('scroll', () => autoScrollEnabled = false);
+      window.addEventListener('scrollend', () => autoScrollEnabled = isScrolledToBottom());
+  } else {
+      window.addEventListener('scroll', () => autoScrollEnabled = isScrolledToBottom());
+  }
 };
 </script>
 
