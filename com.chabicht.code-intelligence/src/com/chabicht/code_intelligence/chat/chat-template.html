@@ -286,7 +286,7 @@
   <style>
 	.spinner {
 	  margin: 2px 2px 0;
-	  width: 48px;
+	  width: 36px;
 	  text-align: left;
 	}
 
@@ -325,6 +325,29 @@
 	    transform: scale(1.0);
 	  }
 	}
+	
+	.spinner-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .scroll-control-button {
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-color);
+      padding-top: 6px;
+      border-radius: 4px;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+	  margin-left: auto;
+    }
+    
+    .scroll-control-button:hover {
+      opacity: 1;
+      background-color: var(--hover-color);
+    }
   </style>
   
   <!-- ADD PRISM CSS HERE -->
@@ -388,9 +411,30 @@ function isScrolledToBottom() {
    processAttachments(contentDiv);
 
    if(updating && role === "assistant") {
-     var spinnerDiv = document.createElement("div");
-     spinnerDiv.innerHTML = '<div class="spinner"><div class="pulse1"></div><div class="pulse2"></div><div class="pulse3"></div></div>';
-     div.appendChild(spinnerDiv);
+     var spinnerContainer = document.createElement("div");
+     spinnerContainer.className = "spinner-container";
+     
+     // Add the spinner
+     var spinner = document.createElement("div");
+     spinner.className = "spinner";
+     spinner.innerHTML = '<div class="pulse1"></div><div class="pulse2"></div><div class="pulse3"></div>';
+     spinnerContainer.appendChild(spinner);
+     
+     // Add scroll control button
+     var scrollControlButton = document.createElement("button");
+	 scrollControlButton.id = "scroll-control-button";
+     scrollControlButton.className = "message-button scroll-control-button";
+	 scrollControlButton.title = "Pause auto-scrolling";
+     
+     setPauseIcon(scrollControlButton);
+     
+     scrollControlButton.onclick = function() {
+       autoScrollEnabled = false; 
+     };
+     
+     spinnerContainer.appendChild(scrollControlButton);
+	   
+     div.appendChild(spinnerContainer);
    }
 
    // Add a footer with buttons
@@ -465,6 +509,10 @@ function isScrolledToBottom() {
      var bottom = document.getElementById("bottom");
      bottom.scrollIntoView(true);
    }
+   var scrollControlButton = document.getElementById("scroll-control-button");
+   if(scrollControlButton) {
+     scrollControlButton.style.visibility = autoScrollEnabled ? "visible" : "hidden";
+   }
  }
 
  /**
@@ -475,7 +523,7 @@ function isScrolledToBottom() {
 	var message = document.getElementById(uuid);
 	if (message) {
 	  // Find the spinner element within the content div
-      var spinnerElement = message.querySelector('div.spinner');
+      var spinnerElement = message.querySelector('div.spinner-container');
       // If the spinner element exists, remove it
       if (spinnerElement) {
           spinnerElement.remove();
@@ -902,6 +950,14 @@ function setEditButtonIcon(button) {
   button.appendChild(img);
 }
 
+// Functions to set pause and play icons
+function setPauseIcon(button) {
+  button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 4H6V20H10V4Z" fill="currentColor"/><path d="M18 4H14V20H18V4Z" fill="currentColor"/></svg>';
+}
+
+function setPlayIcon(button) {
+  button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4L18 12L6 20V4Z" fill="currentColor"/></svg>';
+}
 
 // Call the function after the page loads
 window.onload = function() {
