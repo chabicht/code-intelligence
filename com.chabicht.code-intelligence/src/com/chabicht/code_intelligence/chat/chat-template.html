@@ -333,7 +333,7 @@
       margin-top: 8px;
     }
     
-    .scroll-control-button {
+    .scroll-pause-button {
       cursor: pointer;
       background: transparent;
       color: var(--text-color);
@@ -344,11 +344,24 @@
 	  margin-left: auto;
     }
     
-    .scroll-control-button:hover {
+    .scroll-pause-button:hover {
       opacity: 1;
       background-color: var(--hover-color);
     }
+    
+    .scroll-resume-button {
+      position: fixed;
+      bottom: 5px;
+      right: 5px;
+      z-index: 1000;
+      padding: 8px 16px;
+	  background: #F5F5F5;
+	  color: var(--text-color);
+      border-radius: 4px;
+      cursor: pointer;
+    }
   </style>
+  
   
   <!-- ADD PRISM CSS HERE -->
 </head>
@@ -421,20 +434,23 @@ function isScrolledToBottom() {
      spinnerContainer.appendChild(spinner);
      
      // Add scroll control button
-     var scrollControlButton = document.createElement("button");
-	 scrollControlButton.id = "scroll-control-button";
-     scrollControlButton.className = "message-button scroll-control-button";
-	 scrollControlButton.title = "Pause auto-scrolling";
+      var scrollPauseButton = document.createElement("button");
+	 scrollPauseButton.id = "scroll-pause-button";
+      scrollPauseButton.className = "message-button scroll-pause-button";
+	 scrollPauseButton.title = "Pause auto-scrolling";
      
-     setPauseIcon(scrollControlButton);
-     
-     scrollControlButton.onclick = function() {
-       autoScrollEnabled = false; 
-     };
-     
-     spinnerContainer.appendChild(scrollControlButton);
+      setPauseIcon(scrollPauseButton);
+      
+       scrollPauseButton.onclick = function() {
+         autoScrollEnabled = false; 
+       };
+      
+      spinnerContainer.appendChild(scrollPauseButton);
 	   
-     div.appendChild(spinnerContainer);
+      div.appendChild(spinnerContainer);
+      
+      // Create the resume scroll button if it doesn't exist yet
+      createscrollResumeButton();
    }
 
    // Add a footer with buttons
@@ -475,10 +491,13 @@ function isScrolledToBottom() {
    container.appendChild(div);
 
    // Only scroll if auto-scroll is enabled
-   if (autoScrollEnabled) {
-     var bottom = document.getElementById("bottom");
-     bottom.scrollIntoView(true);
-   }
+    if (autoScrollEnabled) {
+      var bottom = document.getElementById("bottom");
+      bottom.scrollIntoView(true);
+    }
+    
+    // Update the resume scroll button visibility
+    updatescrollResumeButtonVisibility();
  }
 
 /**
@@ -486,7 +505,7 @@ function isScrolledToBottom() {
  * @param {String} uuid - Unique identifier for the message to update.
  * @param {String} updatedContent - The new HTML content for the message.
  */
- function updateMessage(uuid, updatedContent, updating=false) {
+ function updateMessage(uuid, updatedContent) {
    var message = document.getElementById(uuid);
    if (message) {
      // Find the content div within the message
@@ -509,10 +528,13 @@ function isScrolledToBottom() {
      var bottom = document.getElementById("bottom");
      bottom.scrollIntoView(true);
    }
-   var scrollControlButton = document.getElementById("scroll-control-button");
-   if(scrollControlButton) {
-     scrollControlButton.style.visibility = autoScrollEnabled ? "visible" : "hidden";
-   }
+    var scrollPauseButton = document.getElementById("scroll-pause-button");
+    if(scrollPauseButton) {
+      scrollPauseButton.style.visibility = autoScrollEnabled ? "visible" : "hidden";
+    }
+    
+    // Update the resume scroll button visibility based on autoScrollEnabled and updating state
+    updatescrollResumeButtonVisibility();
  }
 
  /**
@@ -529,6 +551,12 @@ function isScrolledToBottom() {
           spinnerElement.remove();
       }
 	}
+
+	// Remove scroll-resume-button.
+    var resumeButton = document.getElementById("scroll-resume-button");
+    if (resumeButton) {
+      resumeButton.remove();
+    }
   }
 
 /**
@@ -957,6 +985,59 @@ function setPauseIcon(button) {
 
 function setPlayIcon(button) {
   button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4L18 12L6 20V4Z" fill="currentColor"/></svg>';
+}
+
+/**
+ * Creates and manages the resume scroll button.
+ * This button appears in the lower right corner when auto-scrolling is disabled during updating.
+ */
+function createscrollResumeButton() {
+  // Check if button already exists
+  var existingButton = document.getElementById("scroll-resume-button");
+  if (existingButton) {
+    return existingButton;
+  }
+  
+  // Create the button
+  var scrollResumeButton = document.createElement("button");
+  scrollResumeButton.id = "scroll-resume-button";
+  scrollResumeButton.className = "message-button scroll-resume-button";
+  scrollResumeButton.title = "Resume auto-scrolling";
+  scrollResumeButton.title = "Resume scrolling";
+  
+  setPlayIcon(scrollResumeButton);
+  
+  // Set initial state to hidden
+  scrollResumeButton.style.display = "none";
+  
+  // Add click event to resume scrolling
+  scrollResumeButton.onclick = function() {
+    autoScrollEnabled = true;
+    var bottom = document.getElementById("bottom");
+    if (bottom) {
+      bottom.scrollIntoView(true);
+    }
+  };
+  
+  // Add to document body
+  document.body.appendChild(scrollResumeButton);
+  
+  return scrollResumeButton;
+}
+
+/**
+ * Updates the visibility of the resume scroll button based on current state.
+ * @param {Boolean} updating - Whether a message is currently being updated.
+ */
+function updatescrollResumeButtonVisibility() {
+  var scrollResumeButton = createscrollResumeButton();
+  
+  // Only show the button if auto-scroll is disabled AND we're updating a message
+  if (!autoScrollEnabled) {
+    scrollResumeButton.style.display = "block";
+  } else {
+    scrollResumeButton.style.display = "none";
+  }
 }
 
 // Call the function after the page loads
