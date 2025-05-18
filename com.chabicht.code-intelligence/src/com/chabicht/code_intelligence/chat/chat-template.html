@@ -347,9 +347,9 @@
     .scroll-pause-button:hover {
       opacity: 1;
       background-color: var(--hover-color);
-    }
-    
-    .scroll-resume-button {
+	}
+
+    .scroll-to-bottom-button {
       position: fixed;
       bottom: 5px;
       right: 5px;
@@ -449,8 +449,8 @@ function isScrolledToBottom() {
 	   
       div.appendChild(spinnerContainer);
       
-      // Create the resume scroll button if it doesn't exist yet
-      createscrollResumeButton();
+      // Create the scroll to bottom button if it doesn't exist yet
+      createScrollToBottomButton();
    }
 
    // Add a footer with buttons
@@ -495,9 +495,6 @@ function isScrolledToBottom() {
       var bottom = document.getElementById("bottom");
       bottom.scrollIntoView(true);
     }
-    
-    // Update the resume scroll button visibility
-    updatescrollResumeButtonVisibility();
  }
 
 /**
@@ -532,10 +529,9 @@ function isScrolledToBottom() {
     if(scrollPauseButton) {
       scrollPauseButton.style.visibility = autoScrollEnabled ? "visible" : "hidden";
     }
-    
-    // Update the resume scroll button visibility based on autoScrollEnabled and updating state
-    updatescrollResumeButtonVisibility();
- }
+
+    updateScrollToBottomButtonVisibility();
+  }
 
  /**
   * Removes the spinner from a completed chat message
@@ -987,31 +983,34 @@ function setPlayIcon(button) {
   button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4L18 12L6 20V4Z" fill="currentColor"/></svg>';
 }
 
+function setArrowDownIcon(button) {
+  button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5H7z" fill="currentColor"/></svg>';
+}
+
 /**
  * Creates and manages the resume scroll button.
  * This button appears in the lower right corner when auto-scrolling is disabled during updating.
  */
-function createscrollResumeButton() {
+function createScrollToBottomButton() {
   // Check if button already exists
-  var existingButton = document.getElementById("scroll-resume-button");
+  var existingButton = document.getElementById("scroll-to-bottom-button");
   if (existingButton) {
     return existingButton;
   }
   
   // Create the button
-  var scrollResumeButton = document.createElement("button");
-  scrollResumeButton.id = "scroll-resume-button";
-  scrollResumeButton.className = "message-button scroll-resume-button";
-  scrollResumeButton.title = "Resume auto-scrolling";
-  scrollResumeButton.title = "Resume scrolling";
+  var scrollToBottomButton = document.createElement("button");
+  scrollToBottomButton.id = "scroll-to-bottom-button";
+  scrollToBottomButton.className = "message-button scroll-to-bottom-button";
+  scrollToBottomButton.title = "Scroll to bottom";
   
-  setPlayIcon(scrollResumeButton);
+  setArrowDownIcon(scrollToBottomButton);
   
   // Set initial state to hidden
-  scrollResumeButton.style.display = "none";
+  scrollToBottomButton.style.display = "none";
   
   // Add click event to resume scrolling
-  scrollResumeButton.onclick = function() {
+  scrollToBottomButton.onclick = function() {
     autoScrollEnabled = true;
     var bottom = document.getElementById("bottom");
     if (bottom) {
@@ -1020,23 +1019,23 @@ function createscrollResumeButton() {
   };
   
   // Add to document body
-  document.body.appendChild(scrollResumeButton);
+  document.body.appendChild(scrollToBottomButton);
   
-  return scrollResumeButton;
+  return scrollToBottomButton;
 }
 
 /**
  * Updates the visibility of the resume scroll button based on current state.
  * @param {Boolean} updating - Whether a message is currently being updated.
  */
-function updatescrollResumeButtonVisibility() {
-  var scrollResumeButton = createscrollResumeButton();
+function updateScrollToBottomButtonVisibility() {
+  var scrollToBottomButton = createScrollToBottomButton();
   
   // Only show the button if auto-scroll is disabled AND we're updating a message
-  if (!autoScrollEnabled) {
-    scrollResumeButton.style.display = "block";
+  if (!isScrolledToBottom()) {
+    scrollToBottomButton.style.display = "block";
   } else {
-    scrollResumeButton.style.display = "none";
+    scrollToBottomButton.style.display = "none";
   }
 }
 
@@ -1052,9 +1051,15 @@ window.onload = function() {
   // Listen for scroll events on the window
   if (typeof document.onscrollend !== 'undefined') {
       window.addEventListener('scroll', () => autoScrollEnabled = false);
-      window.addEventListener('scrollend', () => autoScrollEnabled = isScrolledToBottom());
+      window.addEventListener('scrollend', () => {
+		autoScrollEnabled = isScrolledToBottom();
+		updateScrollToBottomButtonVisibility();
+      });
   } else {
-      window.addEventListener('scroll', () => autoScrollEnabled = isScrolledToBottom());
+      window.addEventListener('scroll', () => {
+        autoScrollEnabled = isScrolledToBottom();
+        updateScrollToBottomButtonVisibility();
+      });
   }
 };
 </script>
