@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
+	<classpathentry exported="true" kind="lib" path="lib/commons-text-1.13.1.jar" sourcepath="C:/Users/chabicht/java/source/commons-text-1.13.1-sources.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/java-diff-utils-4.15.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/commonmark-ext-gfm-strikethrough-0.24.0.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/commonmark-ext-gfm-tables-0.24.0.jar"/>

@@ -11,6 +11,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.util.GsonUtil;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken; // Import needed for Map type
 
@@ -41,28 +42,31 @@ public class FunctionCallSession {
 			FunctionCall call = callOpt.get();
 			String functionName = call.getFunctionName();
 			String argsJson = call.getArgsJson();
-			String resultJson = null;
+
+			FunctionResult result = new FunctionResult(call.getId(), functionName);
 
 			switch (functionName) {
 			case "apply_change":
-				handleApplyChange(argsJson);
+				handleApplyChange(call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
 				break;
 			}
 
-			message.setFunctionResult(new FunctionResult(call.getId(), functionName, resultJson));
+			message.setFunctionResult(result);
 		}
 	}
 
 	/**
-	 * Specifically handles the "apply_change" function call.
-	 * Parses arguments and adds the change to the ApplyChangeTool queue.
+	 * Specifically handles the "apply_change" function call. Parses arguments and
+	 * adds the change to the ApplyChangeTool queue.
 	 *
+	 * @param call             The FunctionCall object
+	 * @param result           The FunctionResult object to populate
 	 * @param functionArgsJson JSON arguments for apply_change.
 	 */
-	private void handleApplyChange(String functionArgsJson) {
+	private void handleApplyChange(FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
 			// Define the type for Gson parsing: Map<String, String>
 			java.lang.reflect.Type type = new TypeToken<Map<String, String>>() {
@@ -77,19 +81,71 @@ public class FunctionCallSession {
 
 			// Basic validation
 			if (fileName == null || location == null || originalText == null || replacementText == null) {
-				Activator.logError("Missing required argument for apply_change. Args: " + functionArgsJson);
-				// Decide how to handle missing args: skip this change, stop processing, etc.
-				// For now, just log and skip adding the change.
+				String errorMsg = "Missing required argument for apply_change. Args: " + functionArgsJson;
+				Activator.logError(errorMsg);
+				result.addPrettyResult("error", errorMsg, false);
+
+				// Add JSON result for error
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
 				return;
 			}
 
-			// Add the change to the tool's queue
-			applyChangeTool.addChange(fileName, location, originalText, replacementText);
+			// Add the change to the tool's queue with validation
+			ApplyChangeTool.ApplyChangeResult changeResult = applyChangeTool.addChange(fileName, location, originalText,
+					replacementText);
+
+			// Populate pretty params for this function call
+			call.addPrettyParam("file_name", fileName, false);
+			call.addPrettyParam("location_in_file", location, false);
+			call.addPrettyParam("original_text", originalText, true); // Using markdown for code
+			call.addPrettyParam("replacement_text", replacementText, true); // Using markdown for code
+
+			// Create JSON result object
+			JsonObject jsonResult = new JsonObject();
+
+			// Set result based on validation outcome
+			if (changeResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				result.addPrettyResult("message", changeResult.getMessage(), false);
+
+				jsonResult.addProperty("status", "Success");
+				jsonResult.addProperty("message", changeResult.getMessage());
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", changeResult.getMessage(), false);
+
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", changeResult.getMessage());
+			}
+
+			// Set the JSON result
+			result.setResultJson(gson.toJson(jsonResult));
 
 		} catch (JsonSyntaxException e) {
-			Activator.logError("Failed to parse JSON arguments for apply_change: " + functionArgsJson, e);
+			String errorMsg = "Failed to parse JSON arguments: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+
+			// Add JSON result for error
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) { // Catch unexpected errors during handling
-			Activator.logError("Error handling apply_change function call: " + e.getMessage(), e);
+			String errorMsg = "Error processing function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+
+			// Add JSON result for error
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
 		}
 	}
 
