@@ -166,7 +166,7 @@
 	.floating-header {
 	  position: fixed !important;
 	  top: 10px !important;
-	  right: 10px !important;
+	  right: 27px !important;
 	  z-index: 1000 !important;
 	}
 
@@ -684,8 +684,10 @@ function processCodeBlocks(container) {
           }
           
           // Show header when code block is visible and either hovered or floating
-          if (block.matches(':hover') || header.classList.contains('floating-header')) {
+          if (block.matches(':hover')) {
             header.style.opacity = '1';
+          } else {
+            header.style.opacity = '';
           }
         } else {
           // Hide header when code block is not visible
@@ -703,9 +705,7 @@ function processCodeBlocks(container) {
       });
       
       block.addEventListener('mouseleave', function() {
-        if (!header.classList.contains('floating-header')) {
-          header.style.opacity = '';
-        }
+		updateHeaderPosition();
       });
       
       // Initial positioning check
