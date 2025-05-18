@@ -1049,7 +1049,7 @@ window.onload = function() {
   updateThemeSetting();
   
   // Listen for scroll events on the window
-  if (typeof document.onscrollend !== 'undefined') {
+  if (typeof window.onscrollend !== 'undefined') {
       window.addEventListener('scroll', () => autoScrollEnabled = false);
       window.addEventListener('scrollend', () => {
 		autoScrollEnabled = isScrolledToBottom();
