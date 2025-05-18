@@ -154,7 +154,8 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 						});
 					} else {
 						String body = response.body().collect(Collectors.joining("\n"));
-						Activator.logError("Error " + response.statusCode() + " in API call:\n" + body);
+						Activator.logError("Error " + response.statusCode() + " in API call:\n" + body
+								+ "\n\nRequest JSON:\n" + requestBody);
 						if (asyncRequest != null) {
 							if (!responseFinished.get()) {
 								chat.notifyChatResponseFinished(assistantMessage);
@@ -281,7 +282,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		if (!msg.getContext().isEmpty()) {
 			contentBuilder.append("Context information:\n\n");
 			for (MessageContext ctx : msg.getContext()) {
-				contentBuilder.append(ctx.compile());
+				contentBuilder.append(ctx.compile(true));
 				contentBuilder.append("\n");
 			}
 		}

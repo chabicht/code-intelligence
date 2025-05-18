@@ -8,6 +8,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.text.StringEscapeUtils;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.core.databinding.observable.list.IListChangeListener;
@@ -96,6 +98,7 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionParamValue;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
@@ -218,21 +221,87 @@ public class ChatView extends ViewPart {
 			if (message.getFunctionCall().isPresent()) {
 				FunctionCall call = message.getFunctionCall().get();
 				FunctionResult result = message.getFunctionResult()
-						.orElse(new FunctionResult(call.getId(), call.getFunctionName(), null));
+						.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
 
-				String argsHtml = String.format("<blockquote><p>Args:</p>%s</blockquote>", markdownRenderer
-						.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```")));
+				// Build parameter table
+				StringBuilder paramsTable = new StringBuilder("<table class=\"function-params-table\">");
+				paramsTable.append("<tr><th>Parameter</th><th>Value</th></tr>");
 
-				String resultHtml = "";
-				if (StringUtils.isNotBlank(result.getResultJson())) {
-					resultHtml = String.format("<blockquote><p>Result:</p>%s</blockquote>", markdownRenderer.render(
-							markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```")));
+				for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
+					String paramName = entry.getKey();
+					FunctionParamValue paramValue = entry.getValue();
+					String displayValue;
+
+					if (paramValue.isMarkdown()) {
+						displayValue = markdownRenderer
+								.render(markdownParser.parse("```\n" + paramValue.getValue() + "\n```"));
+					} else {
+						displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
+					}
+
+					paramsTable.append(String.format("<tr><td>%s</td><td>%s</td></tr>",
+							StringEscapeUtils.escapeHtml4(paramName), displayValue));
+				}
+				paramsTable.append("</table>");
+
+				// Build result table if we have results
+				StringBuilder resultTable = new StringBuilder();
+				if (!result.getPrettyResults().isEmpty()) {
+					resultTable.append("<table class=\"function-results-table\">");
+					resultTable.append("<tr><th>Result</th><th>Value</th></tr>");
+
+					for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
+						String resultName = entry.getKey();
+						FunctionParamValue resultValue = entry.getValue();
+						String displayValue;
+
+						if (resultValue.isMarkdown()) {
+							displayValue = markdownRenderer
+									.render(markdownParser.parse("```\n" + resultValue.getValue() + "\n```"));
+						} else {
+							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
+						}
+
+						resultTable.append(String.format("<tr><td>%s</td><td>%s</td></tr>",
+								StringEscapeUtils.escapeHtml4(resultName), displayValue));
+					}
+					resultTable.append("</table>");
 				}
 
-				functionCallHtml = String.format("<details><summary>Function call: %s</summary>" //
-						+ "%s" // Args
-						+ "%s" // Result
-						+ "</details>", call.getFunctionName(), argsHtml, resultHtml);
+				// Build raw JSON section
+				String rawArgsJson = "";
+				if (StringUtils.isNotBlank(call.getArgsJson())) {
+					rawArgsJson = markdownRenderer
+							.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```"));
+				}
+
+				String rawResultJson = "";
+				if (StringUtils.isNotBlank(result.getResultJson())) {
+					rawResultJson = markdownRenderer.render(
+							markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```"));
+				}
+
+				// Build combined raw JSON section
+				String rawJsonSection = "";
+				if (StringUtils.isNotBlank(rawArgsJson) || StringUtils.isNotBlank(rawResultJson)) {
+					rawJsonSection = "<details><summary>Raw JSON</summary>";
+					if (StringUtils.isNotBlank(rawArgsJson)) {
+						rawJsonSection += "<blockquote><p>Args:</p>" + rawArgsJson + "</blockquote>";
+					}
+					if (StringUtils.isNotBlank(rawResultJson)) {
+						rawJsonSection += "<blockquote><p>Result:</p>" + rawResultJson + "</blockquote>";
+					}
+					rawJsonSection += "</details>";
+				}
+
+				// Combine everything into the final structure
+				functionCallHtml = String
+						.format("<details><summary>Function call: %s</summary>" + "<blockquote>" + "%s" + // Params
+																											// table
+								"%s" + // Result table
+								"</blockquote>" + "%s" + // Raw JSON section
+								"</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
+								paramsTable.toString(), resultTable.toString(), rawJsonSection);
 			}
 
 			String messageHtml = markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getMessage()));
@@ -897,6 +966,12 @@ public class ChatView extends ViewPart {
 			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
 
+			if (settings.getPromptTemplate() == null || StringUtils.isBlank(settings.getPromptTemplate().getPrompt())) {
+				conversation.removeSystemMessage();
+			} else {
+				conversation.addOrReplaceSystemMessage(settings.getPromptTemplate().getPrompt());
+			}
+
 			conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
 			userInput.set("");
@@ -1025,7 +1100,7 @@ public class ChatView extends ViewPart {
 		ChatConversation res = new ChatConversation();
 
 		if (settings.getPromptTemplate() != null) {
-			res.addMessage(new ChatMessage(Role.SYSTEM, settings.getPromptTemplate().getPrompt()), false);
+			res.addOrReplaceSystemMessage(settings.getPromptTemplate().getPrompt());
 		}
 
 		return res;
@@ -1115,7 +1190,7 @@ public class ChatView extends ViewPart {
 			if (!message.getContext().isEmpty()) {
 				StringBuilder sb = new StringBuilder();
 				sb.append("\n\n#Context:\n");
-				sb.append(message.getContext().stream().map(c -> c.compile()).collect(Collectors.joining("\n")));
+				sb.append(message.getContext().stream().map(c -> c.compile(true)).collect(Collectors.joining("\n")));
 				messageMarkdown += sb.toString();
 			}
 

@@ -1,14 +1,11 @@
 package com.chabicht.code_intelligence.chat.tools;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.CoreException;
@@ -76,6 +73,37 @@ public class ApplyChangeTool {
 		}
 	}
 
+	public static class ApplyChangeResult {
+		private final boolean success;
+		private final String message;
+		private final ChangeOperation operation; // null if failed
+
+		private ApplyChangeResult(boolean success, String message, ChangeOperation operation) {
+			this.success = success;
+			this.message = message;
+			this.operation = operation;
+		}
+
+		public static ApplyChangeResult success(String message, ChangeOperation operation) {
+			return new ApplyChangeResult(true, message, operation);
+		}
+
+		public static ApplyChangeResult failure(String message) {
+			return new ApplyChangeResult(false, message, null);
+		}
+
+		public boolean isSuccess() {
+			return success;
+		}
+
+		public String getMessage() {
+			return message;
+		}
+
+		public ChangeOperation getOperation() {
+			return operation;
+		}
+	}
 	// List to store pending changes
 	private List<ChangeOperation> pendingChanges = new ArrayList<>();
 	private IResourceAccess resourceAccess;
@@ -85,21 +113,75 @@ public class ApplyChangeTool {
 	}
 
 	/**
-	 * Add a change to the queue of pending changes.
+	 * Add a change to the queue of pending changes, but only after validating it.
 	 *
 	 * @param fileName     The name of the file to change.
 	 * @param location     The location string (e.g., "l10:15").
 	 * @param originalText The original text expected at the location (for
 	 *                     validation).
 	 * @param replacement  The text to replace the original content with.
+	 * @return An ApplyChangeResult indicating success or failure with details.
 	 */
-	public void addChange(String fileName, String location, String originalText, String replacement) {
-		ChangeOperation op = new ChangeOperation(fileName, location, originalText, replacement);
-		pendingChanges.add(op);
+	public ApplyChangeResult addChange(String fileName, String location, String originalText, String replacement) {
+		// Basic validation
+		if (fileName == null || fileName.trim().isEmpty()) {
+			return ApplyChangeResult.failure("File name cannot be null or empty");
+		}
+		if (location == null || location.trim().isEmpty()) {
+			return ApplyChangeResult.failure("Location cannot be null or empty");
+		}
+		if (originalText == null || originalText.trim().isEmpty()) {
+			return ApplyChangeResult.failure("Original text cannot be null or empty");
+		}
+		// Allow empty replacements (deletions)
+		if (replacement == null) {
+			replacement = "";
+		}
 
-		Gson gson = GsonUtil.createGson();
-		String json = gson.toJson(op);
-		Log.logInfo("Added change for file: " + fileName + " at location: " + location + "\n\nJSON:\n" + json);
+		// Find the file
+		IFile file = resourceAccess.findFileByNameBestEffort(fileName);
+		if (file == null) {
+			return ApplyChangeResult.failure("File not found: " + fileName);
+		}
+
+		// Get document and validate change
+		IDocument document = null;
+		Map<IFile, IDocument> tempDocMap = new HashMap<>();
+
+		try {
+			document = resourceAccess.getDocumentAndConnect(file, tempDocMap);
+			if (document == null) {
+				return ApplyChangeResult.failure("Could not get document for file: " + fileName);
+			}
+
+			// Parse location string to get search bounds
+			int[] searchBounds = parseLocationToOffsets(location, document);
+			if (searchBounds == null) {
+				return ApplyChangeResult.failure("Invalid location string: " + location);
+			}
+
+			// Try to find the match in the document
+			try {
+				// This will throw an exception if the text can't be found
+				int[] matchOffsets = findOffsetsByPattern(originalText, document, searchBounds);
+
+				// Validation successful - create and store the operation
+				ChangeOperation op = new ChangeOperation(fileName, location, originalText, replacement);
+				pendingChanges.add(op);
+
+				Gson gson = GsonUtil.createGson();
+				String json = gson.toJson(op);
+				Log.logInfo("Validated and added change for file: " + fileName + " at location: " + location
+						+ "\n\nJSON:\n" + json);
+
+				return ApplyChangeResult.success("Change validated and queued for preview", op);
+			} catch (IllegalArgumentException | BadLocationException e) {
+				return ApplyChangeResult.failure("Failed to locate original text: " + e.getMessage());
+			}
+		} finally {
+			// Always disconnect documents we connected during validation
+			resourceAccess.disconnectAllDocuments(tempDocMap);
+		}
 	}
 
 	/**
@@ -125,7 +207,7 @@ public class ApplyChangeTool {
 	 * typically open a preview dialog for the user.
 	 */
 	public void applyChanges() {
-				if (pendingChanges.isEmpty()) {
+		if (pendingChanges.isEmpty()) {
 			Log.logInfo("No changes to apply.");
 			return;
 		}
@@ -394,47 +476,35 @@ public class ApplyChangeTool {
 	private int[] findOffsetsByPattern(String originalText, IDocument document, int[] searchBounds)
 			throws IllegalArgumentException, BadLocationException {
 
-		// 1. Process originalText to create pattern parts
-		String[] lines = originalText.split("\\R"); // Split by any Unicode newline sequence
-		List<String> patternParts = Arrays.stream(lines).map(String::trim) // Strip leading/trailing whitespace
-				.filter(line -> !line.isEmpty()) // Filter out empty lines
-				.map(Pattern::quote) // Quote lines to treat them as literals in regex
-				.collect(Collectors.toList());
-
-		if (patternParts.isEmpty()) {
+		if (originalText == null || originalText.trim().isEmpty()) {
 			throw new IllegalArgumentException(
 					"Original text contains only whitespace, cannot create a search pattern.");
 		}
 
-		// 2. Construct the regex pattern
-		String regexPattern = String.join("\\s*", patternParts);
-		Pattern pattern = Pattern.compile(regexPattern, Pattern.MULTILINE);
-
-		// 3. Define the search region in the document
+		// Validate search bounds
 		int searchStart = searchBounds[0];
 		int searchLength = searchBounds[1] - searchBounds[0];
 		if (searchStart < 0 || searchLength < 0 || searchStart + searchLength > document.getLength()) {
 			throw new BadLocationException("Invalid search bounds [" + searchStart + ", " + (searchStart + searchLength)
 					+ "] for document length " + document.getLength());
 		}
+
+		// Extract the search region text
 		String searchRegionText = document.get(searchStart, searchLength);
 
-		// 4. Search for the pattern within the region
-		Matcher matcher = pattern.matcher(searchRegionText);
+		// Use the ChunkSearcher to find matching region
+		ChunkSearcher chunkSearcher = new ChunkSearcher();
+		int[] matchingRegion = chunkSearcher.findMatchingRegion(originalText, searchRegionText);
 
-		if (matcher.find()) {
-			// Adjust found offsets relative to the start of the document
-			int matchStartOffset = searchStart + matcher.start();
-			int matchEndOffset = searchStart + matcher.end();
-			return new int[] { matchStartOffset, matchEndOffset };
-		} else {
-			// Log the pattern for debugging if needed
-			// Log.logInfo("Pattern not found: " + regexPattern + " within bounds [" +
-			// searchBounds[0] + "," + searchBounds[1] + "]");
-			throw new IllegalArgumentException(
-					"Could not find the specified pattern derived from original text within the location bounds ["
-							+ searchBounds[0] + "," + searchBounds[1] + "]. Pattern: " + regexPattern);
+		if (matchingRegion != null) {
+			// Adjust offsets relative to the document start
+			return new int[] { searchStart + matchingRegion[0], searchStart + matchingRegion[1] };
 		}
+
+		// If we get here, no match was found
+		throw new IllegalArgumentException(
+				"Could not find the specified pattern derived from original text within the location bounds ["
+						+ searchBounds[0] + "," + searchBounds[1] + "].");
 	}
 
 	/**
@@ -465,6 +535,7 @@ public class ApplyChangeTool {
 			if (type == 'l' || type == 'L') {
 				// Line-based location (1-based)
 				int startLine = Integer.parseInt(parts[0]);
+				parts[1] = StringUtils.stripToEmpty(parts[1]).replaceAll("[^0-9]", "");
 				int endLine = Integer.parseInt(parts[1]);
 				int numDocLines = document.getNumberOfLines(); // Get total lines once
 
