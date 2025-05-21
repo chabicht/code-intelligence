@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -7,6 +8,7 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
 import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool; // Added import
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
+import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
@@ -21,9 +23,11 @@ public class FunctionCallSession {
 	private final ResourceAccess resourceAccess = new ResourceAccess();
 	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
 	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess); // Added tool instance
+	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess); // Added SearchTool instance
 	private final Gson gson = GsonUtil.createGson();
 
 	public FunctionCallSession() {
+		// Initialization if needed
 	}
 
 	/**
@@ -53,6 +57,9 @@ public class FunctionCallSession {
 				break;
 			case "apply_patch": // Added case for apply_patch
 				handleApplyPatch(call, result, argsJson);
+				break;
+			case "perform_text_search":
+				handlePerformTextSearch(call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -228,6 +235,97 @@ public class FunctionCallSession {
 			jsonResult.addProperty("status", "Error");
 			jsonResult.addProperty("message", errorMsg);
 			result.setResultJson(gson.toJson(jsonResult));
+		}
+	}
+
+	@SuppressWarnings("unchecked") // For casting List<String> from Map<String, Object>
+	private void handlePerformTextSearch(FunctionCall call, FunctionResult result, String functionArgsJson) {
+		try {
+			java.lang.reflect.Type type = new TypeToken<Map<String, Object>>() {}.getType();
+			Map<String, Object> args = gson.fromJson(functionArgsJson, type);
+
+			String searchText = (String) args.get("search_text");
+			boolean isRegEx = args.containsKey("is_regex") && args.get("is_regex") != null
+					&& (args.get("is_regex") instanceof Boolean) ? (Boolean) args.get("is_regex") : false;
+			List<String> fileNamePatterns = null;
+			if (args.containsKey("file_name_patterns") && args.get("file_name_patterns") != null) {
+				// Gson might parse to ArrayList<String> or similar, ensure it's correctly cast
+				Object patternsObj = args.get("file_name_patterns");
+				if (patternsObj instanceof List) {
+					fileNamePatterns = (List<String>) patternsObj;
+				}
+			}
+
+			boolean isCaseSensitive = args.containsKey("is_case_sensitive") ? (Boolean) args.get("is_case_sensitive") : false;
+			boolean isWholeWord = args.containsKey("is_whole_word") ? (Boolean) args.get("is_whole_word") : false;
+
+			if (searchText == null) {
+				String errorMsg = "Missing required arguments (search_text, is_regex) for perform_text_search. Args: " + functionArgsJson;
+				Activator.logError(errorMsg);
+				result.addPrettyResult("error", errorMsg, false);
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
+				return;
+			}
+
+			TextSearchTool.SearchExecutionResult searchExecResult = searchTool.performSearch(
+					searchText, isRegEx, isCaseSensitive, isWholeWord, fileNamePatterns
+			);
+
+			call.addPrettyParam("search_text", searchText, isRegEx); // Mark as code if regex
+			call.addPrettyParam("is_regex", String.valueOf(isRegEx), false);
+			if (fileNamePatterns != null) {
+				call.addPrettyParam("file_name_patterns", gson.toJson(fileNamePatterns), false);
+			} else {
+				call.addPrettyParam("file_name_patterns", "all files", false);
+			}
+			call.addPrettyParam("is_case_sensitive", String.valueOf(isCaseSensitive), false);
+			call.addPrettyParam("is_whole_word", String.valueOf(isWholeWord), false);
+
+			JsonObject jsonResult = new JsonObject();
+			if (searchExecResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				result.addPrettyResult("message", searchExecResult.getMessage(), false);
+				jsonResult.addProperty("status", "Success");
+				jsonResult.addProperty("message", searchExecResult.getMessage());
+
+				StringBuilder resultsPreview = new StringBuilder();
+				resultsPreview.append("Found ").append(searchExecResult.getResults().size()).append(" matches:\n");
+				for (TextSearchTool.SearchResultItem item : searchExecResult.getResults()) {
+					resultsPreview.append(String.format("- %s (Line %d): `%s` (Matched: `%s`)\n",
+							item.getFilePath(), item.getLineNumber(), item.getLineContent(), item.getMatchedText()));
+				}
+				result.addPrettyResult("search_results_summary", resultsPreview.toString(), true); // Markdown for code backticks
+				jsonResult.add("results", gson.toJsonTree(searchExecResult.getResults()));
+
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", searchExecResult.getMessage(), false);
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", searchExecResult.getMessage());
+			}
+			result.setResultJson(gson.toJson(jsonResult));
+
+		} catch (JsonSyntaxException e) {
+			String errorMsg = "Failed to parse JSON arguments for perform_text_search: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			// ... set JSON error result ...
+		} catch (ClassCastException e) {
+			String errorMsg = "Type error in arguments for perform_text_search: " + e.getMessage() + ". Args: " + functionArgsJson;
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			// ... set JSON error result ...
+		} catch (Exception e) {
+			String errorMsg = "Error processing perform_text_search function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			// ... set JSON error result ...
 		}
 	}
 
