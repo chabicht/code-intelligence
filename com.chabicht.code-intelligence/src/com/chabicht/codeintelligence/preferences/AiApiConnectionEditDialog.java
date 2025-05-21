@@ -43,6 +43,8 @@ public class AiApiConnectionEditDialog extends Dialog {
 
 	private WritableList<ApiType> apiTypes = new WritableList<>();
 
+	private Button btnLegacyFormat;
+
 	protected AiApiConnectionEditDialog(Shell parentShell, AiApiConnection model) {
 		super(parentShell);
 		this.model = model;
@@ -110,6 +112,13 @@ public class AiApiConnectionEditDialog extends Dialog {
 
 		btnEnabled = new Button(composite, SWT.CHECK);
 
+		Label lblLegacyFormat = new Label(composite, SWT.NONE);
+		lblLegacyFormat.setText("Use legacy API:");
+		lblLegacyFormat.setToolTipText(
+				"Applicable for OpenAI type connections: some 3rd party vendors require legacy parameters.");
+
+		btnLegacyFormat = new Button(composite, SWT.CHECK);
+
 		cvType.setInput(apiTypes);
 
 		initDataBinding();
@@ -123,6 +132,7 @@ public class AiApiConnectionEditDialog extends Dialog {
 			ApiType type = (ApiType) e.getNewValue();
 
 			txtBaseUri.setEnabled(!ApiType.GEMINI.equals(type));
+			btnLegacyFormat.setEnabled(ApiType.OPENAI.equals(type));
 
 			presetBaseUri(type);
 		});
@@ -154,6 +164,8 @@ public class AiApiConnectionEditDialog extends Dialog {
 				BeanProperties.value("apiKey", String.class).observe(model));
 		bindingContext.bindValue(WidgetProperties.buttonSelection().observe(btnEnabled),
 				BeanProperties.value("enabled", Boolean.class).observe(model));
+		bindingContext.bindValue(WidgetProperties.buttonSelection().observe(btnLegacyFormat),
+				BeanProperties.value("legacyFormat", Boolean.class).observe(model));
 	}
 
 	@Override

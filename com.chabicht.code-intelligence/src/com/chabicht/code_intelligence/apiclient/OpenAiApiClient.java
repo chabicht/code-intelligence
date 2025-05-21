@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -204,6 +205,13 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("model", modelName);
 		req.addProperty("max_completion_tokens", maxResponseTokens);
 		req.addProperty("stream", true);
+
+		if (apiConnection.isLegacyFormat()) {
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy());
+		} else {
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAi());
+		}
+
 		req.add("messages", messagesJson);
 
 		// Add a new (empty) assistant message to the conversation.

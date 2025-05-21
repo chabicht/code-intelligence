@@ -248,10 +248,13 @@ public class FunctionCallSession {
 
 			// Extract arguments using the names defined in the function declaration
 			String searchText = null;
+			String searchParamName = null;
 			if (args.has("search_text")) {
 				searchText = args.get("search_text").getAsString();
+				searchParamName = "search_text";
 			} else if (args.has("search_pattern")) {
 				searchText = args.get("search_pattern").getAsString();
+				searchParamName = "search_pattern";
 			}
 			
 			List<String> fileNamePatterns = null;
@@ -284,15 +287,16 @@ public class FunctionCallSession {
 			TextSearchTool.SearchExecutionResult searchExecResult = searchTool.performSearch(searchText, isRegEx,
 					isCaseSensitive, isWholeWord, fileNamePatterns);
 
-			call.addPrettyParam("search_text", searchText, isRegEx); // Mark as code if regex
-			call.addPrettyParam("is_regex", String.valueOf(isRegEx), false);
+			call.addPrettyParam(searchParamName, searchText, isRegEx); // Mark as code if regex
 			if (fileNamePatterns != null) {
 				call.addPrettyParam("file_name_patterns", gson.toJson(fileNamePatterns), false);
 			} else {
 				call.addPrettyParam("file_name_patterns", "all files", false);
 			}
 			call.addPrettyParam("is_case_sensitive", String.valueOf(isCaseSensitive), false);
-			call.addPrettyParam("is_whole_word", String.valueOf(isWholeWord), false);
+			if (!isRegEx) {
+				call.addPrettyParam("is_whole_word", String.valueOf(isWholeWord), false);
+			}
 
 			JsonObject jsonResult = new JsonObject();
 			if (searchExecResult.isSuccess()) {
