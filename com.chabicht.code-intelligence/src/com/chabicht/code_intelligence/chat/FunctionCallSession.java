@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
+import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool; // Added import
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
@@ -19,6 +20,7 @@ public class FunctionCallSession {
 
 	private final ResourceAccess resourceAccess = new ResourceAccess();
 	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
+	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess); // Added tool instance
 	private final Gson gson = GsonUtil.createGson();
 
 	public FunctionCallSession() {
@@ -48,6 +50,9 @@ public class FunctionCallSession {
 			switch (functionName) {
 			case "apply_change":
 				handleApplyChange(call, result, argsJson);
+				break;
+			case "apply_patch": // Added case for apply_patch
+				handleApplyPatch(call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -129,23 +134,21 @@ public class FunctionCallSession {
 			result.setResultJson(gson.toJson(jsonResult));
 
 		} catch (JsonSyntaxException e) {
-			String errorMsg = "Failed to parse JSON arguments: " + e.getMessage();
+			String errorMsg = "Failed to parse JSON arguments for apply_change: " + e.getMessage();
 			Activator.logError(errorMsg, e);
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);
 
-			// Add JSON result for error
 			JsonObject jsonResult = new JsonObject();
 			jsonResult.addProperty("status", "Error");
 			jsonResult.addProperty("message", errorMsg);
 			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) { // Catch unexpected errors during handling
-			String errorMsg = "Error processing function call: " + e.getMessage();
+			String errorMsg = "Error processing apply_change function call: " + e.getMessage();
 			Activator.logError(errorMsg, e);
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);
 
-			// Add JSON result for error
 			JsonObject jsonResult = new JsonObject();
 			jsonResult.addProperty("status", "Error");
 			jsonResult.addProperty("message", errorMsg);
@@ -154,33 +157,121 @@ public class FunctionCallSession {
 	}
 
 	/**
-	 * Checks if there are any pending changes accumulated.
-	 * @return true if there are pending changes, false otherwise.
+	 * Specifically handles the "apply_patch" function call. Parses arguments and
+	 * adds the changes from the patch to the ApplyPatchTool queue.
+	 *
+	 * @param call             The FunctionCall object
+	 * @param result           The FunctionResult object to populate
+	 * @param functionArgsJson JSON arguments for apply_patch. Expected: {"file_name": "...", "patch_content": "..."}
 	 */
-	public boolean hasPendingChanges() {
-		return applyChangeTool.getPendingChangeCount() > 0;
-	}
+	private void handleApplyPatch(FunctionCall call, FunctionResult result, String functionArgsJson) {
+		try {
+			java.lang.reflect.Type type = new TypeToken<Map<String, String>>() {}.getType();
+			Map<String, String> args = gson.fromJson(functionArgsJson, type);
 
-	/**
-	 * Triggers the application of all accumulated changes using the ApplyChangeTool.
-	 * This typically shows a preview dialog to the user.
-	 */
-	public void applyPendingChanges() {
-		if (hasPendingChanges()) {
-			Activator.logInfo("Applying " + applyChangeTool.getPendingChangeCount() + " pending changes.");
-			// ApplyChangeTool.applyChanges() handles the UI interaction (refactoring wizard)
-			// It should already ensure it runs on the UI thread.
-			applyChangeTool.applyChanges();
-			// Note: ApplyChangeTool clears its own changes after the wizard is handled.
-		} else {
-			Activator.logInfo("No pending changes to apply.");
+			String fileName = args.get("file_name");
+			String patchContent = args.get("patch_content");
+
+			if (fileName == null || patchContent == null) {
+				String errorMsg = "Missing required argument for apply_patch. Expected file_name and patch_content. Args: " + functionArgsJson;
+				Activator.logError(errorMsg);
+				result.addPrettyResult("error", errorMsg, false);
+
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
+				return;
+			}
+
+			ApplyPatchTool.ApplyPatchResult patchResult = applyPatchTool.addChangesFromPatch(fileName, patchContent);
+
+			// Use the input patch content directly as the preview
+			if (patchResult.getInputPatchPreview() != null) {
+			    result.addPrettyResult("preview", "```diff\n" + patchResult.getInputPatchPreview() + "\n```", true);
+			}
+
+			call.addPrettyParam("file_name", fileName, false);
+			call.addPrettyParam("patch_content", patchContent, true); // patch_content is markdown (diff)
+
+			JsonObject jsonResult = new JsonObject();
+			if (patchResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				result.addPrettyResult("message", patchResult.getMessage(), false);
+				jsonResult.addProperty("status", "Success");
+				jsonResult.addProperty("message", patchResult.getMessage());
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", patchResult.getMessage(), false);
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", patchResult.getMessage());
+			}
+			result.setResultJson(gson.toJson(jsonResult));
+
+		} catch (JsonSyntaxException e) {
+			String errorMsg = "Failed to parse JSON arguments for apply_patch: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
+		} catch (Exception e) {
+			String errorMsg = "Error processing apply_patch function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
 		}
 	}
 
 	/**
-	 * Clears any pending changes that have been accumulated but not yet applied.
+	 * Checks if there are any pending changes accumulated from any tool.
+	 * @return true if there are pending changes, false otherwise.
+	 */
+	public boolean hasPendingChanges() {
+		return applyChangeTool.getPendingChangeCount() > 0 || applyPatchTool.getPendingChangeCount() > 0;
+	}
+
+	/**
+	 * Triggers the application of all accumulated changes from all tools.
+	 * This typically shows a preview dialog to the user for each tool's changes.
+	 */
+	public void applyPendingChanges() {
+		boolean appliedAny = false;
+		if (applyChangeTool.getPendingChangeCount() > 0) {
+			Activator.logInfo("Applying " + applyChangeTool.getPendingChangeCount() + " pending changes from ApplyChangeTool.");
+			applyChangeTool.applyChanges();
+			appliedAny = true;
+		}
+		if (applyPatchTool.getPendingChangeCount() > 0) {
+			Activator.logInfo("Applying " + applyPatchTool.getPendingChangeCount() + " pending changes from ApplyPatchTool.");
+			applyPatchTool.applyPendingChanges();
+			appliedAny = true;
+		}
+
+		if (!appliedAny) {
+			Activator.logInfo("No pending changes to apply from any tool.");
+		}
+	}
+
+	/**
+	 * Clears any pending changes that have been accumulated but not yet applied from all tools.
 	 */
 	public void clearPendingChanges() {
-		applyChangeTool.clearChanges();
+		if (applyChangeTool.getPendingChangeCount() > 0) {
+			applyChangeTool.clearChanges();
+			Activator.logInfo("Cleared pending changes from ApplyChangeTool.");
+		}
+		if (applyPatchTool.getPendingChangeCount() > 0) {
+			applyPatchTool.clearChanges();
+			Activator.logInfo("Cleared pending changes from ApplyPatchTool.");
+		}
 	}
 }

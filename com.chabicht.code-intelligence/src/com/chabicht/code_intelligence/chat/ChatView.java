@@ -83,7 +83,9 @@ import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.TextEdit;
 import org.eclipse.text.undo.DocumentUndoManagerRegistry;
 import org.eclipse.text.undo.IDocumentUndoManager;
+import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
+import org.eclipse.ui.IFileEditorInput;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
@@ -1028,8 +1030,7 @@ public class ChatView extends ViewPart {
 						selectionRange.x + selectionRange.y, consoleSelection));
 			}
 
-			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
-					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
+			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx));
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
@@ -1104,7 +1105,14 @@ public class ChatView extends ViewPart {
 				return;
 			}
 
-			String fileName = textEditor.getEditorInput().getName();
+			IEditorInput editorInput = textEditor.getEditorInput();
+			String fileName;
+			if (editorInput instanceof IFileEditorInput fi) {
+				fileName = fi.getFile().getFullPath().toString();
+			} else {
+				fileName = editorInput.getName();
+			}
+
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
 			String processedText = CodeUtil.removeCommonIndentation(selectedText);
@@ -1115,10 +1123,14 @@ public class ChatView extends ViewPart {
 
 	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
 			int start, int end, String selectedText) {
-		boolean duplicate = false;
-		// Process the selected text to remove common indentation
 		String processedText = CodeUtil.removeCommonIndentation(selectedText);
 		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, processedText);
+		addContextToMessageIfNotDuplicate(chatMessage, newCtx);
+	}
+
+	private void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, MessageContext newCtx) {
+		boolean duplicate = false;
+		// Process the selected text to remove common indentation
 		for (MessageContext ctx : chatMessage.getContext()) {
 			if (newCtx.isDuplicate(ctx)) {
 				duplicate = true;

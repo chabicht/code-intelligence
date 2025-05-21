@@ -1,11 +1,15 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -16,6 +20,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -82,6 +87,21 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		setPropertyIfNotPresent(genConfig, "temperature", 0.1);
 		genConfig.addProperty("maxOutputTokens", maxResponseTokens);
 
+		// Reasoning
+		Map<ChatOption, Object> options = chat.getOptions();
+		JsonObject thinkingConfig = new JsonObject();
+		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
+			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);
+
+			genConfig.addProperty("maxOutputTokens", maxResponseTokens + reasoningBudgetTokens);
+
+			thinkingConfig.addProperty("includeThoughts", true);
+			thinkingConfig.addProperty("thinkingBudget", reasoningBudgetTokens);
+		} else {
+			thinkingConfig.addProperty("thinkingBudget", 0);
+		}
+		genConfig.add("thinkingConfig", thinkingConfig);
+
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");
 		chat.addMessage(assistantMessage, true);
@@ -90,6 +110,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpRequest request = buildHttpRequest(modelName + ":streamGenerateContent?alt=sse&", requestBody);
 
 		AtomicBoolean responseFinished = new AtomicBoolean(false);
+		AtomicBoolean thinkingStarted = new AtomicBoolean(false);
 
 		asyncRequest = HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofLines())
 				.thenAccept(response -> {
@@ -111,6 +132,26 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 												if (firstPart.has("text")) {
 													String chunk = firstPart.get("text").getAsString();
+													if (firstPart.has("thought")
+															&& firstPart.get("thought").getAsBoolean()) {
+														if (!thinkingStarted.get()) {
+															assistantMessage.setContent(
+																	assistantMessage.getContent() + "\n<think>\n");
+															thinkingStarted.set(true);
+														}
+														assistantMessage.setThinkingContent(
+																(assistantMessage.getThinkingContent() == null ? ""
+																		: assistantMessage.getThinkingContent())
+																		+ chunk);
+													} else if (!firstPart.has("thought")
+															|| !firstPart.get("thought").getAsBoolean()) {
+														if (thinkingStarted.get()) {
+															assistantMessage.setContent(
+																	assistantMessage.getContent() + "\n</think>\n");
+															thinkingStarted.set(false);
+														}
+													}
+
 													assistantMessage.setContent(assistantMessage.getContent() + chunk);
 													chat.notifyMessageUpdated(assistantMessage);
 												}

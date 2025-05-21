@@ -39,7 +39,7 @@ public class MessageContextDialog extends Dialog {
 
         StyledText styledText = new StyledText(container, SWT.BORDER | SWT.V_SCROLL | SWT.H_SCROLL);
         styledText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-		styledText.setText(messageContext.getContent());
+		styledText.setText(messageContext.compile());
 		styledText.setFont(ThemeUtil.getTextEditorFont());
         styledText.setEditable(false);
 

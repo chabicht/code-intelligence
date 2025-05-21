@@ -19,7 +19,7 @@ public class ChatConversation {
 	 * Role a chat message can have.
 	 */
 	public static enum Role {
-		SYSTEM, USER, ASSISTANT;
+		SYSTEM, USER, ASSISTANT, TOOL;
 	}
 
 	public static enum RangeType {
@@ -55,23 +55,28 @@ public class ChatConversation {
 		private final RangeType rangeType;
 		private final int start;
 		private final int end;
+		private final String instructionsBefore;
 		private final String content;
+		private final String instructionsAfter;
 
 		public MessageContext(String fileName, int startLine, int endLine, String content) {
 			this(fileName, RangeType.LINE, startLine, endLine, content);
 		}
 
 		public MessageContext(String fileName, RangeType rangeType, int start, int end, String content) {
-			this(UUID.randomUUID(), fileName, rangeType, start, end, content);
+			this(UUID.randomUUID(), fileName, rangeType, start, end, "", content, "");
 		}
 
-		public MessageContext(UUID uuid, String fileName, RangeType rangeType, int start, int end, String content) {
+		public MessageContext(UUID uuid, String fileName, RangeType rangeType, int start, int end,
+				String instructionsBefore, String content, String instructionsAfter) {
 			this.uuid = uuid;
 			this.fileName = fileName;
 			this.rangeType = rangeType;
 			this.start = start;
 			this.end = end;
+			this.instructionsBefore = instructionsBefore;
 			this.content = content;
+			this.instructionsAfter = instructionsAfter;
 		}
 
 		public boolean isDuplicate(MessageContext other) {
@@ -127,8 +132,16 @@ public class ChatConversation {
 		}
 
 		public String compile(boolean prefixLineNumbers) {
-			return new StringBuilder().append("```").append(getDescriptor(prefixLineNumbers))
-					.append(prefixLineNumbers ? getPrefixedContent() : getContent()).append("\n```\n").toString();
+			StringBuilder sb = new StringBuilder();
+			if (StringUtils.isNotBlank(instructionsBefore)) {
+				sb.append(instructionsBefore);
+			}
+			sb.append("```").append(getDescriptor(prefixLineNumbers))
+					.append(prefixLineNumbers ? getPrefixedContent() : getContent()).append("\n```\n");
+			if (StringUtils.isNotBlank(instructionsAfter)) {
+				sb.append(instructionsAfter);
+			}
+			return sb.toString();
 		}
 
 		private String getPrefixedContent() {
