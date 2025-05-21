@@ -195,7 +195,7 @@ public class ChatSettingsDialog extends Dialog {
 
 	private void updateReasoningEnablement(String modelId) {
 		Display.getDefault().syncExec(() -> {
-			boolean supportsReasoning = modelId.contains("claude-3-7");
+			boolean supportsReasoning = modelId.contains("claude-3-7") || modelId.contains("gemini-2.5");
 			if (!supportsReasoning) {
 				btnEnabled.setSelection(false);
 			}

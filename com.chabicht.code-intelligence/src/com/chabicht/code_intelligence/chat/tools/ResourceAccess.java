@@ -9,83 +9,108 @@ import org.eclipse.core.filebuffers.ITextFileBuffer;
 import org.eclipse.core.filebuffers.ITextFileBufferManager;
 import org.eclipse.core.filebuffers.LocationKind;
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.IResourceVisitor;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.NullProgressMonitor;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.core.runtime.Path;
 import org.eclipse.jface.text.IDocument;
 
 import com.chabicht.code_intelligence.util.Log;
 
 public class ResourceAccess implements IResourceAccess {
 
-	/**
+/**
 	 * Finds the IFile resource corresponding to the given file name. Provides basic
 	 * handling for ambiguity (multiple files with the same name).
 	 *
-	 * @param fileName The simple name of the file (e.g., "MyClass.java").
+	 * @param fileName The simple name of the file (e.g., "MyClass.java") or a full path
+	 *                 (e.g., "/ProjectName/src/com/example/MyClass.java").
 	 * @return The IFile if found uniquely, or a best guess, or null.
 	 */
 	public IFile findFileByNameBestEffort(String fileName) {
 		IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-		final List<IFile> foundFiles = new ArrayList<>();
-
-		try {
-			root.accept(new IResourceVisitor() {
-							@Override
-			public boolean visit(IResource resource) throws CoreException {
-				if (resource.getType() == IResource.FILE && resource.getName().equals(fileName)) {
-					IProject project = resource.getProject();
-					IJavaProject javaProject = JavaCore.create(project);
-
-					// Check if it's a Java project and if the resource is within the output location
-					boolean isInOutputLocation = false;
-					if (javaProject != null && javaProject.exists()) {
-						IPath outputLocation = javaProject.getOutputLocation();
-						if (outputLocation != null && outputLocation.isPrefixOf(resource.getFullPath())) {
-							isInOutputLocation = true;
-						}
-					}
-
-					if (!isInOutputLocation) {
-						foundFiles.add((IFile) resource);
-						// Optimization: If you only ever want the *first* match, uncomment the next
-						// line
-						// return false;
-					}
-				}
-				// Continue searching in subfolders regardless
-				return true;
-			}
-			});
-		} catch (CoreException e) {
-			Log.logError("Error searching for file: " + fileName, e);
-			return null; // Return null on error during search
+		
+		// Handle a/ and b/ prefixes commonly found in GIT diffs
+		if (fileName.startsWith("a/") || fileName.startsWith("b/")) {
+			fileName = fileName.substring(2);
 		}
 
-		// Evaluate search results
+		if (fileName.contains("/")) {
+			// Try to find file directly by path
+			IFile file = root.getFile(new Path(fileName));
+			if (file.exists()) {
+				return file;
+			}
+			// If direct lookup fails, extract just the filename and fall back to search
+			String simpleFileName = new Path(fileName).lastSegment();
+			Log.logInfo("File path not found: " + fileName + ". Searching by simple name: " + simpleFileName);
+			fileName = simpleFileName;
+		}
+
+		final List<IFile> foundFiles = new ArrayList<>();
+
+		final String finalFilename = fileName;
 		if (foundFiles.size() == 1) {
 			return foundFiles.get(0); // Unique match found
 		} else if (foundFiles.isEmpty()) {
-			Log.logInfo("No file found with name: " + fileName);
+			// Use finalFilename (the simple name used for searching) in this log message
+			Log.logInfo("No file found with name: " + finalFilename);
 			return null; // No file found
 		} else {
-			// Ambiguous case: multiple files found
-			// Log a warning and return the first one found as a best effort.
-			// Consider making this behavior configurable or throwing an error.
-			Log.logInfo("Multiple files found with name: " + fileName + ". Using the first one: "
-					+ foundFiles.get(0).getFullPath());
-			// You might want to try finding the file in the active editor first here
-			// IFile fileFromEditor = findFileInActiveEditor(fileName);
-			// if (fileFromEditor != null) return fileFromEditor;
-			return foundFiles.get(0); // Return the first match as a fallback
+			// Ambiguous case: multiple files found.
+			// Use the path of the candidates to find the best match.
+			// The file with the longest matching streak of parent directories wins.
+			// 'fileName' is the original search string (potentially with path).
+			// 'finalFilename' is the simple name used in the visitor if 'fileName' was a
+			// path.
+			Log.logInfo("Multiple files found with simple name: " + finalFilename
+					+ ". Disambiguating using original search path: " + fileName);
+
+			IFile bestMatchFile = null;
+			int maxMatchDepth = -1;
+
+			// Path segments from the original search string (fileName)
+			String[] searchPathSegments = new Path(fileName).segments();
+
+			for (IFile candidateFile : foundFiles) {
+				IPath candidateIPath = candidateFile.getFullPath(); // e.g., /project/src/com/example/File.java
+				String[] candidatePathSegments = candidateIPath.segments(); // e.g., ["project", "src", "com",
+																			// "example", "File.java"]
+
+				int currentMatchDepth = 0;
+				int searchIdx = searchPathSegments.length - 1;
+				int candidateIdx = candidatePathSegments.length - 1;
+
+				// Compare segments from the end (filename, then parent, then grandparent, etc.)
+				while (searchIdx >= 0 && candidateIdx >= 0
+						&& searchPathSegments[searchIdx].equals(candidatePathSegments[candidateIdx])) {
+					currentMatchDepth++;
+					searchIdx--;
+					candidateIdx--;
+				}
+
+				if (currentMatchDepth > maxMatchDepth) {
+					maxMatchDepth = currentMatchDepth;
+					bestMatchFile = candidateFile;
+				}
+			}
+
+			if (bestMatchFile != null) {
+				Log.logInfo("Disambiguated match for '" + fileName + "': " + bestMatchFile.getFullPath()
+						+ " (match depth: " + maxMatchDepth + ")");
+				return bestMatchFile;
+			} else {
+				// Fallback if disambiguation didn't identify a clear best match (should be rare
+				// if foundFiles is not empty)
+				Log.logWarn("Could not effectively disambiguate multiple files for '" + fileName
+						+ "' using path matching (maxMatchDepth=" + maxMatchDepth + "). Returning the first found: "
+						+ foundFiles.get(0).getFullPath());
+				return foundFiles.get(0);
+			}
 		}
+
 	}
 
 	/**
