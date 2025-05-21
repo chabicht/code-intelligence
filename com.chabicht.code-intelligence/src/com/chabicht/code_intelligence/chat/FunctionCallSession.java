@@ -1,7 +1,7 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import com.chabicht.code_intelligence.Activator;
@@ -14,9 +14,10 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.util.GsonUtil;
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-import com.google.gson.reflect.TypeToken; // Import needed for Map type
 
 public class FunctionCallSession {
 
@@ -59,7 +60,10 @@ public class FunctionCallSession {
 				handleApplyPatch(call, result, argsJson);
 				break;
 			case "perform_text_search":
-				handlePerformTextSearch(call, result, argsJson);
+				handlePerformSearch(call, result, argsJson, false);
+				break;
+			case "perform_regex_search":
+				handlePerformSearch(call, result, argsJson, true);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -81,15 +85,13 @@ public class FunctionCallSession {
 	private void handleApplyChange(FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
 			// Define the type for Gson parsing: Map<String, String>
-			java.lang.reflect.Type type = new TypeToken<Map<String, String>>() {
-			}.getType();
-			Map<String, String> args = gson.fromJson(functionArgsJson, type);
+			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
 
 			// Extract arguments using the names defined in the function declaration
-			String fileName = args.get("file_name");
-			String location = args.get("location_in_file");
-			String originalText = args.get("original_text");
-			String replacementText = args.get("replacement_text");
+			String fileName = args.has("file_name") ? args.get("file_name").getAsString() : null;
+			String location = args.has("location_in_file") ? args.get("location_in_file").getAsString() : null;
+			String originalText = args.has("original_text") ? args.get("original_text").getAsString() : null;
+			String replacementText = args.has("replacement_text") ? args.get("replacement_text").getAsString() : null;
 
 			// Basic validation
 			if (fileName == null || location == null || originalText == null || replacementText == null) {
@@ -169,18 +171,18 @@ public class FunctionCallSession {
 	 *
 	 * @param call             The FunctionCall object
 	 * @param result           The FunctionResult object to populate
-	 * @param functionArgsJson JSON arguments for apply_patch. Expected: {"file_name": "...", "patch_content": "..."}
+	 * @param functionArgsJson JSON arguments for apply_patch. Expected:
+	 *                         {"file_name": "...", "patch_content": "..."}
 	 */
 	private void handleApplyPatch(FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
-			java.lang.reflect.Type type = new TypeToken<Map<String, String>>() {}.getType();
-			Map<String, String> args = gson.fromJson(functionArgsJson, type);
-
-			String fileName = args.get("file_name");
-			String patchContent = args.get("patch_content");
+			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
+			String fileName = args.has("file_name") ? args.get("file_name").getAsString() : null;
+			String patchContent = args.has("patch_content") ? args.get("patch_content").getAsString() : null;
 
 			if (fileName == null || patchContent == null) {
-				String errorMsg = "Missing required argument for apply_patch. Expected file_name and patch_content. Args: " + functionArgsJson;
+				String errorMsg = "Missing required argument for apply_patch. Expected file_name and patch_content. Args: "
+						+ functionArgsJson;
 				Activator.logError(errorMsg);
 				result.addPrettyResult("error", errorMsg, false);
 
@@ -195,7 +197,7 @@ public class FunctionCallSession {
 
 			// Use the input patch content directly as the preview
 			if (patchResult.getInputPatchPreview() != null) {
-			    result.addPrettyResult("preview", "```diff\n" + patchResult.getInputPatchPreview() + "\n```", true);
+				result.addPrettyResult("preview", "```diff\n" + patchResult.getInputPatchPreview() + "\n```", true);
 			}
 
 			call.addPrettyParam("file_name", fileName, false);
@@ -238,29 +240,38 @@ public class FunctionCallSession {
 		}
 	}
 
-	@SuppressWarnings("unchecked") // For casting List<String> from Map<String, Object>
-	private void handlePerformTextSearch(FunctionCall call, FunctionResult result, String functionArgsJson) {
+	private void handlePerformSearch(FunctionCall call, FunctionResult result, String functionArgsJson,
+			boolean isRegEx) {
 		try {
-			java.lang.reflect.Type type = new TypeToken<Map<String, Object>>() {}.getType();
-			Map<String, Object> args = gson.fromJson(functionArgsJson, type);
+			// Parse the JSON arguments directly into a JsonObject
+			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
 
-			String searchText = (String) args.get("search_text");
-			boolean isRegEx = args.containsKey("is_regex") && args.get("is_regex") != null
-					&& (args.get("is_regex") instanceof Boolean) ? (Boolean) args.get("is_regex") : false;
+			// Extract arguments using the names defined in the function declaration
+			String searchText = null;
+			if (args.has("search_text")) {
+				searchText = args.get("search_text").getAsString();
+			} else if (args.has("search_pattern")) {
+				searchText = args.get("search_pattern").getAsString();
+			}
+			
 			List<String> fileNamePatterns = null;
-			if (args.containsKey("file_name_patterns") && args.get("file_name_patterns") != null) {
-				// Gson might parse to ArrayList<String> or similar, ensure it's correctly cast
-				Object patternsObj = args.get("file_name_patterns");
-				if (patternsObj instanceof List) {
-					fileNamePatterns = (List<String>) patternsObj;
+			if (args.has("file_name_patterns") && !args.get("file_name_patterns").isJsonNull()) {
+				JsonArray patternsArray = args.get("file_name_patterns").getAsJsonArray();
+				fileNamePatterns = new ArrayList<>();
+				for (JsonElement element : patternsArray) {
+					fileNamePatterns.add(element.getAsString());
 				}
 			}
 
-			boolean isCaseSensitive = args.containsKey("is_case_sensitive") ? (Boolean) args.get("is_case_sensitive") : false;
-			boolean isWholeWord = args.containsKey("is_whole_word") ? (Boolean) args.get("is_whole_word") : false;
+			boolean isCaseSensitive = args.has("is_case_sensitive") 
+					? args.get("is_case_sensitive").getAsBoolean() : false;
+			boolean isWholeWord = args.has("is_whole_word") 
+					? args.get("is_whole_word").getAsBoolean() : false;
 
+			// Basic validation
 			if (searchText == null) {
-				String errorMsg = "Missing required arguments (search_text, is_regex) for perform_text_search. Args: " + functionArgsJson;
+				String errorMsg = "Missing required argument (search_text) for perform_text_search. Args: "
+						+ functionArgsJson;
 				Activator.logError(errorMsg);
 				result.addPrettyResult("error", errorMsg, false);
 				JsonObject jsonResult = new JsonObject();
@@ -270,9 +281,8 @@ public class FunctionCallSession {
 				return;
 			}
 
-			TextSearchTool.SearchExecutionResult searchExecResult = searchTool.performSearch(
-					searchText, isRegEx, isCaseSensitive, isWholeWord, fileNamePatterns
-			);
+			TextSearchTool.SearchExecutionResult searchExecResult = searchTool.performSearch(searchText, isRegEx,
+					isCaseSensitive, isWholeWord, fileNamePatterns);
 
 			call.addPrettyParam("search_text", searchText, isRegEx); // Mark as code if regex
 			call.addPrettyParam("is_regex", String.valueOf(isRegEx), false);
@@ -294,10 +304,11 @@ public class FunctionCallSession {
 				StringBuilder resultsPreview = new StringBuilder();
 				resultsPreview.append("Found ").append(searchExecResult.getResults().size()).append(" matches:\n");
 				for (TextSearchTool.SearchResultItem item : searchExecResult.getResults()) {
-					resultsPreview.append(String.format("- %s (Line %d): `%s` (Matched: `%s`)\n",
-							item.getFilePath(), item.getLineNumber(), item.getLineContent(), item.getMatchedText()));
+					resultsPreview.append(String.format("- %s (Line %d): `%s` (Matched: `%s`)\n", item.getFilePath(),
+							item.getLineNumber(), item.getLineContent(), item.getMatchedText()));
 				}
-				result.addPrettyResult("search_results_summary", resultsPreview.toString(), true); // Markdown for code backticks
+				result.addPrettyResult("search_results_summary", resultsPreview.toString(), true); // Markdown for code
+																									// backticks
 				jsonResult.add("results", gson.toJsonTree(searchExecResult.getResults()));
 
 			} else {
@@ -314,12 +325,6 @@ public class FunctionCallSession {
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);
 			// ... set JSON error result ...
-		} catch (ClassCastException e) {
-			String errorMsg = "Type error in arguments for perform_text_search: " + e.getMessage() + ". Args: " + functionArgsJson;
-			Activator.logError(errorMsg, e);
-			result.addPrettyResult("status", "Error", false);
-			result.addPrettyResult("message", errorMsg, false);
-			// ... set JSON error result ...
 		} catch (Exception e) {
 			String errorMsg = "Error processing perform_text_search function call: " + e.getMessage();
 			Activator.logError(errorMsg, e);
@@ -331,6 +336,7 @@ public class FunctionCallSession {
 
 	/**
 	 * Checks if there are any pending changes accumulated from any tool.
+	 * 
 	 * @return true if there are pending changes, false otherwise.
 	 */
 	public boolean hasPendingChanges() {
@@ -338,18 +344,20 @@ public class FunctionCallSession {
 	}
 
 	/**
-	 * Triggers the application of all accumulated changes from all tools.
-	 * This typically shows a preview dialog to the user for each tool's changes.
+	 * Triggers the application of all accumulated changes from all tools. This
+	 * typically shows a preview dialog to the user for each tool's changes.
 	 */
 	public void applyPendingChanges() {
 		boolean appliedAny = false;
 		if (applyChangeTool.getPendingChangeCount() > 0) {
-			Activator.logInfo("Applying " + applyChangeTool.getPendingChangeCount() + " pending changes from ApplyChangeTool.");
+			Activator.logInfo(
+					"Applying " + applyChangeTool.getPendingChangeCount() + " pending changes from ApplyChangeTool.");
 			applyChangeTool.applyChanges();
 			appliedAny = true;
 		}
 		if (applyPatchTool.getPendingChangeCount() > 0) {
-			Activator.logInfo("Applying " + applyPatchTool.getPendingChangeCount() + " pending changes from ApplyPatchTool.");
+			Activator.logInfo(
+					"Applying " + applyPatchTool.getPendingChangeCount() + " pending changes from ApplyPatchTool.");
 			applyPatchTool.applyPendingChanges();
 			appliedAny = true;
 		}
@@ -360,7 +368,8 @@ public class FunctionCallSession {
 	}
 
 	/**
-	 * Clears any pending changes that have been accumulated but not yet applied from all tools.
+	 * Clears any pending changes that have been accumulated but not yet applied
+	 * from all tools.
 	 */
 	public void clearPendingChanges() {
 		if (applyChangeTool.getPendingChangeCount() > 0) {

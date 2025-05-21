@@ -560,35 +560,51 @@ public class ChatConversation {
 		notifyMessageAdded(message, updating);
 	}
 
-	public void addOrReplaceSystemMessage(String prompt) {
-		boolean addNew = false;
+	/**
+	 * Adds or updates the system prompt message if the prompt is different from the
+	 * message content already present.
+	 * 
+	 * @param prompt The new system prompt.
+	 * @return TRUE if the prompt was updated.
+	 */
+	public boolean addOrReplaceSystemMessage(String prompt) {
+		boolean addMessage = false;
+		boolean changed = false;
 		if (!messages.isEmpty()) {
 			ChatMessage first = messages.get(0);
 			if (Role.SYSTEM.equals(first.getRole())) {
-				first.setContent(prompt);
-				notifyMessageUpdated(first);
+				if (!StringUtils.equals(prompt, first.getContent())) {
+					first.setContent(prompt);
+					changed = true;
+				}
 			} else {
-				addNew = true;
+				addMessage = true;
 			}
 		} else {
-			addNew = true;
+			addMessage = true;
 		}
 
-		if (addNew) {
-			addMessage(new ChatMessage(Role.SYSTEM, prompt), false);
+		if (addMessage) {
+			ChatMessage message = new ChatMessage(Role.SYSTEM, prompt);
+			messages.add(0, message);
+			changed = true;
 		}
+
+		return changed;
 	}
 
-	public void removeSystemMessage() {
+	public boolean removeSystemMessage() {
 		if (messages.isEmpty()) {
-			return;
+			return false;
 		}
 
 		ChatMessage first = messages.get(0);
 		if (Role.SYSTEM.equals(first.getRole())) {
 			messages.remove(first);
-			// TODO: Remove from HTML view.
+			return true;
 		}
+
+		return false;
 	}
 
 	/**

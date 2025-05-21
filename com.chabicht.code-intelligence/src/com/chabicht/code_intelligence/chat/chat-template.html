@@ -276,11 +276,54 @@
 	  td:last-child {
 	    border-bottom: 0;
 	  }
-	    /* Remove vertical lines in responsive mode */
-	    td, th {
-	        border-right: none;
-	    }
-	}
+      /* Remove vertical lines in responsive mode */
+      td, th {
+          border-right: none;
+      }
+    }
+
+    /* Function call parameter and result styles */
+    .function-params-container,
+    .function-results-container {
+      width: 100%;
+      margin: 15px 0;
+      border: 1px solid #bfbfbf;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      background-color: #ffffff;
+    }
+
+    .params-header,
+    .results-header {
+      padding: 10px 12px;
+      background-color: #f5f5f5;
+      font-weight: bold;
+      color: #333333;
+      border-bottom: 2px solid #bfbfbf;
+    }
+
+    .param-name,
+    .result-name {
+      padding: 10px 12px;
+      font-weight: bold;
+      background-color: #f9f9f9;
+      border-bottom: 1px solid #bfbfbf;
+    }
+
+    .param-value,
+    .result-value {
+      padding: 10px 12px;
+      border-bottom: 1px solid #bfbfbf;
+      background-color: #ffffff;
+      white-space: pre-wrap;
+    }
+
+    /* Remove bottom border from the last value in a container */
+    .function-params-container > .param-value:last-child,
+    .function-results-container > .result-value:last-child {
+      border-bottom: none;
+    }
 
 	.tool-actions {
       margin-top: 10px;

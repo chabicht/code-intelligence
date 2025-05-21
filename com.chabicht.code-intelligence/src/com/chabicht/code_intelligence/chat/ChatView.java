@@ -106,6 +106,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
+import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.code_intelligence.util.CodeUtil;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
@@ -238,9 +239,9 @@ public class ChatView extends ViewPart {
 				FunctionResult result = message.getFunctionResult()
 						.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
 
-				// Build parameter table
-				StringBuilder paramsTable = new StringBuilder("<table class=\"function-params-table\">");
-				paramsTable.append("<tr><th>Parameter</th><th>Value</th></tr>");
+				// Build parameter divs
+				StringBuilder paramsTable = new StringBuilder("<div class=\"function-params-container\">");
+				paramsTable.append("<div class=\"params-header\">Parameters</div>");
 
 				for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
 					String paramName = entry.getKey();
@@ -254,16 +255,16 @@ public class ChatView extends ViewPart {
 						displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
 					}
 
-					paramsTable.append(String.format("<tr><td>%s</td><td>%s</td></tr>",
+					paramsTable.append(String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
 							StringEscapeUtils.escapeHtml4(paramName), displayValue));
 				}
-				paramsTable.append("</table>");
+				paramsTable.append("</div>");
 
-				// Build result table if we have results
+				// Build result divs if we have results
 				StringBuilder resultTable = new StringBuilder();
 				if (!result.getPrettyResults().isEmpty()) {
-					resultTable.append("<table class=\"function-results-table\">");
-					resultTable.append("<tr><th>Result</th><th>Value</th></tr>");
+					resultTable.append("<div class=\"function-results-container\">");
+					resultTable.append("<div class=\"results-header\">Results</div>");
 
 					for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
 						String resultName = entry.getKey();
@@ -277,10 +278,10 @@ public class ChatView extends ViewPart {
 							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
 						}
 
-						resultTable.append(String.format("<tr><td>%s</td><td>%s</td></tr>",
+						resultTable.append(String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
 								StringEscapeUtils.escapeHtml4(resultName), displayValue));
 					}
-					resultTable.append("</table>");
+					resultTable.append("</div>");
 				}
 
 				// Build raw JSON section
@@ -557,6 +558,7 @@ public class ChatView extends ViewPart {
 							c.setConversationId(null);
 							c.setCaption(null);
 						}
+						updateSystemPrompt(c);
 						replaceChat(c);
 					}
 				}
@@ -891,6 +893,11 @@ public class ChatView extends ViewPart {
 			// Reset settings, e.g. the chat model.
 			init();
 		});
+		
+		settings.addPropertyChangeListener("promptTemplate", e->{
+			updateSystemPrompt();
+		});
+		
 		IListChangeListener<? super MessageContext> listChangeListener = e -> {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
@@ -984,6 +991,28 @@ public class ChatView extends ViewPart {
 		});
 	}
 
+	private void updateSystemPrompt() {
+		ChatConversation chatToUpdate = conversation;
+		boolean changed = updateSystemPrompt(chatToUpdate);
+		if (changed) {
+			replaceChat(conversation);
+		}
+	}
+
+	private boolean updateSystemPrompt(ChatConversation chatToUpdate) {
+		PromptTemplate promptTemplate = settings.getPromptTemplate();
+		String templateString = promptTemplate == null ? null : promptTemplate.getPrompt();
+
+		// Replace system prompt if neccessary.
+		boolean changed;
+		if (StringUtils.isBlank(templateString)) {
+			changed = chatToUpdate.removeSystemMessage();
+		} else {
+			changed = chatToUpdate.addOrReplaceSystemMessage(templateString);
+		}
+		return changed;
+	}
+
 	private void removeAttachmentLabel(MessageContext ctx) {
 		if (cmpAttachments != null && !cmpAttachments.isDisposed() && cmpAttachments.getChildren() != null) {
 			Control[] children = cmpAttachments.getChildren();
@@ -1036,12 +1065,6 @@ public class ChatView extends ViewPart {
 
 			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
-
-			if (settings.getPromptTemplate() == null || StringUtils.isBlank(settings.getPromptTemplate().getPrompt())) {
-				conversation.removeSystemMessage();
-			} else {
-				conversation.addOrReplaceSystemMessage(settings.getPromptTemplate().getPrompt());
-			}
 
 			conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
