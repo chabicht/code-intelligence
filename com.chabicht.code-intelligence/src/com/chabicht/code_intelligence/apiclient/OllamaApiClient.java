@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
@@ -200,6 +201,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("stream", true);
 		req.add("messages", messagesJson);
 
+		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOllama());
 
 		JsonObject options = getOrAddJsonObject(req, "options");
 		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);

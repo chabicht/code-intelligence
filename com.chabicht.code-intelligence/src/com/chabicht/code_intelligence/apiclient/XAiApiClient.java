@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
@@ -144,6 +145,8 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("model", modelName);
 		req.addProperty("temperature", completionPrompt.getTemperature());
 		req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
+
+		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsXAi());
 
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();

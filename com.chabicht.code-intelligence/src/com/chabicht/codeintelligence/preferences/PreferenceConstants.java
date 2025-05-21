@@ -16,6 +16,7 @@ public class PreferenceConstants {
 	public static final String CUSTOM_CONFIGURATION_PARAMETERS = "customConfigurationParameters";
 	public static final String COMPLETION_CONTEXT_LINES_BEFORE = "completionContextLinesBefore";
 	public static final String COMPLETION_CONTEXT_LINES_AFTER = "completionContextLinesAfter";
+	public static final String CHAT_TOOLS_ENABLED = "chatToolsEnabled";
 
 	public static final String CONNECTION_SETUP_WIZARD_PROPOSED = "connectionSetupWizardProposed";
 }

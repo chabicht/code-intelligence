@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
@@ -73,6 +74,9 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 	@Override
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		JsonObject req = createFromPresets(PromptType.CHAT);
+
+		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini());
+
 		String systemPrompt = getSystemPrompt(chat);
 		if (StringUtils.isNoneBlank(systemPrompt)) {
 			JsonObject systemInstruction = new JsonObject();

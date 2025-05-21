@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
@@ -118,6 +119,8 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
+
+		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsAnthropic());
 
 		// Add system prompt if present
 		for (ChatConversation.ChatMessage msg : chat.getMessages()) {

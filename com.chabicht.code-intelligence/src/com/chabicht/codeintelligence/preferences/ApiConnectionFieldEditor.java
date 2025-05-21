@@ -158,6 +158,7 @@ public class ApiConnectionFieldEditor extends FieldEditor {
 
 	private void addNewConnection() {
 		AiApiConnection connection = new AiApiConnection();
+		connection.setEnabled(true);
 		AiApiConnectionEditDialog dialog = new AiApiConnectionEditDialog(tableViewer.getTable().getShell(), connection);
 		if (dialog.open() == AiApiConnectionEditDialog.OK) {
 			connections.add(connection);

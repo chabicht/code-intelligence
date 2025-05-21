@@ -4,18 +4,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IStatus;
-import org.eclipse.core.runtime.Status;
-import org.eclipse.jface.dialogs.ProgressMonitorDialog;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
+import org.eclipse.search.ui.IQueryListener;
 import org.eclipse.search.ui.ISearchQuery;
 import org.eclipse.search.ui.ISearchResult;
 import org.eclipse.search.ui.NewSearchUI;
@@ -24,7 +23,6 @@ import org.eclipse.search.ui.text.FileTextSearchScope;
 import org.eclipse.search.ui.text.Match;
 import org.eclipse.search.ui.text.TextSearchQueryProvider;
 import org.eclipse.swt.widgets.Display;
-import org.eclipse.swt.widgets.Shell;
 
 import com.chabicht.code_intelligence.util.Log; // Assuming you have a Log utility like in ApplyPatchTool
 
@@ -201,42 +199,60 @@ public class TextSearchTool {
 			return new SearchExecutionResult(false, "Invalid arguments for search query: " + e.getMessage(), null);
 		}
 
-		List<SearchResultItem> collectedResults = new ArrayList<>();
-		IStatus status = Display.getDefault().syncCall(() -> {
-			Shell shell = new Shell(Display.getCurrent());
-			try {
-				return NewSearchUI.runQueryInForeground(new ProgressMonitorDialog(shell), query);
-			} catch (Exception e) {
-				return Status.error("Error while invoking search", e);
-			} finally {
-				shell.dispose();
-				shell = null;
+		AtomicBoolean finished = new AtomicBoolean(false);
+		AtomicBoolean canceled = new AtomicBoolean(false);
+		IQueryListener queryListener = new IQueryListener() {
+
+			@Override
+			public void queryStarting(ISearchQuery query) {
 			}
+
+			@Override
+			public void queryRemoved(ISearchQuery q) {
+				if (query.equals(q)) {
+					finished.set(true);
+					canceled.set(true);
+				}
+			}
+
+			@Override
+			public void queryFinished(ISearchQuery q) {
+				if (query.equals(q)) {
+					finished.set(true);
+				}
+			}
+
+			@Override
+			public void queryAdded(ISearchQuery query) {
+			}
+		};
+		NewSearchUI.addQueryListener(queryListener);
+		List<SearchResultItem> collectedResults = new ArrayList<>();
+		Display.getDefault().syncExec(() -> {
+			NewSearchUI.runQueryInBackground(query);
 		});
 
-		// Check the status of the search operation
-		if (status.isOK() || status.matches(IStatus.INFO) || status.matches(IStatus.WARNING)
-				|| status.matches(IStatus.CANCEL)) {
+		try {
+			while (!finished.get()) {
+				Thread.sleep(200l);
+			}
+
 			// Proceed to collect results even on cancel or with info/warnings, as some
 			// results might be available.
 			collectMatchesFromSearchResult(query.getSearchResult(), collectedResults);
 
 			String message = "Search completed.";
-			if (status.matches(IStatus.CANCEL))
+			if (canceled.get())
 				message = "Search was cancelled. " + collectedResults.size() + " results found before cancellation.";
-			else if (!status.isOK())
-				message = "Search completed with status: " + status.getMessage() + ". " + collectedResults.size()
-						+ " results found.";
 			else
 				message = "Search completed successfully. " + collectedResults.size() + " results found.";
 
-			return new SearchExecutionResult(true, message, collectedResults); // true indicates the operation itself
-																				// was attempted/completed
-		} else {
-			// Error status
-			// Log.logError("Search query execution failed: " + status.getMessage(),
-			// status.getException());
-			return new SearchExecutionResult(false, "Search query execution failed: " + status.getMessage(), null);
+			return new SearchExecutionResult(true, message, collectedResults);
+		} catch (InterruptedException e) {
+			Thread.interrupted();
+			return new SearchExecutionResult(false, "Search query execution failed.", null);
+		} finally {
+			NewSearchUI.removeQueryListener(queryListener);
 		}
 	}
 }
