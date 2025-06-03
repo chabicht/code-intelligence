@@ -24,6 +24,30 @@
           }
         },
         {
+          "name": "read_file_content",
+          "description": "Reads the content of a specified file, or a specific line range within the file. Returns the content with line numbers prefixed.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "file_name": {
+                "type": "string",
+                "description": "The name or path of the file to read. If only a file name is present, a best effort algorithm is applied to guess the correct file."
+              },
+              "start_line": {
+                "type": "integer",
+                "description": "Optional. The 1-based starting line number of the range to read. If omitted, and end_line is also omitted, the entire file is read. If provided, end_line must also be provided or it defaults to start_line."
+              },
+              "end_line": {
+                "type": "integer",
+                "description": "Optional. The 1-based ending line number of the range to read. If omitted, and start_line is provided, it defaults to start_line (reads a single line). If both start_line and end_line are omitted, the entire file is read."
+              }
+            },
+            "required": [
+              "file_name"
+            ]
+          }
+        },
+        {
           "name": "apply_change",
           "description": "Applies a change to a code file.",
           "parameters": {
