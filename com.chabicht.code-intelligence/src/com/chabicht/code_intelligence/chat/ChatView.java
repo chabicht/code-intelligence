@@ -108,7 +108,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
-import com.chabicht.code_intelligence.util.CodeUtil;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.code_intelligence.util.ThemeUtil;
@@ -1138,16 +1137,14 @@ public class ChatView extends ViewPart {
 
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
-			String processedText = CodeUtil.removeCommonIndentation(selectedText);
 			addContextToMessageIfNotDuplicate(chatMessage, fileName, RangeType.LINE, startLine + 1, endLine + 1,
-					processedText);
+					selectedText);
 		}
 	}
 
 	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
 			int start, int end, String selectedText) {
-		String processedText = CodeUtil.removeCommonIndentation(selectedText);
-		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, processedText);
+		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, selectedText);
 		addContextToMessageIfNotDuplicate(chatMessage, newCtx);
 	}
 
