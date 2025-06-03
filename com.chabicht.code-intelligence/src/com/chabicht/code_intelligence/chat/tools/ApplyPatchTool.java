@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.CoreException;
@@ -27,9 +28,12 @@ import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
+import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.util.GsonUtil; // If you still want to log JSON
 import com.chabicht.code_intelligence.util.Log; // Your Log utility
+import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
+import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
 import com.google.gson.Gson;
@@ -165,34 +169,82 @@ public class ApplyPatchTool {
 			}
 
 			// Validate the patch by trying to apply it (in memory)
-			List<String> patchedDocLines;
-			try {
-				patchedDocLines = patch.applyFuzzy(originalDocLines, 10);
-			} catch (PatchFailedException e) {
-				Log.logError("Patch validation failed for file " + fileName + ": " + e.getMessage(), e);
-				return ApplyPatchResult.failure("Patch cannot be applied to the current file state: " + e.getMessage());
+			List<String> patchedDocLines = new ArrayList<>();
+			ApplyPatchResult applyPatchResult = attemptApplyPatch(originalDocLines, patch, patchedDocLines);
+
+			if (applyPatchResult.isSuccess()) {
+				// The current result is only a dummy.
+				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines, patchedDocLines,
+						lineDelimiter);
+				applyPatchResult = ApplyPatchResult.success(
+						"The patch was successfully validated and a change operation was queued to apply the patch after user review.\n\n"
+								+ changedLinesReport,
+						patchString, pendingChanges);
+
+				// Create a single ChangeOperation for the entire file content
+				String originalText = String.join(lineDelimiter, originalDocLines);
+				String replacementText = String.join(lineDelimiter, patchedDocLines);
+
+				ChangeOperation op = new ChangeOperation(fileName, 1, originalDocLines.size(), originalText,
+						replacementText);
+				newOperations.add(op);
+
+				pendingChanges.addAll(newOperations);
+				Log.logInfo("Validated and added " + newOperations.size() + " change operations from patch for file: "
+						+ fileName);
 			}
-
-			// Create a single ChangeOperation for the entire file content
-			String originalText = String.join(lineDelimiter, originalDocLines);
-			String replacementText = String.join(lineDelimiter, patchedDocLines);
-
-			ChangeOperation op = new ChangeOperation(fileName, 1, originalDocLines.size(), originalText,
-					replacementText);
-			newOperations.add(op);
-
-			pendingChanges.addAll(newOperations);
-			Log.logInfo("Validated and added " + newOperations.size() + " change operations from patch for file: "
-					+ fileName);
-			return ApplyPatchResult.success(newOperations.size() + " change operations queued from patch.", patchString,
-					newOperations);
-
+			return applyPatchResult;
 		} catch (Exception e) { // Catch any other unexpected errors
 			Log.logError("Unexpected error processing patch for file " + fileName + ": " + e.getMessage(), e);
 			return ApplyPatchResult.failure("Unexpected error processing patch: " + e.getMessage());
 		} finally {
 			resourceAccess.disconnectAllDocuments(tempDocMap);
 		}
+	}
+
+	private String generateChangedLinesReport(String fileName, List<String> originalDocLines,
+			List<String> patchedDocLines, String lineDelimiter) {
+		Patch<String> effectiveChange = DiffUtils.diff(originalDocLines, patchedDocLines);
+
+		String changes = effectiveChange.getDeltas().stream().map(d -> {
+			Chunk<String> target = d.getTarget();
+			int startLine = target.getPosition() + 1;
+			return new MessageContext(fileName, startLine, startLine + target.getLines().size(),
+					String.join("\n", target.getLines()));
+		}).map(mc -> mc.compile(true)).collect(Collectors.joining("\n"));
+
+		return "Here are the affected portions of the file after the patch is applied:  \n" + changes;
+	}
+
+	private ApplyPatchResult attemptApplyPatch(List<String> originalDocLines, Patch<String> patch,
+			List<String> patchedDocLines) {
+		PatchMethod[] patchMethods = new PatchMethod[] { () -> patch.applyTo(originalDocLines),
+				() -> patch.applyFuzzy(originalDocLines, 1),
+				() -> patch.applyFuzzy(originalDocLines, 3),
+				() -> patch.applyFuzzy(originalDocLines, 10), () -> patch.applyFuzzy(originalDocLines, 50),
+				() -> patch.applyFuzzy(originalDocLines, 100) };
+		for (int i = 0; i < patchMethods.length; i++) {
+			PatchMethod patchMethod = patchMethods[i];
+			try {
+				patchedDocLines.addAll(patchMethod.apply());
+				return ApplyPatchResult.success("dummy", null, null);
+			} catch (IndexOutOfBoundsException e) {
+				if (i < patchMethods.length - 1) {
+					continue;
+				} else {
+					Log.logError("Patch validation failed: unified diff format expected.", e);
+					return ApplyPatchResult.failure("Patch validation failed: unified diff format expected.");
+				}
+			} catch (PatchFailedException e) {
+				if (i < patchMethods.length - 1) {
+					continue;
+				} else {
+					Log.logError("Patch validation failed for file : " + e.getMessage(), e);
+					return ApplyPatchResult.failure("Patch cannot be applied: " + e.getMessage());
+				}
+			}
+		}
+		return ApplyPatchResult.failure("Patch cannot be applied: no more retries.");
 	}
 
 	public void clearChanges() {
@@ -375,5 +427,9 @@ public class ApplyPatchTool {
 
 			return new ReplaceEdit(offset, length, replacementText);
 		}
+	}
+
+	private static interface PatchMethod {
+		List<String> apply() throws PatchFailedException;
 	}
 }

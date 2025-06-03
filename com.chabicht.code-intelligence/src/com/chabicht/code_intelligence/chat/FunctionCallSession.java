@@ -206,12 +206,12 @@ public class FunctionCallSession {
 			JsonObject jsonResult = new JsonObject();
 			if (patchResult.isSuccess()) {
 				result.addPrettyResult("status", "Success", false);
-				result.addPrettyResult("message", patchResult.getMessage(), false);
+				result.addPrettyResult("message", patchResult.getMessage(), true);
 				jsonResult.addProperty("status", "Success");
 				jsonResult.addProperty("message", patchResult.getMessage());
 			} else {
 				result.addPrettyResult("status", "Error", false);
-				result.addPrettyResult("message", patchResult.getMessage(), false);
+				result.addPrettyResult("message", patchResult.getMessage(), true);
 				jsonResult.addProperty("status", "Error");
 				jsonResult.addProperty("message", patchResult.getMessage());
 			}

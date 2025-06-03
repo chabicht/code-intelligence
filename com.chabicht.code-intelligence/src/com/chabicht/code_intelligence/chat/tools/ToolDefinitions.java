@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.io.IOUtils;
+import org.eclipse.jface.preference.IPreferenceStore;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.util.GsonUtil;
@@ -155,8 +156,22 @@ public class ToolDefinitions {
 	}
 
 	private JsonObject getEnabledTools() {
-		if (Activator.getDefault().getPreferenceStore().getBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED)) {
-			return GsonUtil.createGson().fromJson(TOOL_DEFINITION_GEMINI, JsonObject.class);
+		IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
+		if (prefs.getBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED)) {
+			JsonObject toolsJson = GsonUtil.createGson().fromJson(TOOL_DEFINITION_GEMINI, JsonObject.class);
+			JsonObject wrapperObj = toolsJson.get("tools").getAsJsonArray().get(0).getAsJsonObject();
+			JsonArray toolsArray = wrapperObj.get("functionDeclarations").getAsJsonArray();
+			JsonArray res = new JsonArray();
+			for (JsonElement el : toolsArray) {
+				String toolName = el.getAsJsonObject().get("name").getAsString();
+				if (prefs.getBoolean(String.format("%s.%s.%s", PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX, toolName,
+						PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX))) {
+					res.add(el);
+				}
+			}
+			wrapperObj.remove("functionDeclarations");
+			wrapperObj.add("functionDeclarations", res);
+			return toolsJson;
 		} else {
 			return NO_TOOLS;
 		}
