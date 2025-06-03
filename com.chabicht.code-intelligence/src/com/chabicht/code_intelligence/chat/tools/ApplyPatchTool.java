@@ -5,8 +5,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
@@ -82,24 +80,22 @@ public class ApplyPatchTool {
 	public static class ApplyPatchResult {
 		private final boolean success;
 		private final String message;
-		private final String inputPatchPreview; // The patch string that was processed
 		private final List<ChangeOperation> operations; // List of operations created
 
-		private ApplyPatchResult(boolean success, String message, String inputPatchPreview,
+		private ApplyPatchResult(boolean success, String message,
 				List<ChangeOperation> operations) {
 			this.success = success;
 			this.message = message;
-			this.inputPatchPreview = inputPatchPreview;
 			this.operations = operations != null ? operations : new ArrayList<>();
 		}
 
-		public static ApplyPatchResult success(String message, String inputPatchPreview,
+		public static ApplyPatchResult success(String message,
 				List<ChangeOperation> operations) {
-			return new ApplyPatchResult(true, message, inputPatchPreview, operations);
+			return new ApplyPatchResult(true, message, operations);
 		}
 
 		public static ApplyPatchResult failure(String message) {
-			return new ApplyPatchResult(false, message, null, null);
+			return new ApplyPatchResult(false, message, null);
 		}
 
 		public boolean isSuccess() {
@@ -108,10 +104,6 @@ public class ApplyPatchTool {
 
 		public String getMessage() {
 			return message;
-		}
-
-		public String getInputPatchPreview() {
-			return inputPatchPreview;
 		}
 
 		public List<ChangeOperation> getOperations() {
@@ -171,6 +163,12 @@ public class ApplyPatchTool {
 				return ApplyPatchResult.failure("Failed to parse unified diff: " + e.getMessage());
 			}
 
+			if (patch.getDeltas().isEmpty()) {
+				Log.logError("Empty diff for file: " + fileName);
+				return ApplyPatchResult.failure(
+						"The parser returned an empty patch. This is probably due to the patch_content not being a valid unified diff.");
+			}
+
 			// Hack: The difflib code expects 0-based line numbers, while AI models (and
 			// e.g. the diff -u tool) tend to use 1-based line numbers.
 			// So we add a blank line at the start of the originalDocLines, apply the patch,
@@ -198,9 +196,9 @@ public class ApplyPatchTool {
 				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines, patchedDocLines,
 						lineDelimiter);
 				applyPatchResult = ApplyPatchResult.success(
-						"The patch was successfully validated and a change operation was queued to apply the patch after user review.\n\n"
+						"The patch was successfully validated and a change operation was queued to apply the patch after user review.\n"
 								+ changedLinesReport,
-						patchString, pendingChanges);
+						pendingChanges);
 
 				// Create a single ChangeOperation for the entire file content
 				String originalText = String.join(lineDelimiter, originalDocLines);
@@ -227,30 +225,68 @@ public class ApplyPatchTool {
 			List<String> patchedDocLines, String lineDelimiter) {
 		Patch<String> effectiveChange = DiffUtils.diff(originalDocLines, patchedDocLines);
 
-		String changes = effectiveChange.getDeltas().stream()
-				.map(extractPatchedHunk(fileName, patchedDocLines))
-				.map(mc -> mc.compile(true)).collect(Collectors.joining("\n"));
-		return "Here are the affected portions of the file after the patch is applied:  \n" + changes;
-	}
+		List<AbstractDelta<String>> deltas = new java.util.ArrayList<>(effectiveChange.getDeltas());
 
-	private Function<AbstractDelta<String>, MessageContext> extractPatchedHunk(String fileName,
-			List<String> patchedDocLines) {
-		return d -> {
-			Chunk<String> target = d.getTarget();
-			int contextSize = (int) Math.max(3, target.getLines().size() / 10);
+		String prefix = "Here are the affected portions of the file after the patch is applied:\n";
+		if (deltas.isEmpty()) {
+			return prefix;
+		}
+
+		deltas.sort(java.util.Comparator.comparingInt(d -> d.getTarget().getPosition()));
+
+		List<int[]> initialHunks = new java.util.ArrayList<>();
+		for (AbstractDelta<String> delta : deltas) {
+			Chunk<String> target = delta.getTarget();
+			int contextSize = (int) Math.max(3, target.getLines().size() / 10); // Original context logic
 			int targetStartInPatched = target.getPosition(); // 0-indexed
 			int targetEndInPatched = targetStartInPatched + target.getLines().size();
 
-			int contextBufferStart = Math.max(0, targetStartInPatched - contextSize);
-			int contextBufferEnd = Math.min(patchedDocLines.size(), targetEndInPatched + contextSize);
+			int hunkStart0idx = Math.max(0, targetStartInPatched - contextSize);
+			int hunkEnd0idxExclusive = Math.min(patchedDocLines.size(), targetEndInPatched + contextSize);
 
-			List<String> linesWithContext = patchedDocLines.subList(contextBufferStart, contextBufferEnd);
-			int messageStartLine = contextBufferStart + 1; // 1-indexed for MessageContext
+			if (hunkStart0idx < hunkEnd0idxExclusive) { // Ensure hunk has content
+				initialHunks.add(new int[] { hunkStart0idx, hunkEnd0idxExclusive });
+			}
+		}
 
-			return new MessageContext(fileName, messageStartLine, messageStartLine + linesWithContext.size(), // endLine_inclusive
-																												// + 1
-					String.join("\n", linesWithContext));
-		};
+		if (initialHunks.isEmpty()) {
+			return prefix;
+		}
+
+		List<int[]> mergedHunks = new java.util.ArrayList<>();
+		mergedHunks.add(initialHunks.get(0));
+
+		for (int i = 1; i < initialHunks.size(); i++) {
+			int[] currentHunk = initialHunks.get(i);
+			int[] lastMergedHunk = mergedHunks.get(mergedHunks.size() - 1);
+
+			if (currentHunk[0] <= lastMergedHunk[1]) { // Current hunk overlaps or is adjacent to the last merged hunk
+				lastMergedHunk[1] = Math.max(lastMergedHunk[1], currentHunk[1]); // Extend the last merged hunk
+			} else {
+				mergedHunks.add(currentHunk); // Add as a new distinct hunk
+			}
+		}
+
+		List<MessageContext> messageContexts = new java.util.ArrayList<>();
+		for (int[] hunk : mergedHunks) {
+			int start0idx = hunk[0];
+			int end0idxExclusive = hunk[1];
+
+			List<String> linesWithContext = patchedDocLines.subList(start0idx, end0idxExclusive);
+			int messageStartLine = start0idx + 1; // Convert 0-indexed to 1-indexed for MessageContext
+
+			// Assuming MessageContext constructor: (fileName, startLine_1idx_inclusive,
+			// endLine_1idx_exclusive, content)
+			// endLine_1idx_exclusive = end0idxExclusive + 1
+			MessageContext mc = new MessageContext(fileName, messageStartLine, end0idxExclusive + 1,
+					String.join(lineDelimiter, linesWithContext));
+			messageContexts.add(mc);
+		}
+
+		String changes = messageContexts.stream().map(mc -> mc.compile(true)) // mc.compile(true) generates the
+																				// formatted hunk string
+				.collect(java.util.stream.Collectors.joining("\n")); // Join hunks with a newline
+		return prefix + changes;
 	}
 
 	private ApplyPatchResult attemptApplyPatch(List<String> originalDocLines, Patch<String> patch,
@@ -264,7 +300,7 @@ public class ApplyPatchTool {
 			PatchMethod patchMethod = patchMethods[i];
 			try {
 				patchedDocLines.addAll(patchMethod.apply());
-				return ApplyPatchResult.success("dummy", null, null);
+				return ApplyPatchResult.success("dummy", null);
 			} catch (IndexOutOfBoundsException e) {
 				if (i < patchMethods.length - 1) {
 					continue;

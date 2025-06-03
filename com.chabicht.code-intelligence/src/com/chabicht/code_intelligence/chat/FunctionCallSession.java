@@ -200,11 +200,6 @@ public class FunctionCallSession {
 
 			ApplyPatchTool.ApplyPatchResult patchResult = applyPatchTool.addChangesFromPatch(fileName, patchContent);
 
-			// Use the input patch content directly as the preview
-			if (patchResult.getInputPatchPreview() != null) {
-				result.addPrettyResult("preview", "```diff\n" + patchResult.getInputPatchPreview() + "\n```", true);
-			}
-
 			call.addPrettyParam("file_name", fileName, false);
 			call.addPrettyParam("patch_content", "```diff\n" + patchContent + "\n```", true);
 
