@@ -254,8 +254,9 @@ public class ChatView extends ViewPart {
 						displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
 					}
 
-					paramsTable.append(String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
-							StringEscapeUtils.escapeHtml4(paramName), displayValue));
+					paramsTable.append(
+							String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
+									StringEscapeUtils.escapeHtml4(paramName), displayValue));
 				}
 				paramsTable.append("</div>");
 
@@ -271,14 +272,14 @@ public class ChatView extends ViewPart {
 						String displayValue;
 
 						if (resultValue.isMarkdown()) {
-							displayValue = markdownRenderer
-									.render(markdownParser.parse(resultValue.getValue()));
+							displayValue = markdownRenderer.render(markdownParser.parse(resultValue.getValue()));
 						} else {
 							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
 						}
 
-						resultTable.append(String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
-								StringEscapeUtils.escapeHtml4(resultName), displayValue));
+						resultTable.append(
+								String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
+										StringEscapeUtils.escapeHtml4(resultName), displayValue));
 					}
 					resultTable.append("</div>");
 				}
@@ -312,27 +313,25 @@ public class ChatView extends ViewPart {
 				// Combine everything into the final structure
 				// Build re-execute button HTML
 				String reexecuteButtonHtml = String.format(
-					"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">" +
-					"<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute" +
-					"</button>",
-					message.getId(), // Pass the message UUID
-					getReexecuteIconBase64() // Assuming this method is added to the class
+						"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+								+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute"
+								+ "</button>",
+						message.getId(), // Pass the message UUID
+						getReexecuteIconBase64() // Assuming this method is added to the class
 				);
 
 				functionCallHtml = String
-						.format("<details class=\"function-call-details\"><summary>Function call: %s</summary>" +
-										"<blockquote>" +
-										"%s" + // Params table
-										"%s" + // Result table
-										"%s" + // Raw JSON section
-										"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
-										"</blockquote>" +
-										"</details>",
-								StringEscapeUtils.escapeHtml4(call.getFunctionName()),
-								paramsTable.toString(),
-								resultTable.toString(),
-								rawJsonSection,
-								reexecuteButtonHtml); // Add the re-execute button HTML
+						.format("<details class=\"function-call-details\"><summary>Function call: %s</summary>"
+								+ "<blockquote>" + "%s" + // Params table
+								"%s" + // Result table
+								"%s" + // Raw JSON section
+								"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
+								"</blockquote>" + "</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
+								paramsTable.toString(), resultTable.toString(), rawJsonSection, reexecuteButtonHtml); // Add
+																														// the
+																														// re-execute
+																														// button
+																														// HTML
 			}
 			return functionCallHtml;
 		}
@@ -368,7 +367,8 @@ public class ChatView extends ViewPart {
 	};
 
 	private void reexecuteToolCall(String messageUuidString) {
-		// Ensure conversation, functionCallSession, and chat (ChatComponent) are initialized and available
+		// Ensure conversation, functionCallSession, and chat (ChatComponent) are
+		// initialized and available
 		if (conversation == null || this.functionCallSession == null || this.chat == null) {
 			System.err.println(
 					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
@@ -386,19 +386,21 @@ public class ChatView extends ViewPart {
 					+ messageUuidString);
 
 			// Prepare the message for re-execution:
-			// Create a new, empty FunctionResult shell associated with the original call's ID and name.
+			// Create a new, empty FunctionResult shell associated with the original call's
+			// ID and name.
 			// This ensures that handleFunctionCall populates this new shell.
 			FunctionResult newResultShell = new FunctionResult(call.getId(), call.getFunctionName());
 			messageToReexecute.setFunctionResult(newResultShell);
 
 			// Execute the function call again.
-			// This is expected to populate the 'newResultShell' within 'messageToReexecute'.
+			// This is expected to populate the 'newResultShell' within
+			// 'messageToReexecute'.
 			this.functionCallSession.handleFunctionCall(messageToReexecute);
 
 			// Update this specific message in the UI to display the new result,
 			// using the listener's method to ensure correct HTML generation.
 			if (chatListener != null) {
-				 chatListener.onMessageUpdated(messageToReexecute);
+				chatListener.onMessageUpdated(messageToReexecute);
 			} else {
 				System.err.println("ChatView: chatListener is null, cannot update message view for re-execute.");
 			}
@@ -892,11 +894,11 @@ public class ChatView extends ViewPart {
 			// Reset settings, e.g. the chat model.
 			init();
 		});
-		
-		settings.addPropertyChangeListener("promptTemplate", e->{
+
+		settings.addPropertyChangeListener("promptTemplate", e -> {
 			updateSystemPrompt();
 		});
-		
+
 		IListChangeListener<? super MessageContext> listChangeListener = e -> {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
@@ -1291,15 +1293,15 @@ public class ChatView extends ViewPart {
 			TextTransfer textTransfer = TextTransfer.getInstance();
 
 			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
-			String messageMarkdown = thoughtsAndMessage.getMessage();
-			if (!message.getContext().isEmpty()) {
-				StringBuilder sb = new StringBuilder();
-				sb.append("\n\n#Context:\n");
-				sb.append(message.getContext().stream().map(c -> c.compile(true)).collect(Collectors.joining("\n")));
-				messageMarkdown += sb.toString();
-			}
+			StringBuilder sb = new StringBuilder(thoughtsAndMessage.getMessage());
 
-			clipboard.setContents(new Object[] { messageMarkdown }, new Transfer[] { textTransfer });
+			if (!message.getContext().isEmpty()) {
+				sb.append("\n\n# Context:\n");
+				sb.append(message.getContext().stream().map(c -> c.compile(true)).collect(Collectors.joining("\n")));
+			}
+			sb.append(message.getToolCallDetailsAsMarkdown());
+
+			clipboard.setContents(new Object[] { sb.toString() }, new Transfer[] { textTransfer });
 			clipboard.dispose();
 		}
 	}

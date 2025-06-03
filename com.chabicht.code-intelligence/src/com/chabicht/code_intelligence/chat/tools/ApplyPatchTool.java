@@ -5,8 +5,10 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -33,6 +35,7 @@ import com.chabicht.code_intelligence.util.GsonUtil; // If you still want to log
 import com.chabicht.code_intelligence.util.Log; // Your Log utility
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
+import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
@@ -168,11 +171,29 @@ public class ApplyPatchTool {
 				return ApplyPatchResult.failure("Failed to parse unified diff: " + e.getMessage());
 			}
 
+			// Hack: The difflib code expects 0-based line numbers, while AI models (and
+			// e.g. the diff -u tool) tend to use 1-based line numbers.
+			// So we add a blank line at the start of the originalDocLines, apply the patch,
+			// and then remove the blank line again.
+			List<String> tmp = new ArrayList<String>(originalDocLines.size() + 1);
+			tmp.add("");
+			tmp.addAll(originalDocLines);
+			originalDocLines = tmp;
+
 			// Validate the patch by trying to apply it (in memory)
 			List<String> patchedDocLines = new ArrayList<>();
 			ApplyPatchResult applyPatchResult = attemptApplyPatch(originalDocLines, patch, patchedDocLines);
 
 			if (applyPatchResult.isSuccess()) {
+				// Hack: The difflib code expects 0-based line numbers, while AI models (and
+				// e.g. the diff -u tool) tend to use 1-based line numbers.
+				// So we add a blank line at the start of the originalDocLines, apply the patch,
+				// and then remove the blank line again.
+				if (StringUtils.isBlank(originalDocLines.get(0)) && StringUtils.isBlank(patchedDocLines.get(0))) {
+					originalDocLines.remove(0);
+					patchedDocLines.remove(0);
+				}
+
 				// The current result is only a dummy.
 				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines, patchedDocLines,
 						lineDelimiter);
@@ -206,14 +227,30 @@ public class ApplyPatchTool {
 			List<String> patchedDocLines, String lineDelimiter) {
 		Patch<String> effectiveChange = DiffUtils.diff(originalDocLines, patchedDocLines);
 
-		String changes = effectiveChange.getDeltas().stream().map(d -> {
-			Chunk<String> target = d.getTarget();
-			int startLine = target.getPosition() + 1;
-			return new MessageContext(fileName, startLine, startLine + target.getLines().size(),
-					String.join("\n", target.getLines()));
-		}).map(mc -> mc.compile(true)).collect(Collectors.joining("\n"));
-
+		String changes = effectiveChange.getDeltas().stream()
+				.map(extractPatchedHunk(fileName, patchedDocLines))
+				.map(mc -> mc.compile(true)).collect(Collectors.joining("\n"));
 		return "Here are the affected portions of the file after the patch is applied:  \n" + changes;
+	}
+
+	private Function<AbstractDelta<String>, MessageContext> extractPatchedHunk(String fileName,
+			List<String> patchedDocLines) {
+		return d -> {
+			Chunk<String> target = d.getTarget();
+			int contextSize = (int) Math.max(3, target.getLines().size() / 10);
+			int targetStartInPatched = target.getPosition(); // 0-indexed
+			int targetEndInPatched = targetStartInPatched + target.getLines().size();
+
+			int contextBufferStart = Math.max(0, targetStartInPatched - contextSize);
+			int contextBufferEnd = Math.min(patchedDocLines.size(), targetEndInPatched + contextSize);
+
+			List<String> linesWithContext = patchedDocLines.subList(contextBufferStart, contextBufferEnd);
+			int messageStartLine = contextBufferStart + 1; // 1-indexed for MessageContext
+
+			return new MessageContext(fileName, messageStartLine, messageStartLine + linesWithContext.size(), // endLine_inclusive
+																												// + 1
+					String.join("\n", linesWithContext));
+		};
 	}
 
 	private ApplyPatchResult attemptApplyPatch(List<String> originalDocLines, Patch<String> patch,
