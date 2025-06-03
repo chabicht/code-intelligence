@@ -237,6 +237,25 @@ public class ChatConversation {
 			return context;
 		}
 
+		public String getToolCallDetailsAsMarkdown() {
+			if (!getFunctionCall().isPresent()) {
+				return "";
+			}
+			StringBuilder sb = new StringBuilder();
+			FunctionCall call = getFunctionCall().get();
+			// The initial "\n\n" for the section header is included here.
+			sb.append("\n\n## Tool Call ").append(call.getFunctionName()).append("\n");
+
+			sb.append(call.getParamsAsMarkdown()); // Appends "" or "Parameters:\n..."
+
+			if (getFunctionResult().isPresent()) {
+				FunctionResult result = getFunctionResult().get();
+				sb.append(result.getResultsAsMarkdown()); // Appends "" or "Results:\n..."
+			}
+			return sb.toString();
+		}
+
+
 		public Optional<FunctionCall> getFunctionCall() {
 			return functionCall;
 		}
@@ -422,6 +441,17 @@ public class ChatConversation {
 			prettyParams.put(name, new FunctionParamValue(value, isMarkdown));
 		}
 
+		public String getParamsAsMarkdown() {
+			if (getPrettyParams().isEmpty()) {
+				return "";
+			}
+			StringBuilder sb = new StringBuilder("### Parameters\n");
+			for (Map.Entry<String, FunctionParamValue> entry : getPrettyParams().entrySet()) {
+				entry.getValue().appendMarkdown(sb, entry.getKey());
+			}
+			return sb.toString();
+		}
+
 		@Override
 		public String toString() {
 			return "FunctionCall [id=" + id + ", functionName=" + functionName + ", argsJson=" + argsJson + "]";
@@ -467,6 +497,17 @@ public class ChatConversation {
 		public void addPrettyResult(String name, String value, boolean isMarkdown) {
 			prettyResults.put(name, new FunctionParamValue(value, isMarkdown));
 		}
+
+		public String getResultsAsMarkdown() {
+			if (getPrettyResults().isEmpty()) {
+				return "";
+			}
+			StringBuilder sb = new StringBuilder("### Results\n");
+			for (Map.Entry<String, FunctionParamValue> entry : getPrettyResults().entrySet()) {
+				entry.getValue().appendMarkdown(sb, entry.getKey());
+			}
+			return sb.toString();
+		}
 	}
 
 	public static class FunctionParamValue {
@@ -484,6 +525,51 @@ public class ChatConversation {
 
 		public boolean isMarkdown() {
 			return isMarkdown;
+		}
+
+		public void appendMarkdown(StringBuilder sb, String key) {
+			String value = this.getValue();
+			String contentIndent = "  "; // Indentation for content lines under the key, relative to the key's base indent.
+
+			sb.append("  **").append(key).append(":** ");
+
+			if (this.isMarkdown()) {
+				boolean isAlreadyCodeBlock = value.trim().startsWith("```") && value.trim().endsWith("```");
+				sb.append("\n"); // Markdown content always starts on a new line after "key: "
+				if (isAlreadyCodeBlock) {
+					// Value is already a complete ```code block```
+					// Indent each line of the existing code block
+					for (String line : value.split("\\r?\\n")) {
+						sb.append(contentIndent).append(line).append("\n");
+					}
+				} else {
+					// Value is markdown, but not a pre-formatted code block. Wrap it.
+					for (String line : value.split("\\r?\\n")) {
+						sb.append(contentIndent).append("> ").append(line).append("\n");
+					}
+				}
+			} else {
+				// Not originally markdown
+				boolean isShort = value.length() < 120 && !value.contains("\n");
+				boolean isNumeric = false;
+				try {
+					Double.parseDouble(value);
+					isNumeric = true;
+				} catch (NumberFormatException e) {
+					// Not a number
+				}
+
+				if (isNumeric || isShort) {
+					// Simple, single-line value, append directly after "key: "
+					sb.append(value).append("  \n");
+				} else {
+					// Longer, non-markdown text, format as blockquote on new lines
+					sb.append("\n"); // Start blockquote on a new line after "key: "
+					for (String line : value.split("\\r?\\n")) {
+						sb.append(contentIndent).append("> ").append(line).append("\n");
+					}
+				}
+			}
 		}
 	}
 

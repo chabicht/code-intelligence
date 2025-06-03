@@ -206,7 +206,7 @@ public class FunctionCallSession {
 			}
 
 			call.addPrettyParam("file_name", fileName, false);
-			call.addPrettyParam("patch_content", patchContent, true); // patch_content is markdown (diff)
+			call.addPrettyParam("patch_content", "```diff\n" + patchContent + "\n```", true);
 
 			JsonObject jsonResult = new JsonObject();
 			if (patchResult.isSuccess()) {
