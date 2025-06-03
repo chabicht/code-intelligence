@@ -11,7 +11,6 @@ import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringButtonFieldEditor;
 import org.eclipse.jface.resource.FontDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
-import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.wizard.WizardDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionListener;
@@ -155,8 +154,8 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		btnManageTools.setText("Manage Specific Tools...");
 		btnManageTools.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
 		btnManageTools.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
-			MessageDialog.openInformation(getShell(), "Tool Management",
-					"Manage Specific Tools dialog to be implemented.");
+			ManageToolsDialog dlg = new ManageToolsDialog(getShell());
+			dlg.open();
 		}));
 
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);

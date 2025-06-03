@@ -142,7 +142,8 @@ public class AddSelectionToContextUtil {
 
 					int startLine = Math.max(0, lineNumber - 5) + 1;
 					int endLine = Math.min(lineNumber + 5, content.size()) + 1;
-					String context = content.subList(startLine, endLine).stream().collect(Collectors.joining("\n"));
+					String context = content.subList(startLine - 1, endLine - 1).stream()
+							.collect(Collectors.joining("\n"));
 					StringBuilder sb = new StringBuilder();
 					sb.append(severity == 2 ? "Error" : "Warning").append(" on line ").append(lineNumber)
 							.append(" in document ").append(file.getName()).append(": ").append(message).append("\n");
