@@ -7,6 +7,7 @@ import java.util.Optional;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
 import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool; // Added import
+import com.chabicht.code_intelligence.chat.tools.ReadFileContentTool;
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
@@ -24,6 +25,7 @@ public class FunctionCallSession {
 	private final ResourceAccess resourceAccess = new ResourceAccess();
 	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
 	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess); // Added tool instance
+	private final ReadFileContentTool readFileContentTool = new ReadFileContentTool(resourceAccess);
 	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess); // Added SearchTool instance
 	private final Gson gson = GsonUtil.createGson();
 
@@ -64,6 +66,9 @@ public class FunctionCallSession {
 				break;
 			case "perform_regex_search":
 				handlePerformSearch(call, result, argsJson, true);
+				break;
+			case "read_file_content":
+				handleReadFileContent(call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -335,6 +340,87 @@ public class FunctionCallSession {
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);
 			// ... set JSON error result ...
+		}
+	}
+
+	/**
+	 * Specifically handles the "read_file_content" function call. Parses arguments
+	 * and reads the content of the specified file or line range.
+	 *
+	 * @param call             The FunctionCall object
+	 * @param result           The FunctionResult object to populate
+	 * @param functionArgsJson JSON arguments for read_file_content. Expected:
+	 *                         {"file_name": "...", "start_line": ..., "end_line": ...}
+	 */
+	private void handleReadFileContent(FunctionCall call, FunctionResult result, String functionArgsJson) {
+		try {
+			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
+
+			String fileName = args.has("file_name") ? args.get("file_name").getAsString() : null;
+			Integer startLine = args.has("start_line") && !args.get("start_line").isJsonNull() ? args.get("start_line").getAsInt() : null;
+			Integer endLine = args.has("end_line") && !args.get("end_line").isJsonNull() ? args.get("end_line").getAsInt() : null;
+
+			if (fileName == null) {
+				String errorMsg = "Missing required argument 'file_name' for read_file_content. Args: " + functionArgsJson;
+				Activator.logError(errorMsg);
+				result.addPrettyResult("error", errorMsg, false);
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
+				return;
+			}
+
+			// Populate pretty params for the call
+			call.addPrettyParam("file_name", fileName, false);
+			if (startLine != null) {
+				call.addPrettyParam("start_line", String.valueOf(startLine), false);
+			}
+			if (endLine != null) {
+				call.addPrettyParam("end_line", String.valueOf(endLine), false);
+			}
+
+			ReadFileContentTool.ReadFileContentResult readResult = readFileContentTool.readFileContent(fileName, startLine, endLine);
+
+			JsonObject jsonResponse = new JsonObject();
+			if (readResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				result.addPrettyResult("message", readResult.getMessage(), false);
+				// Add file path and actual range to pretty results for clarity
+				result.addPrettyResult("file_path_read", readResult.getFilePath() != null ? readResult.getFilePath() : "N/A", false);
+				if (readResult.getActualStartLine() > 0 || readResult.getActualEndLine() > 0) { // Check if a valid range was read
+					result.addPrettyResult("lines_read", readResult.getActualStartLine() + " - " + readResult.getActualEndLine(), false);
+				} else if (readResult.getFilePath() != null && readResult.getContentWithLineNumbers() != null && readResult.getContentWithLineNumbers().isEmpty()) {
+					result.addPrettyResult("lines_read", "File is empty", false);
+				}
+
+				// The content itself is the main result, show it as markdown (code block)
+				String contentToDisplay = readResult.getContentWithLineNumbers();
+				result.addPrettyResult("file_content", "```\n" + contentToDisplay + "\n```", true);
+
+				jsonResponse.addProperty("status", "Success");
+				jsonResponse.addProperty("message", readResult.getMessage());
+				jsonResponse.addProperty("file_path", readResult.getFilePath());
+				jsonResponse.addProperty("content", readResult.getContentWithLineNumbers()); // Prefixed content
+				jsonResponse.addProperty("actual_start_line", readResult.getActualStartLine());
+				jsonResponse.addProperty("actual_end_line", readResult.getActualEndLine());
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", readResult.getMessage(), false);
+				jsonResponse.addProperty("status", "Error");
+				jsonResponse.addProperty("message", readResult.getMessage());
+			}
+			result.setResultJson(gson.toJson(jsonResponse));
+
+		} catch (Exception e) { // Catch general Exception
+			String errorMsg = "Error processing read_file_content function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
 		}
 	}
 
