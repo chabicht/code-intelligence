@@ -179,7 +179,7 @@ public class ToolDefinitions {
 
 	private JsonObject toOpenAiFunctionFormat() {
 		com.google.gson.Gson gson = GsonUtil.createGson();
-		JsonObject toolDefinitionGemini = gson.fromJson(TOOL_DEFINITION_GEMINI, JsonObject.class);
+		JsonObject toolDefinitionGemini = getEnabledTools();
 
 		JsonArray geminiToolsArray = toolDefinitionGemini.getAsJsonArray("tools");
 		if (geminiToolsArray == null || geminiToolsArray.isEmpty()) {
