@@ -166,7 +166,10 @@ public class ApplyPatchTool {
 			if (patch.getDeltas().isEmpty()) {
 				Log.logError("Empty diff for file: " + fileName);
 				return ApplyPatchResult.failure(
-						"The parser returned an empty patch. This is probably due to the patch_content not being a valid unified diff.");
+						"The parser returned an empty patch. This is probably due to the patch_content not being a valid unified diff.  \n"
+								+ "Here's an example:\n" + "```diff\n" + "--- /path/to/File.java\n"
+								+ "+++ /path/to/File.java\n" + "@@ -123,1 +123,2 @@\n" + " some text\n" + " \n"
+								+ "-foo\n" + "+bar\n" + "+baz\n" + "```\n");
 			}
 
 			// Hack: The difflib code expects 0-based line numbers, while AI models (and
@@ -306,7 +309,8 @@ public class ApplyPatchTool {
 					continue;
 				} else {
 					Log.logError("Patch validation failed: unified diff format expected.", e);
-					return ApplyPatchResult.failure("Patch validation failed: unified diff format expected.");
+					return ApplyPatchResult.failure("Patch validation failed: unified diff format expected.  \n"
+							+ "This usually happens if the `@@` line has trailing text, e.g. `@@ -139,4 +139,10 @@ public static void`.");
 				}
 			} catch (PatchFailedException e) {
 				if (i < patchMethods.length - 1) {

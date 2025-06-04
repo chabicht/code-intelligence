@@ -21,7 +21,9 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
+import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
@@ -187,17 +189,49 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			// Convert the role enum to lowercase string (system, user, assistant).
 			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
 
-			StringBuilder content = new StringBuilder(256);
+			// For user, system messages, or assistant messages without function calls
+			StringBuilder contentBuilder = new StringBuilder(256);
 			if (!msg.getContext().isEmpty()) {
-				content.append("Context information:\n\n");
+				contentBuilder.append("Context information:\n\n");
+				for (MessageContext ctx : msg.getContext()) {
+					contentBuilder.append(ctx.compile(true));
+					contentBuilder.append("\n");
+				}
 			}
-			for (MessageContext ctx : msg.getContext()) {
-				content.append(ctx.compile(true));
-				content.append("\n");
+			String textContent = msg.getContent();
+			if (textContent != null) { // Ensure content is not null before appending
+				contentBuilder.append(textContent);
 			}
-			content.append(msg.getContent());
-			jsonMsg.addProperty("content", content.toString());
-			messagesJson.add(jsonMsg);
+			jsonMsg.addProperty("content", contentBuilder.toString());
+
+			// Add tool call to assistant message if applicable.
+			if (Role.ASSISTANT.equals(msg.getRole()) && msg.getFunctionCall().isPresent()) {
+				FunctionCall fc = msg.getFunctionCall().get();
+				JsonArray toolCallsArray = new JsonArray();
+				JsonObject toolCallItem = new JsonObject();
+				toolCallItem.addProperty("id", fc.getId());
+				toolCallItem.addProperty("type", "function");
+
+				JsonObject functionDetails = new JsonObject();
+				functionDetails.addProperty("name", fc.getFunctionName());
+				// Arguments for OpenAI function calls should be a string containing JSON
+				functionDetails.addProperty("arguments", fc.getArgsJson());
+				toolCallItem.add("function", functionDetails);
+				toolCallsArray.add(toolCallItem);
+
+				jsonMsg.add("tool_calls", toolCallsArray);
+			}
+
+			messagesJson.add(jsonMsg); // Add the constructed message (user, assistant, or system)
+
+			if (msg.getFunctionResult().isPresent()) {
+				FunctionResult fr = msg.getFunctionResult().get();
+				JsonObject toolMessage = new JsonObject();
+				toolMessage.addProperty("role", "tool");
+				toolMessage.addProperty("tool_call_id", fr.getId());
+				toolMessage.addProperty("content", fr.getResultJson()); // Content is the JSON string of the result
+				messagesJson.add(toolMessage);
+			}
 		}
 
 		// Create the JSON request object.
@@ -209,7 +243,13 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		if (apiConnection.isLegacyFormat()) {
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy());
 		} else {
-			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAi());
+			JsonObject toolDefinitionsOpenAi = ToolDefinitions.getInstance().getToolDefinitionsOpenAi();
+			// Hack for Fireworks.AI: they don't support the strict flag in function
+			// definitions.
+			if (apiConnection.getBaseUri().contains("fireworks.ai")) {
+				removeStrictFlag(toolDefinitionsOpenAi);
+			}
+			patchMissingProperties(req, toolDefinitionsOpenAi);
 		}
 
 		req.add("messages", messagesJson);
@@ -338,6 +378,12 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			asyncRequest = null;
 			return null;
 		});
+	}
+
+	private void removeStrictFlag(JsonObject toolDefinitionsOpenAi) {
+		for (JsonElement el : toolDefinitionsOpenAi.get("tools").getAsJsonArray()) {
+			el.getAsJsonObject().get("function").getAsJsonObject().remove("strict");
+		}
 	}
 
 	@Override
