@@ -23,9 +23,11 @@ import org.eclipse.ltk.core.refactoring.TextFileChange;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.text.edits.DeleteEdit;
 import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.MultiTextEdit;
 import org.eclipse.text.edits.ReplaceEdit;
+import org.eclipse.text.edits.TextEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
@@ -314,7 +316,7 @@ public class ApplyChangeTool {
 				// Add all edits for this file
 				for (ChangeOperation op : fileChanges) {
 					try {
-						ReplaceEdit edit = createTextEdit(file, document, op);
+						TextEdit edit = createTextEdit(file, document, op);
 						multiEdit.addChild(edit);
 					} catch (BadLocationException | IllegalArgumentException | MalformedTreeException e) {
 						Gson gson = GsonUtil.createGson();
@@ -416,33 +418,50 @@ public class ApplyChangeTool {
 	 *                                  location is invalid, or formatting fails
 	 *                                  critically.
 	 */
-	private ReplaceEdit createTextEdit(IFile file, IDocument document, ChangeOperation op)
+	private TextEdit createTextEdit(IFile file, IDocument document, ChangeOperation op)
 			throws BadLocationException, IllegalArgumentException {
-		String originalTextToFind = op.getOriginalText();
-		if (originalTextToFind == null || originalTextToFind.isEmpty()) {
-			throw new IllegalArgumentException("Original text cannot be null or empty for pattern-based replacement.");
+		// op.getStartLine() and op.getEndLine() are 1-based inclusive,
+		// representing the full lines affected by the originalText match.
+		// Convert to 0-based for IDocument.
+		int startLine0Based = op.getStartLine() - 1;
+		int endLine0Based = op.getEndLine() - 1;
+
+		if (startLine0Based < 0 || endLine0Based < startLine0Based
+				|| endLine0Based >= document.getNumberOfLines()) {
+			throw new BadLocationException("Invalid line range for operation: " + op.getStartLine() + "-"
+					+ op.getEndLine() + ", doc lines: " + document.getNumberOfLines());
 		}
 
-		int[] offsets = getStartEndOffsets(op.getStartLine() - 1, op.getEndLine() - 1, document);
-		if (offsets == null) {
-			throw new IllegalArgumentException(
-					"Invalid location string provided: " + op.getStartLine() + ":" + op.getEndLine());
-		}
+		IRegion startLineInfo = document.getLineInformation(startLine0Based);
+		int offset = startLineInfo.getOffset();
+		int length;
 
-		return new ReplaceEdit(offsets[0], offsets[1] - offsets[0], op.replacement);
+		if (op.getReplacement().isEmpty()) {
+			// This is a deletion operation.
+			// Calculate length to remove lines including their delimiters,
+			// adopting the logic from ApplyPatchTool for DeleteEdit.
+			if (endLine0Based < document.getNumberOfLines() - 1) {
+				// Deleting lines not at the very end of the document.
+				// Length extends to the start of the next line.
+				IRegion nextLineInfo = document.getLineInformation(endLine0Based + 1);
+				length = nextLineInfo.getOffset() - offset;
+			} else {
+				// Deleting lines at the end of the document.
+				// Length extends to the end of the last line being deleted.
+				IRegion endLineInfo = document.getLineInformation(endLine0Based);
+				length = (endLineInfo.getOffset() + endLineInfo.getLength()) - offset;
+			}
+			return new DeleteEdit(offset, length);
+		} else {
+			// This is a replacement operation.
+			// Length covers from the start of the first line to the end of the last line.
+			IRegion endLineInfo = document.getLineInformation(endLine0Based);
+			length = (endLineInfo.getOffset() + endLineInfo.getLength()) - offset;
+			return new ReplaceEdit(offset, length, op.getReplacement());
+		}
 	}
 
-	private int[] getStartEndOffsets(int startLine, int endLine, IDocument document) {
-		try {
-			IRegion slInfo = document.getLineInformation(startLine);
-			IRegion elInfo = document.getLineInformation(endLine);
-			return new int[] { slInfo.getOffset(), elInfo.getOffset() + elInfo.getLength() };
-		} catch (BadLocationException e) {
-			return null;
-		}
-	}
-
-	/**
+/**
 	 * Searches for a pattern derived from the original text within specified bounds
 	 * of the document. The pattern ignores leading/trailing whitespace on each line
 	 * and allows for arbitrary whitespace between lines.
