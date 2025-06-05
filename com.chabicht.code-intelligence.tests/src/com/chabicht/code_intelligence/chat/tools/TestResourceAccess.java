@@ -35,4 +35,14 @@ public class TestResourceAccess implements IResourceAccess {
 	@Override
 	public void disconnectAllDocuments(Map<IFile, IDocument> documentMap) {
 	}
+
+	@Override
+	public CreateFileTool.CreateFileResult createFileInWorkspace(String filePath, String content) {
+		if (files.containsKey(filePath)) {
+			return CreateFileTool.CreateFileResult.failure("File already exists: " + filePath, filePath);
+		}
+		// Simulate file creation for testing purposes
+		files.put(filePath, content);
+		return new CreateFileTool.CreateFileResult(true, "File created successfully (test): " + filePath, filePath);
+	}
 }
