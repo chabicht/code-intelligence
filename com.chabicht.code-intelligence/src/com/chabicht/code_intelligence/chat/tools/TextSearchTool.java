@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
@@ -152,8 +153,13 @@ public class TextSearchTool {
 			return new SearchExecutionResult(false, "No preferred TextSearchQueryProvider found.", null);
 		}
 
-		String[] patternsArray = (fileNamePatterns == null || fileNamePatterns.isEmpty()) ? new String[] { "*.*" }
-				: fileNamePatterns.toArray(new String[0]);
+		// Hack: Sometimes patterns are supplied that are not supported by Eclipse, e.g.
+		// glob patterns.
+		List<String> filteredFileNamePatterns = filter(fileNamePatterns);
+
+		String[] patternsArray = (filteredFileNamePatterns == null || filteredFileNamePatterns.isEmpty())
+				? new String[] { "*.*" }
+				: filteredFileNamePatterns.toArray(new String[0]);
 
 		TextSearchQueryProvider.TextSearchInput searchInput = new TextSearchQueryProvider.TextSearchInput() {
 			@Override
@@ -254,5 +260,16 @@ public class TextSearchTool {
 		} finally {
 			NewSearchUI.removeQueryListener(queryListener);
 		}
+	}
+
+	private List<String> filter(List<String> fileNamePatterns) {
+		List<String> res = fileNamePatterns.stream().map(p -> {
+			int lastSlash = p.lastIndexOf("/");
+			if (lastSlash >= 0 && lastSlash < p.length() - 1) {
+				p = p.substring(lastSlash + 1);
+			}
+			return p;
+		}).collect(Collectors.toList());
+		return res;
 	}
 }

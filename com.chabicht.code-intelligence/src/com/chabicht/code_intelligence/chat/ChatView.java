@@ -2,6 +2,7 @@ package com.chabicht.code_intelligence.chat;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -1066,6 +1067,7 @@ public class ChatView extends ViewPart {
 
 			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 
 			conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
@@ -1152,7 +1154,6 @@ public class ChatView extends ViewPart {
 
 	private void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, MessageContext newCtx) {
 		boolean duplicate = false;
-		// Process the selected text to remove common indentation
 		for (MessageContext ctx : chatMessage.getContext()) {
 			if (newCtx.isDuplicate(ctx)) {
 				duplicate = true;

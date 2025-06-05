@@ -2,6 +2,7 @@ package com.chabicht.code_intelligence.apiclient;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 
 import java.io.IOException;
 import java.net.URI;
@@ -75,7 +76,10 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		JsonObject req = createFromPresets(PromptType.CHAT);
 
-		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini());
+		Map<ChatOption, Object> options = chat.getOptions();
+		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini());
+		}
 
 		String systemPrompt = getSystemPrompt(chat);
 		if (StringUtils.isNoneBlank(systemPrompt)) {
@@ -92,7 +96,6 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		genConfig.addProperty("maxOutputTokens", maxResponseTokens);
 
 		// Reasoning
-		Map<ChatOption, Object> options = chat.getOptions();
 		JsonObject thinkingConfig = new JsonObject();
 		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
 			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);

@@ -120,9 +120,6 @@ public class ToolDefinitions {
 			return result;
 		}
 
-		// Assuming the structure of TOOL_DEFINITION_GEMINI:
-		// toolDefinitionGemini -> "tools" (JsonArray) -> 0th element (JsonObject) ->
-		// "functionDeclarations" (JsonArray)
 		JsonObject geminiToolContainer = geminiToolsArray.get(0).getAsJsonObject();
 		JsonArray functionDeclarations = geminiToolContainer.getAsJsonArray("functionDeclarations");
 
@@ -135,6 +132,8 @@ public class ToolDefinitions {
 				openAiFunctionDetails.addProperty("description", geminiFuncDecl.get("description").getAsString());
 
 				JsonObject parameters = geminiFuncDecl.getAsJsonObject("parameters").deepCopy();
+
+				parameters = patchOpenAiRequiredFields(parameters);
 				parameters.addProperty("additionalProperties", false);
 				openAiFunctionDetails.add("parameters", parameters);
 				openAiFunctionDetails.addProperty("strict", true);
@@ -153,6 +152,27 @@ public class ToolDefinitions {
 
 	public List<Tool> getTools() {
 		return tools;
+	}
+
+	// OpenAI tools require all parameters be present in the required array.
+	private JsonObject patchOpenAiRequiredFields(JsonObject parameters) {
+		// Remove existing 'required' field if present
+		if (parameters.has("required")) {
+			parameters.remove("required");
+		}
+
+		// Get the 'properties' object
+		JsonObject properties = parameters.getAsJsonObject("properties");
+
+		// Create a new 'required' array and populate it with all property names
+		JsonArray requiredArray = new JsonArray();
+		if (properties != null) {
+			for (String propertyName : properties.keySet()) {
+				requiredArray.add(propertyName);
+			}
+		}
+		parameters.add("required", requiredArray);
+		return parameters;
 	}
 
 	private JsonObject getEnabledTools() {

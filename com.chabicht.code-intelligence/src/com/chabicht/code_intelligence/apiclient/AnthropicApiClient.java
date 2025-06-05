@@ -2,6 +2,7 @@ package com.chabicht.code_intelligence.apiclient;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 
 import java.io.IOException;
 import java.net.URI;
@@ -110,6 +111,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		req.add("messages", messages);
 
 		JsonObject res = performPost(JsonObject.class, "messages", req);
+		if (res.has("usage")) {
+			logApiUsage(modelName, res.getAsJsonObject("usage"), "completion");
+		}
 		return new CompletionResult(
 				res.get("content").getAsJsonArray().get(0).getAsJsonObject().get("text").getAsString());
 	}
@@ -120,7 +124,10 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
 
-		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsAnthropic());
+		Map<ChatOption, Object> options = chat.getOptions();
+		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsAnthropic());
+		}
 
 		// Add system prompt if present
 		for (ChatConversation.ChatMessage msg : chat.getMessages()) {
@@ -134,7 +141,6 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		req.add("messages", createMessagesArray(chat));
 
 		// Set max tokens
-		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
 			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);
 			req.addProperty("max_tokens", maxResponseTokens + reasoningBudgetTokens);
@@ -183,6 +189,15 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 							try {
 								JsonObject jsonResponse = JsonParser.parseString(data).getAsJsonObject();
+
+								if (jsonResponse.has("usage")) {
+									logApiUsage(modelName, jsonResponse.getAsJsonObject("usage"), "chat");
+								} else if (jsonResponse.has("message")) {
+									JsonObject message = jsonResponse.get("message").getAsJsonObject();
+									if (message.has("usage")) {
+										logApiUsage(modelName, message.getAsJsonObject("usage"), "chat");
+									}
+								}
 
 								// Extract the event type from the JSON response
 								if (jsonResponse.has("type")) {
@@ -331,6 +346,10 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		});
 	}
 
+	/**
+	 * @param chat
+	 * @return
+	 */
 	private JsonArray createMessagesArray(ChatConversation chat) {
 		JsonArray messagesJson = new JsonArray();
 
@@ -371,9 +390,14 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				thinkingContent.addProperty("thinking", msg.getThinkingContent());
 
 				// Add signature field required by Anthropic API
-				thinkingContent.addProperty("signature", (String) msg.getThinkingMetadata().get("signature"));
+				// If the field is missing we assume the user switched models. In that case we
+				// can't send the thoughts "back" to the API.
+				Object signature = msg.getThinkingMetadata().get("signature");
+				if (signature != null) {
+					thinkingContent.addProperty("signature", (String) signature);
 
-				contentArray.add(thinkingContent);
+					contentArray.add(thinkingContent);
+				}
 			}
 
 			// Add text content block if message content is not blank
@@ -423,6 +447,16 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				resultMsg.add("content", resultContentArray);
 				messagesJson.add(resultMsg);
 			}
+		}
+
+		// Cache conversation with default TTL (5 minutes).
+		if (messagesJson.size() > 0) {
+			JsonObject lastMessage = messagesJson.get(messagesJson.size() - 1).getAsJsonObject();
+			JsonArray contentArray = lastMessage.get("content").getAsJsonArray();
+			JsonObject content = contentArray.get(0).getAsJsonObject();
+			JsonObject cacheControlObj = new JsonObject();
+			cacheControlObj.addProperty("type", "ephemeral");
+			content.add("cache_control", cacheControlObj);
 		}
 
 		return messagesJson;
@@ -515,6 +549,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		req.add("messages", messages);
 
 		JsonObject res = performPost(JsonObject.class, "messages", req);
+		if (res.has("usage")) {
+			logApiUsage(modelName, res.getAsJsonObject("usage"), "caption");
+		}
 		return res.get("content").getAsJsonArray().get(0).getAsJsonObject().get("text").getAsString();
 	}
 
@@ -529,6 +566,29 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			asyncRequest.cancel(true);
 			asyncRequest = null;
 		}
+	}
+
+	private void logApiUsage(String modelName, JsonObject usage, String apiCallType) {
+//		int inputTokens = 0;
+//		if (usage.has("input_tokens") && !usage.get("input_tokens").isJsonNull()) {
+//			inputTokens = usage.get("input_tokens").getAsInt();
+//		}
+//		int outputTokens = 0;
+//		if (usage.has("output_tokens") && !usage.get("output_tokens").isJsonNull()) {
+//			outputTokens = usage.get("output_tokens").getAsInt();
+//		}
+//		int cacheReadTokens = 0;
+//		if (usage.has("cache_read_input_tokens") && !usage.get("cache_read_input_tokens").isJsonNull()) {
+//			cacheReadTokens = usage.get("cache_read_input_tokens").getAsInt();
+//		}
+//		int cacheCreationTokens = 0;
+//		if (usage.has("cache_creation_input_tokens") && !usage.get("cache_creation_input_tokens").isJsonNull()) {
+//			cacheCreationTokens = usage.get("cache_creation_input_tokens").getAsInt();
+//		}
+//		String logMessage = String.format(
+//				"Anthropic API usage for %s (model: %s): input_tokens=%d, output_tokens=%d, cache_read_tokens=%d, cache_creation_tokens=%d",
+//				apiCallType, modelName, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens);
+//		Log.logInfo(logMessage);
 	}
 
 	private static class ToolUseInfo {

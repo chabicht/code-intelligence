@@ -10,11 +10,11 @@
             "properties": {
               "file_name": {
                 "type": "string",
-                "description": "The name of the file that is to be changed. If the path is present, the file is identified uniquely. If only a file name is present, a best effort algorithm is applied to guess the correct file."
+                "description": "The name of the file that is to be changed. If the path is present, the file is identified uniquely. If only a file name is present, a best effort algorithm is applied to guess the correct file. If possible, provide the complete path."
               },
               "patch_content": {
                 "type": "string",
-                "description": "A patch in unified diff format."
+                "description": "A patch in unified diff format. Make sure to adhere to the correct format, here's an example:\n```diff\n--- /path/to/File.java\n+++ /path/to/File.java\n@@ -137,5 +137,9 @@\n         }\n     }\n \n     private static class UpperCaseNode extends CustomNode {\n+        @Override\n+        public void test() {\n+            // Implementation not needed for this test\n+        }\n     }\n \n     private static class UpperCaseNodeRendererFactory implements HtmlNodeRendererFactory {\n```\n"
               }
             },
             "required": [
@@ -31,15 +31,15 @@
             "properties": {
               "file_name": {
                 "type": "string",
-                "description": "The name or path of the file to read. If only a file name is present, a best effort algorithm is applied to guess the correct file."
+                "description": "The name or path of the file to read. If only a file name is present, a best effort algorithm is applied to guess the correct file. If possible, provide the complete path to the file."
               },
               "start_line": {
                 "type": "integer",
-                "description": "Optional. The 1-based starting line number of the range to read. If omitted, and end_line is also omitted, the entire file is read. If provided, end_line must also be provided or it defaults to start_line."
+                "description": "Optional. The 1-based starting line number of the range to read. If omitted or null, and end_line is also omitted or null, the entire file is read. If provided, end_line must also be provided or it defaults to start_line."
               },
               "end_line": {
                 "type": "integer",
-                "description": "Optional. The 1-based ending line number of the range to read. If omitted, and start_line is provided, it defaults to start_line (reads a single line). If both start_line and end_line are omitted, the entire file is read."
+                "description": "Optional. The 1-based ending line number of the range to read. If omitted or null, and start_line is provided, it defaults to start_line (reads a single line). If both start_line and end_line are omitted or null, the entire file is read."
               }
             },
             "required": [
@@ -86,14 +86,14 @@
             "properties": {
               "search_text": {
                 "type": "string",
-                "description": "The text or pattern to search for. Valid placeholders for a pattern are:\n- `*`: Any character sequence\n- `?`: Any character\n-`\\`: Escape for literals '*, ?, or \\'"
+                "description": "The text or pattern to search for. Note that this is NOT capable of regex patterns! Instead of `.*`, you must use `*`! Valid placeholders for a pattern are:\n- `*`: Any character sequence\n- `?`: Any character\n-`\\`: Escape for literals '*, ?, or \\'."
               },
               "file_name_patterns": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Optional. List of file name patterns (e.g., \"*.java\", \"data*.xml\"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool."
+                "description": "List of file name patterns (e.g., \"*.java\", \"data*.xml\"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool."
               },
               "is_case_sensitive": {
                 "type": "boolean",
