@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -9,6 +11,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID; // Added import for UUID
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -201,7 +205,10 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("stream", true);
 		req.add("messages", messagesJson);
 
-		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOllama());
+		Map<ChatOption, Object> chatOptions = chat.getOptions();
+		if (chatOptions.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(chatOptions.get(TOOLS_ENABLED))) {
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOllama());
+		}
 
 		JsonObject options = getOrAddJsonObject(req, "options");
 		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);

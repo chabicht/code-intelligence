@@ -7,22 +7,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.ToolFactory;
-import org.eclipse.jdt.core.formatter.CodeFormatter;
-import org.eclipse.jdt.internal.corext.util.CodeFormatterUtil;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
-import org.eclipse.jface.text.TextUtilities;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
 import org.eclipse.ltk.core.refactoring.Refactoring;
@@ -34,11 +26,9 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.MultiTextEdit;
 import org.eclipse.text.edits.ReplaceEdit;
-import org.eclipse.text.edits.TextEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
-import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.util.GsonUtil;
 import com.chabicht.code_intelligence.util.Log;
 import com.github.difflib.DiffUtils;
@@ -47,7 +37,6 @@ import com.github.difflib.patch.Patch;
 import com.google.gson.Gson;
 
 public class ApplyChangeTool {
-	private static final int SEARCH_WINDOW_RADIUS_CHARS = 500;
 	private static final Pattern INDENT_SEARCH_PATTERN = Pattern.compile("^\s*");
 
 	// Inner class to hold change information
@@ -230,25 +219,6 @@ public class ApplyChangeTool {
 
 			int startLine = document.getLineOfOffset(matchOffsets[0]);
 			int endLine = document.getLineOfOffset(matchOffsets[1]);
-
-			// Do we have some indentation missing from the original text?
-			IRegion startLineInfo = document.getLineInformation(startLine);
-			Matcher indentMatcher = INDENT_SEARCH_PATTERN.matcher(original);
-			String indentation = indentMatcher.find() ? indentMatcher.group() : "";
-			if (startLineInfo.getOffset() < matchOffsets[0]) {
-				int startLineOffset = startLineInfo.getOffset();
-				String indentationText = document.get(startLineOffset, matchOffsets[0] - startLineOffset);
-				if (indentationText.matches("^\s*$")) {
-					indentation = indentation + indentationText;
-					original = indentation + original;
-				}
-			}
-			if (!replacementText.startsWith(indentation)) {
-				String indentFinal = indentation;
-				// Add indentation to each line (preserving empty lines)
-				replacementText = Arrays.stream(replacementText.split("\\R"))
-						.map(line -> line.isEmpty() ? line : indentFinal + line).collect(Collectors.joining("\n"));
-			}
 
 			// Use the enhanced diff generator with file path and real line numbers
 			// startLine + 1 because line numbers are 0-based in IDocument
@@ -661,111 +631,6 @@ public class ApplyChangeTool {
 	}
 
 	/**
-	 * Formats the given region text using the CodeFormatter, determining the base
-	 * indentation from the region's starting position in the original document.
-	 *
-	 * @param regionText        The text of the code region (potentially multi-line)
-	 *                          to format. This text already includes the conceptual
-	 *                          replacement.
-	 * @param file              The context file.
-	 * @param document          The original document (used for options and line
-	 *                          delimiter).
-	 * @param regionStartOffset The starting offset of this region in the *original*
-	 *                          document, used to determine indentation.
-	 * @return The formatted region text.
-	 */
-	private String formatRegionText(String regionText, IFile file, IDocument document, int regionStartOffset) {
-		if (regionText == null || regionText.isEmpty()) {
-			return regionText; // Nothing to format
-		}
-
-		IProject project = file.getProject();
-		IJavaProject javaProject = null;
-		if (project != null) {
-			javaProject = JavaCore.create(project);
-		}
-
-		int indentationLevel = 0;
-		Map<String, String> options = JavaCore.getOptions(); // Default options
-
-		// 1. Determine target indentation level based on the region's start offset
-		try {
-			if (javaProject != null) {
-				options = javaProject.getOptions(true); // Use project-specific options
-			}
-
-			int lineIndex = document.getLineOfOffset(regionStartOffset);
-			IRegion lineInfo = document.getLineInformation(lineIndex);
-			String firstLine = document.get(lineInfo.getOffset(), lineInfo.getLength());
-
-			// Calculate indentation level of the first line (same logic as before)
-			String leadingWhitespace = "";
-			for (int i = 0; i < firstLine.length(); i++) {
-				char c = firstLine.charAt(i);
-				if (Character.isWhitespace(c)) {
-					leadingWhitespace += c;
-				} else {
-					break;
-				}
-			}
-			int indentWidth = CodeFormatterUtil.getIndentWidth(javaProject);
-			int tabWidth = CodeFormatterUtil.getTabWidth(javaProject);
-			int visualColumn = 0;
-			for (int i = 0; i < leadingWhitespace.length(); i++) {
-				char c = leadingWhitespace.charAt(i);
-				if (c == '\t') {
-					visualColumn += tabWidth - (visualColumn % tabWidth);
-				} else {
-					visualColumn++;
-				}
-			}
-			if (indentWidth > 0) {
-				indentationLevel = visualColumn / indentWidth;
-			}
-
-		} catch (BadLocationException e) {
-			Log.logWarn("Could not determine indentation level for formatting region: " + e.getMessage());
-			// Proceed with indentationLevel = 0 and default options
-			options = JavaCore.getOptions(); // Reset to default
-		}
-
-		// 2. Format the region text
-		CodeFormatter formatter = ToolFactory.createCodeFormatter(options);
-		if (formatter != null) {
-			// K_STATEMENTS is often suitable for regions within methods.
-			// K_UNKNOWN might be safer if the region could be anything, but K_STATEMENTS
-			// generally works well for typical refactorings/changes within bodies.
-			// Consider K_COMPILATION_UNIT if formatting often fails, but it's slower.
-			String lineSeparator = TextUtilities.getDefaultLineDelimiter(document);
-			TextEdit edit = formatter.format(CodeFormatter.K_STATEMENTS, regionText, 0, // offset in regionText
-					regionText.length(), // length of regionText
-					indentationLevel, lineSeparator);
-
-			if (edit != null) {
-				try {
-					// Apply formatting to a temporary document containing the region text
-					org.eclipse.jface.text.IDocument tempDoc = new org.eclipse.jface.text.Document(regionText);
-					edit.apply(tempDoc);
-					return tempDoc.get();
-				} catch (MalformedTreeException | BadLocationException e) {
-					Activator
-							.logWarn("Could not format region snippet: " + e.getMessage() + ". Returning unformatted.");
-					return regionText; // Fallback to unformatted on formatting error
-				}
-			} else {
-				// Formatter returned null edit (e.g., syntax error in the modified region)
-				Log.logWarn(
-						"Code formatter returned null edit for region, possibly due to syntax errors. Returning unformatted.");
-				return regionText;
-			}
-		}
-
-		// Fallback if formatter couldn't be created
-		Log.logWarn("Could not create code formatter. Returning unformatted region text.");
-		return regionText;
-	}
-
-	/**
 	 * Creates a human-readable diff preview between original text and replacement
 	 * text, using actual file path and line numbers.
 	 * 
@@ -773,7 +638,6 @@ public class ApplyChangeTool {
 	 * @param replacementText The new text being inserted
 	 * @param file            The file being modified
 	 * @param startLineNumber The starting line number for context
-	 * @param indentation
 	 * @return A markdown-formatted string showing the differences
 	 */
 	public String generateDiffPreview(String originalText, String replacementText, IFile file, int startLineNumber) {

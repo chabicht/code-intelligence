@@ -10,21 +10,25 @@ import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.text.TextUtilities;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
+import org.eclipse.ltk.core.refactoring.MultiStateTextFileChange;
 import org.eclipse.ltk.core.refactoring.Refactoring;
 import org.eclipse.ltk.core.refactoring.RefactoringStatus;
 import org.eclipse.ltk.core.refactoring.TextFileChange;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.text.edits.DeleteEdit;
+import org.eclipse.text.edits.InsertEdit;
 import org.eclipse.text.edits.MalformedTreeException;
-import org.eclipse.text.edits.MultiTextEdit;
 import org.eclipse.text.edits.ReplaceEdit;
+import org.eclipse.text.edits.TextEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
@@ -47,13 +51,17 @@ public class ApplyPatchTool {
 		private final String replacement;
 		private final int startLine; // 1-based
 		private final int endLine; // 1-based, (startLine - 1) for pure insert before startLine
+		private final String lineDelimiter;
 
-		public ChangeOperation(String fileName, int startLine, int endLine, String originalText, String replacement) {
+		public ChangeOperation(String fileName, String lineDelimiter, int startLine, int endLine,
+				String originalText,
+				String replacement) {
 			this.fileName = fileName;
 			this.startLine = startLine;
 			this.endLine = endLine;
 			this.originalText = originalText; // Text from the patch's original hunk
 			this.replacement = replacement; // Text from the patch's revised hunk
+			this.lineDelimiter = lineDelimiter;
 		}
 
 		public String getFileName() {
@@ -74,6 +82,10 @@ public class ApplyPatchTool {
 
 		public String getReplacement() {
 			return replacement;
+		}
+
+		public String getLineDelimiter() {
+			return lineDelimiter;
 		}
 	}
 
@@ -203,13 +215,10 @@ public class ApplyPatchTool {
 								+ changedLinesReport,
 						pendingChanges);
 
-				// Create a single ChangeOperation for the entire file content
-				String originalText = String.join(lineDelimiter, originalDocLines);
-				String replacementText = String.join(lineDelimiter, patchedDocLines);
-
-				ChangeOperation op = new ChangeOperation(fileName, 1, originalDocLines.size(), originalText,
-						replacementText);
-				newOperations.add(op);
+				List<ChangeOperation> ops = createChangeOperations(document, fileName, originalDocLines,
+						patchedDocLines,
+						lineDelimiter);
+				newOperations.addAll(ops);
 
 				pendingChanges.addAll(newOperations);
 				Log.logInfo("Validated and added " + newOperations.size() + " change operations from patch for file: "
@@ -222,6 +231,23 @@ public class ApplyPatchTool {
 		} finally {
 			resourceAccess.disconnectAllDocuments(tempDocMap);
 		}
+	}
+
+	private List<ChangeOperation> createChangeOperations(IDocument doc, String fileName, List<String> originalDocLines,
+			List<String> patchedDocLines, String lineDelimiter) {
+		ArrayList<ChangeOperation> res = new ArrayList<>();
+
+		Patch<String> patch = DiffUtils.diff(originalDocLines, patchedDocLines);
+		for (AbstractDelta<String> delta : patch.getDeltas()) {
+			int startLine = delta.getSource().getPosition() + 1;
+			int endLine = startLine + delta.getSource().size() - 1;
+			ChangeOperation op = new ChangeOperation(fileName, lineDelimiter, startLine, endLine,
+					String.join(lineDelimiter, delta.getSource().getLines()),
+					String.join(lineDelimiter, delta.getTarget().getLines()));
+			res.add(op);
+		}
+
+		return res;
 	}
 
 	private String generateChangedLinesReport(String fileName, List<String> originalDocLines,
@@ -353,7 +379,7 @@ public class ApplyPatchTool {
 			changesByFile.computeIfAbsent(op.getFileName(), k -> new ArrayList<>()).add(op);
 		}
 
-		CompositeChange compositeChange = new CompositeChange("Apply Patched Changes");
+		CompositeChange rootChange = new CompositeChange("Apply Patched Changes");
 		Map<IFile, IDocument> documentMap = new HashMap<>();
 
 		try {
@@ -372,15 +398,19 @@ public class ApplyPatchTool {
 					continue;
 				}
 
-				TextFileChange textFileChange = new TextFileChange("Patched changes in " + fileName, file);
-				textFileChange.setTextType(file.getFileExtension() != null ? file.getFileExtension() : "txt");
-				MultiTextEdit multiEdit = new MultiTextEdit();
-				textFileChange.setEdit(multiEdit);
-
+				MultiStateTextFileChange multiStateTextFileChange = new MultiStateTextFileChange(
+						"Patched changes in " + fileName, file);
+				IDocument doc = multiStateTextFileChange.getCurrentDocument(new NullProgressMonitor());
 				for (ChangeOperation op : fileChanges) {
 					try {
-						ReplaceEdit edit = createEditForOperation(document, op);
-						multiEdit.addChild(edit);
+						TextEdit edit = createEditForOperation(document, op);
+						String type = edit instanceof InsertEdit ? "Insert" : "Replacement";
+
+						TextFileChange fileChange = new TextFileChange(
+								String.format("%s at Line %s-%s", type, op.getStartLine(), op.getEndLine()), file);
+						fileChange.setEdit(edit);
+
+						multiStateTextFileChange.addChange(fileChange);
 					} catch (BadLocationException | IllegalArgumentException | MalformedTreeException e) {
 						Gson gson = GsonUtil.createGson();
 						String json = gson.toJson(op);
@@ -389,12 +419,10 @@ public class ApplyPatchTool {
 								+ json, e);
 					}
 				}
-				if (multiEdit.hasChildren()) {
-					compositeChange.add(textFileChange);
-				}
+				rootChange.add(multiStateTextFileChange);
 			}
 
-			if (compositeChange.getChildren().length == 0) {
+			if (rootChange.getChildren().length == 0) {
 				Log.logInfo("No valid patch changes could be prepared for refactoring.");
 				clearChanges();
 				return;
@@ -418,7 +446,7 @@ public class ApplyPatchTool {
 
 				@Override
 				public Change createChange(IProgressMonitor pm) {
-					return compositeChange;
+					return rootChange;
 				}
 			};
 
@@ -454,7 +482,7 @@ public class ApplyPatchTool {
 	/**
 	 * Creates a ReplaceEdit for a given ChangeOperation derived from a patch delta.
 	 */
-	private ReplaceEdit createEditForOperation(IDocument document, ChangeOperation op)
+	private TextEdit createEditForOperation(IDocument document, ChangeOperation op)
 			throws BadLocationException, IllegalArgumentException {
 		int opStartLine1Based = op.getStartLine();
 		int opEndLine1Based = op.getEndLine(); // This is (opStartLine1Based - 1) for pure inserts
@@ -483,7 +511,29 @@ public class ApplyPatchTool {
 					offset = document.getLineOffset(insertLine0Based); // insertLine0Based is correct for getLineOffset
 				}
 			}
-			return new ReplaceEdit(offset, 0, replacementText);
+			return new InsertEdit(offset, replacementText + op.getLineDelimiter());
+		} else if (op.getReplacement().length() == 0) {
+			int startLine0Based = opStartLine1Based - 1;
+			int endLine0Based = opEndLine1Based - 1;
+
+			if (opStartLine1Based < 1 || opEndLine1Based > document.getNumberOfLines() + 1) {
+				throw new BadLocationException(
+						"Invalid line number for deletion: " + opStartLine1Based + ":" + opEndLine1Based + ".");
+			}
+
+			// Delete whole lines except end is on the last line.
+			IRegion startInfo = document.getLineInformation(startLine0Based);
+			int length;
+			if (endLine0Based < document.getNumberOfLines() - 1) {
+				IRegion endInfo = document.getLineInformation(endLine0Based + 1);
+				length = endInfo.getOffset() - startInfo.getOffset();
+			} else {
+				IRegion endInfo = document.getLineInformation(endLine0Based);
+				length = endInfo.getOffset() - startInfo.getOffset() + endInfo.getLength();
+			}
+
+			int offset = startInfo.getOffset();
+			return new DeleteEdit(offset, length);
 		} else {
 			// Modification or Deletion
 			int startLine0Based = opStartLine1Based - 1;

@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -8,6 +10,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -17,6 +20,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -146,8 +150,6 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("temperature", completionPrompt.getTemperature());
 		req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
 
-		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsXAi());
-
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();
 		userMessage.addProperty("role", "user");
@@ -219,6 +221,11 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("stream", true);
 		req.addProperty("max_completion_tokens", maxResponseTokens); // Corrected parameter name
 		req.add("messages", messagesJson);
+
+		Map<ChatOption, Object> options = chat.getOptions();
+		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsXAi());
+		}
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
 				ChatConversation.Role.ASSISTANT, "");

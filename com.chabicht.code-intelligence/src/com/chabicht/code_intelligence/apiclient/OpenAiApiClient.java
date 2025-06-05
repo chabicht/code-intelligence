@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -240,18 +243,20 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("max_completion_tokens", maxResponseTokens);
 		req.addProperty("stream", true);
 
-		if (apiConnection.isLegacyFormat()) {
-			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy());
-		} else {
-			JsonObject toolDefinitionsOpenAi = ToolDefinitions.getInstance().getToolDefinitionsOpenAi();
-			// Hack for Fireworks.AI: they don't support the strict flag in function
-			// definitions.
-			if (apiConnection.getBaseUri().contains("fireworks.ai")) {
-				removeStrictFlag(toolDefinitionsOpenAi);
+		Map<ChatOption, Object> options = chat.getOptions();
+		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+			if (apiConnection.isLegacyFormat()) {
+				patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy());
+			} else {
+				JsonObject toolDefinitionsOpenAi = ToolDefinitions.getInstance().getToolDefinitionsOpenAi();
+				// Hack for Fireworks.AI: they don't support the strict flag in function
+				// definitions.
+				if (apiConnection.getBaseUri().contains("fireworks.ai")) {
+					removeStrictFlag(toolDefinitionsOpenAi);
+				}
+				patchMissingProperties(req, toolDefinitionsOpenAi);
 			}
-			patchMissingProperties(req, toolDefinitionsOpenAi);
 		}
-
 		req.add("messages", messagesJson);
 
 		// Add a new (empty) assistant message to the conversation.
