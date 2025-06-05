@@ -6,7 +6,8 @@ import java.util.Optional;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
-import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool; // Added import
+import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool;
+import com.chabicht.code_intelligence.chat.tools.CreateFileTool; // Added import
 import com.chabicht.code_intelligence.chat.tools.ReadFileContentTool;
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
@@ -24,8 +25,9 @@ public class FunctionCallSession {
 
 	private final ResourceAccess resourceAccess = new ResourceAccess();
 	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
-	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess); // Added tool instance
+	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess);
 	private final ReadFileContentTool readFileContentTool = new ReadFileContentTool(resourceAccess);
+	private final CreateFileTool createFileTool = new CreateFileTool(resourceAccess); // Added tool instance
 	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess); // Added SearchTool instance
 	private final Gson gson = GsonUtil.createGson();
 
@@ -69,6 +71,9 @@ public class FunctionCallSession {
 				break;
 			case "read_file_content":
 				handleReadFileContent(call, result, argsJson);
+				break;
+			case "create_file": // Added case for create_file
+				handleCreateFile(call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -409,6 +414,82 @@ public class FunctionCallSession {
 
 		} catch (Exception e) { // Catch general Exception
 			String errorMsg = "Error processing read_file_content function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
+		}
+	}
+
+	/**
+	 * Specifically handles the "create_file" function call. Parses arguments
+	 * and attempts to create a new file with the given content.
+	 *
+	 * @param call             The FunctionCall object
+	 * @param result           The FunctionResult object to populate
+	 * @param functionArgsJson JSON arguments for create_file. Expected:
+	 *                         {"file_path": "...", "content": "..."}
+	 */
+	private void handleCreateFile(FunctionCall call, FunctionResult result, String functionArgsJson) {
+		try {
+			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
+			String filePath = args.has("file_path") ? args.get("file_path").getAsString() : null;
+			String content = args.has("content") ? args.get("content").getAsString() : null; // Content can be empty
+
+			if (filePath == null || content == null) { // content being null is an issue, empty string is fine.
+				String errorMsg = "Missing required arguments for create_file. Expected 'file_path' and 'content'. Args: "
+						+ functionArgsJson;
+				Activator.logError(errorMsg);
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", errorMsg, false);
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
+				return;
+			}
+
+			call.addPrettyParam("file_path", filePath, false);
+			call.addPrettyParam("content", content, true); // Display content in a code block
+
+			CreateFileTool.CreateFileResult createResult = createFileTool.createFile(filePath, content);
+
+			JsonObject jsonResponse = new JsonObject();
+			if (createResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				result.addPrettyResult("message", createResult.getMessage(), false);
+				result.addPrettyResult("file_path_created", createResult.getFilePath(), false);
+				jsonResponse.addProperty("status", "Success");
+				jsonResponse.addProperty("message", createResult.getMessage());
+				jsonResponse.addProperty("file_path", createResult.getFilePath());
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", createResult.getMessage(), false);
+				if (createResult.getFilePath() != null) {
+					result.addPrettyResult("file_path_attempted", createResult.getFilePath(), false);
+				}
+				jsonResponse.addProperty("status", "Error");
+				jsonResponse.addProperty("message", createResult.getMessage());
+				if (createResult.getFilePath() != null) {
+					jsonResponse.addProperty("file_path", createResult.getFilePath());
+				}
+			}
+			result.setResultJson(gson.toJson(jsonResponse));
+
+		} catch (JsonSyntaxException e) {
+			String errorMsg = "Failed to parse JSON arguments for create_file: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
+		} catch (Exception e) { // Catch general Exception
+			String errorMsg = "Error processing create_file function call: " + e.getMessage();
 			Activator.logError(errorMsg, e);
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);

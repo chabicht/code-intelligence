@@ -1,5 +1,8 @@
 package com.chabicht.code_intelligence.chat.tools;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -8,6 +11,7 @@ import org.eclipse.core.filebuffers.FileBuffers;
 import org.eclipse.core.filebuffers.ITextFileBuffer;
 import org.eclipse.core.filebuffers.ITextFileBufferManager;
 import org.eclipse.core.filebuffers.LocationKind;
+import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceVisitor;
@@ -193,6 +197,44 @@ public class ResourceAccess implements IResourceAccess {
 			}
 		}
 		documentMap.clear(); // Clear the map after disconnecting
+	}
+
+	@Override
+	public CreateFileTool.CreateFileResult createFileInWorkspace(String filePath, String content) {
+		IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+		IPath path = new Path(filePath);
+		IFile file = root.getFile(path);
+
+		if (file.exists()) {
+			return CreateFileTool.CreateFileResult.failure("File already exists: " + filePath, filePath);
+		}
+
+		// Ensure parent folders exist
+		IContainer parent = file.getParent();
+		if (parent != null && !parent.exists() && parent.getType() == IResource.FOLDER) {
+			try {
+				((org.eclipse.core.resources.IFolder) parent).create(true, true, new NullProgressMonitor());
+			} catch (CoreException e) {
+				Log.logError("Failed to create parent directory for " + filePath + ": " + e.getMessage(), e);
+				return CreateFileTool.CreateFileResult.failure(
+						"Failed to create parent directory: " + e.getMessage(), filePath);
+			}
+		}
+
+		InputStream source = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+		try {
+			file.create(source, true, new NullProgressMonitor());
+			return new CreateFileTool.CreateFileResult(true, "File created successfully: " + filePath, filePath);
+		} catch (CoreException e) {
+			Log.logError("Failed to create file " + filePath + ": " + e.getMessage(), e);
+			return CreateFileTool.CreateFileResult.failure("Failed to create file: " + e.getMessage(), filePath);
+		} finally {
+			try {
+				source.close();
+			} catch (java.io.IOException e) {
+				Log.logWarn("Error closing input stream for " + filePath, e);
+			}
+		}
 	}
 
 }

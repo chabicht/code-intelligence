@@ -49,4 +49,15 @@ public class Log {
 			LOG.log(Level.WARNING, message);
 		}
 	}
+
+	/**
+	 * Log a warning message.
+	 */
+	public static void logWarn(String message, Throwable exception) {
+		if (com.chabicht.code_intelligence.Activator.getDefault() != null) {
+			com.chabicht.code_intelligence.Activator.logWarn(message);
+		} else {
+			LOG.log(Level.WARNING, message, exception);
+		}
+	}
 }

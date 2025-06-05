@@ -132,11 +132,32 @@
               }
             },
             "required": [
-              "search_pattern"
-            ]
-          }
-        }
-      ]
-    }
+					"search_pattern"
+				]
+			}
+		},
+		{
+			"name": "create_file",
+			"description": "Creates a new file with the specified content. Fails if the file already exists.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"file_path": {
+						"type": "string",
+						"description": "The complete path, including the file name, where the new file should be created (e.g., '/project/src/com/example/NewFile.java'). This path should be relative to the workspace or project root."
+					},
+					"content": {
+						"type": "string",
+						"description": "The content to be written into the new file. Can be an empty string if an empty file is desired."
+					}
+				},
+				"required": [
+					"file_path",
+					"content"
+				]
+			}
+		}
+	]
+	}
   ]
 }

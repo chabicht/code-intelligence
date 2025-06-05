@@ -31,4 +31,13 @@ public interface IResourceAccess {
 	 * @param documentMap The map containing files and their connected documents.
 	 */
 	void disconnectAllDocuments(Map<IFile, IDocument> documentMap);
+
+	/**
+	 * Attempts to create a new file at the specified path with the given content.
+	 *
+	 * @param filePath The complete path (relative to workspace root) for the new file.
+	 * @param content  The content to write into the new file.
+	 * @return A {@link CreateFileTool.CreateFileResult} indicating success or failure.
+	 */
+	CreateFileTool.CreateFileResult createFileInWorkspace(String filePath, String content);
 }
