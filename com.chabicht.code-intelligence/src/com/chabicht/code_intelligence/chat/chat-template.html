@@ -503,6 +503,8 @@ function isScrolledToBottom() {
  * @param {String} updatedContent - The new HTML content for the message.
  */
  function updateMessage(uuid, updatedContent) {
+   const scrolledToBottom = isScrolledToBottom();
+
    var message = document.getElementById(uuid);
    if (message) {
      // Find the content div within the message
@@ -528,6 +530,13 @@ function isScrolledToBottom() {
     var scrollPauseButton = document.getElementById("scroll-pause-button");
     if(scrollPauseButton) {
       scrollPauseButton.style.visibility = autoScrollEnabled ? "visible" : "hidden";
+    }
+
+    if (scrolledToBottom && !isScrolledToBottom()) {
+      const bottom = document.getElementById("bottom");
+      if (bottom) {
+        bottom.scrollIntoView({ block: 'start', behaviour: 'instant' });
+      }
     }
 
     updateScrollToBottomButtonVisibility();
