@@ -12,6 +12,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
@@ -24,9 +25,9 @@ import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.text.edits.DeleteEdit;
-import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.MultiTextEdit;
 import org.eclipse.text.edits.ReplaceEdit;
+import org.eclipse.text.edits.TextEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
@@ -116,7 +117,7 @@ public class ApplyChangeTool {
 	}
 
 	// List to store pending changes
-	private List<ChangeOperation> pendingChanges = new ArrayList<>();
+	private Map<String, TextFileChange> pendingFileChanges = new HashMap<>();
 	private IResourceAccess resourceAccess;
 
 	public ApplyChangeTool(IResourceAccess resourceAccess) {
@@ -160,7 +161,26 @@ public class ApplyChangeTool {
 		Map<IFile, IDocument> tempDocMap = new HashMap<>();
 
 		try {
-			document = resourceAccess.getDocumentAndConnect(file, tempDocMap);
+			// Get or create TextFileChange for this file
+			String fullPath = file.getFullPath().toString(); // Use full path as key
+			TextFileChange tfc = pendingFileChanges.get(fullPath);
+			MultiTextEdit multiEdit;
+
+			if (tfc == null) {
+				tfc = new TextFileChange("Changes in " + fileName, file);
+				if (file.getFileExtension() != null) {
+					tfc.setTextType(file.getFileExtension());
+				} else {
+					tfc.setTextType("txt"); // Default
+				}
+				multiEdit = new MultiTextEdit();
+				tfc.setEdit(multiEdit);
+				pendingFileChanges.put(fullPath, tfc);
+			} else {
+				multiEdit = (MultiTextEdit) tfc.getEdit(); // Assume it's always MultiTextEdit
+			}
+
+			document = tfc.getCurrentDocument(new NullProgressMonitor());
 			if (document == null) {
 				return ApplyChangeResult.failure("Could not get document for file: " + fileName);
 			}
@@ -171,31 +191,38 @@ public class ApplyChangeTool {
 				return ApplyChangeResult.failure("Invalid location string: " + location);
 			}
 
-			// Try to find the match in the document
 			try {
-				// This will throw an exception if the text can't be found
+				// Find the actual start and end offsets of the matched text
 				int[] matchOffsets = findOffsetsByPattern(originalText, document, searchBounds);
 
 				// Generate diff preview the document
 				DiffPreviewResult diffResult = generateDiffPreview(file, document, matchOffsets, replacement);
 
-				// Validation successful - create and store the operation
-				ChangeOperation op = new ChangeOperation(fileName, diffResult.getStartLine(), diffResult.getEndLine(),
-						originalText, replacement);
-				pendingChanges.add(op);
+				// Create the TextEdit
+				TextEdit edit = createActualTextEdit(document, diffResult.getStartLine(), diffResult.getEndLine(),
+						replacement);
+
+				multiEdit.addChild(edit);
+
+				// Create ChangeOperation for the result (still useful for reporting)
+				ChangeOperation opForReport = new ChangeOperation(fileName, diffResult.getStartLine(),
+						diffResult.getEndLine(), originalText, replacement);
 
 				Gson gson = GsonUtil.createGson();
-				String json = gson.toJson(op);
-//				Log.logInfo("Validated and added change for file: " + fileName + " at location: " + location
-//						+ "\n\nJSON:\n" + json);
-				Log.logInfo("Validated and added change for file: " + fileName + " at location: " + location
-				);
+				String json = gson.toJson(opForReport);
+				// Log.logInfo("Validated and added change for file: " + fileName + " at
+				// location: " + location
+				// + "\n\nJSON:\n" + json);
+				Log.logInfo("Validated and added TextEdit for file: " + fileName + " at lines "
+						+ diffResult.getStartLine() + "-" + diffResult.getEndLine());
 
-				return ApplyChangeResult.success("Change validated and queued for preview", op,
+				return ApplyChangeResult.success("Change validated and TextEdit queued for preview", opForReport,
 						diffResult.getDiffPreview());
 			} catch (IllegalArgumentException | BadLocationException e) {
 				return ApplyChangeResult.failure("Failed to locate original text: " + e.getMessage());
 			}
+		} catch (CoreException e) {
+			return ApplyChangeResult.failure("Failed to locate original text: " + e.getMessage());
 		} finally {
 			// Always disconnect documents we connected during validation
 			resourceAccess.disconnectAllDocuments(tempDocMap);
@@ -234,13 +261,12 @@ public class ApplyChangeTool {
 		}
 	}
 
-
 	/**
 	 * Clear all pending changes from the queue.
 	 */
 	public void clearChanges() {
-		int count = pendingChanges.size();
-		pendingChanges.clear();
+		int count = pendingFileChanges.size();
+		pendingFileChanges.clear();
 		Log.logInfo("Cleared " + count + " pending changes.");
 	}
 
@@ -250,7 +276,7 @@ public class ApplyChangeTool {
 	 * @return The count of pending changes.
 	 */
 	public int getPendingChangeCount() {
-		return pendingChanges.size();
+		return pendingFileChanges.size();
 	}
 
 	/**
@@ -258,7 +284,7 @@ public class ApplyChangeTool {
 	 * typically open a preview dialog for the user.
 	 */
 	public void applyChanges() {
-		if (pendingChanges.isEmpty()) {
+		if (pendingFileChanges.isEmpty()) {
 			Log.logInfo("No changes to apply.");
 			return;
 		}
@@ -277,129 +303,97 @@ public class ApplyChangeTool {
 	 * Creates and executes the refactoring operation based on pending changes.
 	 */
 	private void performRefactoring() throws CoreException {
-		// Group changes by filename
-		Map<String, List<ChangeOperation>> changesByFile = new HashMap<>();
-		for (ChangeOperation op : pendingChanges) {
-			changesByFile.computeIfAbsent(op.getFileName(), k -> new ArrayList<>()).add(op);
+		// MODIFIED: Use pendingFileChanges directly
+		if (pendingFileChanges.isEmpty()) {
+			Log.logInfo("No TextFileChanges to apply.");
+			return;
 		}
 
 		// Create a composite change to hold all individual file changes
-		CompositeChange compositeChange = new CompositeChange("Code Intelligence Changes");
-		Map<IFile, IDocument> documentMap = new HashMap<>(); // To manage documents
+		CompositeChange rootChange = new CompositeChange("Code Intelligence Changes");
 
-		try {
-			// Process changes for each file
-			for (Map.Entry<String, List<ChangeOperation>> entry : changesByFile.entrySet()) {
-				String fileName = entry.getKey();
-				List<ChangeOperation> fileChanges = entry.getValue();
-
-				IFile file = resourceAccess.findFileByNameBestEffort(fileName);
-				if (file == null) {
-					Log.logError("Skipping changes for file not found: " + fileName);
-					continue; // Skip this file if not found
+		// NEW LOGIC: Iterate over the prepared TextFileChange objects
+		for (TextFileChange tfc : pendingFileChanges.values()) {
+			// A TextFileChange might have been created but no actual edits added if all
+			// attempts failed
+			// or if it's an empty MultiTextEdit.
+			if (tfc.getEdit() instanceof MultiTextEdit) {
+				MultiTextEdit mte = (MultiTextEdit) tfc.getEdit();
+				if (mte.hasChildren()) {
+					rootChange.add(tfc);
 				}
-
-				// Get the document for the file, managing connection
-				IDocument document = resourceAccess.getDocumentAndConnect(file, documentMap);
-				if (document == null) {
-					Log.logError("Skipping changes for file, could not get document: " + fileName);
-					continue;
-				}
-
-				// Create a TextFileChange for this file
-				TextFileChange textFileChange = new TextFileChange("Changes in " + fileName, file);
-				textFileChange.setTextType(file.getFileExtension() != null ? file.getFileExtension() : "txt");
-				MultiTextEdit multiEdit = new MultiTextEdit();
-				textFileChange.setEdit(multiEdit);
-
-				// Add all edits for this file
-				for (ChangeOperation op : fileChanges) {
-					try {
-						TextEdit edit = createTextEdit(file, document, op);
-						multiEdit.addChild(edit);
-					} catch (BadLocationException | IllegalArgumentException | MalformedTreeException e) {
-						Gson gson = GsonUtil.createGson();
-						String json = gson.toJson(op);
-						Log.logError("Failed to create edit for " + fileName + " at line " + op.getStartLine() + " to "
-								+ op.getEndLine() + ": " + e.getMessage() + "\n\nJSON:\n" + json, e);
-					}
-				}
-
-				// Only add the change if it contains edits
-				if (multiEdit.hasChildren()) {
-					compositeChange.add(textFileChange);
-				}
+			} else if (tfc.getEdit() != null) {
+				// This case should ideally not happen if we always set a MultiTextEdit.
+				Log.logWarn("TextFileChange for " + tfc.getFile().getName()
+						+ " does not have a MultiTextEdit. Adding directly.");
+				rootChange.add(tfc);
 			}
-
-			// If no valid changes were created, don't proceed
-			if (compositeChange.getChildren().length == 0) {
-				Log.logInfo("No valid changes could be prepared for refactoring.");
-				clearChanges();
-				return;
-			}
-
-			// Create the refactoring object
-			Refactoring refactoring = new Refactoring() {
-				@Override
-				public String getName() {
-					return "Apply Code Intelligence Changes";
-				}
-
-				@Override
-				public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
-					// Can add initial checks here if needed
-					return new RefactoringStatus(); // Assume OK for now
-				}
-
-				@Override
-				public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
-					// Can add final checks here, e.g., ensuring files are writable
-					return new RefactoringStatus(); // Assume OK for now
-				}
-
-				@Override
-				public Change createChange(IProgressMonitor pm) {
-					// Return the composite change containing all file changes
-					return compositeChange;
-				}
-			};
-
-			// Open the refactoring wizard in the UI thread
-			Display.getDefault().asyncExec(() -> {
-				try {
-					IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
-					if (window == null) {
-						Log.logError("Cannot apply changes: No active workbench window found.");
-						return; // Cannot proceed without a window/shell
-					}
-					// Use a standard RefactoringWizard
-					RefactoringWizard wizard = new RefactoringWizard(refactoring,
-							RefactoringWizard.DIALOG_BASED_USER_INTERFACE
-									| RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
-						@Override
-						protected void addUserInputPages() {
-							// No custom input pages needed for this simple case
-						}
-					};
-					RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
-					operation.run(window.getShell(), "Preview Code Changes");
-
-					// Important: Clear pending changes *after* the wizard is potentially closed
-					// The user might cancel, but we assume the operation is "done" either way.
-					pendingChanges.clear();
-
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-					Log.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
-				} catch (Exception e) { // Catch broader exceptions during wizard operation
-					Log.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
-				}
-			});
-
-		} finally {
-			// Ensure all connected documents are disconnected
-			resourceAccess.disconnectAllDocuments(documentMap);
 		}
+
+		// If no valid changes were created, don't proceed
+		if (rootChange.getChildren().length == 0) {
+			Log.logInfo("No valid changes (TextFileChanges with edits) could be prepared for refactoring.");
+			// clearChanges(); // This is now done in the finally block of the asyncExec or
+			// if wizard doesn't run
+			return;
+		}
+
+		// Create the refactoring object
+		Refactoring refactoring = new Refactoring() {
+			@Override
+			public String getName() {
+				return "Apply Code Intelligence Changes";
+			}
+
+			@Override
+			public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
+				// Can add initial checks here if needed
+				return new RefactoringStatus(); // Assume OK for now
+			}
+
+			@Override
+			public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
+				// Can add final checks here, e.g., ensuring files are writable
+				return new RefactoringStatus(); // Assume OK for now
+			}
+
+			@Override
+			public Change createChange(IProgressMonitor pm) {
+				// Return the composite change containing all file changes
+				return rootChange;
+			}
+		};
+
+		// Open the refactoring wizard in the UI thread
+		Display.getDefault().asyncExec(() -> {
+			try {
+				IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+				if (window == null) {
+					Log.logError("Cannot apply changes: No active workbench window found.");
+					return; // Cannot proceed without a window/shell
+				}
+				// Use a standard RefactoringWizard
+				RefactoringWizard wizard = new RefactoringWizard(refactoring,
+						RefactoringWizard.DIALOG_BASED_USER_INTERFACE | RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
+					@Override
+					protected void addUserInputPages() {
+						// No custom input pages needed for this simple case
+					}
+				};
+				RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
+				operation.run(window.getShell(), "Preview Code Changes");
+
+				// Important: Clear pending changes *after* the wizard is potentially closed
+				// The user might cancel, but we assume the operation is "done" either way.
+				pendingFileChanges.clear();
+
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				Log.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
+			} catch (Exception e) { // Catch broader exceptions during wizard operation
+				Log.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
+			}
+		});
 	}
 
 	/**
@@ -408,37 +402,31 @@ public class ApplyChangeTool {
 	 * affected lines, and creating an edit to replace the original lines with the
 	 * formatted ones.
 	 *
-	 * @param file     The file being modified.
-	 * @param document The document to apply the edit to.
-	 * @param op       The change operation details.
+	 * @param document        The document to apply the edit to.
+	 * @param startLine1Based The 1-based starting line of the region to change.
+	 * @param endLine1Based   The 1-based ending line of the region to change.
+	 * @param replacementText The text to replace the original content with (empty
+	 *                        for deletion).
 	 * @return The created ReplaceEdit.
-	 * @throws BadLocationException     If location calculations fail.
-	 * @throws IllegalArgumentException If the originalText pattern cannot be found,
-	 *                                  location is invalid, or formatting fails
-	 *                                  critically.
+	 * @throws BadLocationException If location calculations fail.
 	 */
-	private TextEdit createTextEdit(IFile file, IDocument document, ChangeOperation op)
-			throws BadLocationException, IllegalArgumentException {
-		// op.getStartLine() and op.getEndLine() are 1-based inclusive,
-		// representing the full lines affected by the originalText match.
-		// Convert to 0-based for IDocument.
-		int startLine0Based = op.getStartLine() - 1;
-		int endLine0Based = op.getEndLine() - 1;
+	private TextEdit createActualTextEdit(IDocument document, int startLine1Based, int endLine1Based,
+			String replacementText) throws BadLocationException {
+		int startLine0Based = startLine1Based - 1;
+		int endLine0Based = endLine1Based - 1;
 
-		if (startLine0Based < 0 || endLine0Based < startLine0Based
-				|| endLine0Based >= document.getNumberOfLines()) {
-			throw new BadLocationException("Invalid line range for operation: " + op.getStartLine() + "-"
-					+ op.getEndLine() + ", doc lines: " + document.getNumberOfLines());
+		if (startLine0Based < 0 || endLine0Based < startLine0Based || endLine0Based >= document.getNumberOfLines()) {
+			throw new BadLocationException("Invalid line range for operation: " + startLine1Based + "-" + endLine1Based
+					+ ", doc lines: " + document.getNumberOfLines());
 		}
 
 		IRegion startLineInfo = document.getLineInformation(startLine0Based);
 		int offset = startLineInfo.getOffset();
 		int length;
 
-		if (op.getReplacement().isEmpty()) {
+		if (replacementText.isEmpty()) {
 			// This is a deletion operation.
-			// Calculate length to remove lines including their delimiters,
-			// adopting the logic from ApplyPatchTool for DeleteEdit.
+			// Calculate length to remove lines including their delimiters.
 			if (endLine0Based < document.getNumberOfLines() - 1) {
 				// Deleting lines not at the very end of the document.
 				// Length extends to the start of the next line.
@@ -456,11 +444,11 @@ public class ApplyChangeTool {
 			// Length covers from the start of the first line to the end of the last line.
 			IRegion endLineInfo = document.getLineInformation(endLine0Based);
 			length = (endLineInfo.getOffset() + endLineInfo.getLength()) - offset;
-			return new ReplaceEdit(offset, length, op.getReplacement());
+			return new ReplaceEdit(offset, length, replacementText);
 		}
 	}
 
-/**
+	/**
 	 * Searches for a pattern derived from the original text within specified bounds
 	 * of the document. The pattern ignores leading/trailing whitespace on each line
 	 * and allows for arbitrary whitespace between lines.
@@ -502,8 +490,8 @@ public class ApplyChangeTool {
 		}
 
 		int[] extendedRegion = extendRegion(document, searchStart, searchLength);
-		searchRegionText = document.get(extendedRegion[0], extendedRegion[1]-extendedRegion[0]);
-		
+		searchRegionText = document.get(extendedRegion[0], extendedRegion[1] - extendedRegion[0]);
+
 		// Use a "searcher" to find matching region
 		// ChunkSearcher searcher = new ChunkSearcher();
 		SmithWatermanSearcher searcher = new SmithWatermanSearcher();
@@ -576,39 +564,46 @@ public class ApplyChangeTool {
 				parts[1] = StringUtils.stripToEmpty(parts[1]).replaceAll("[^0-9]", "");
 				int endLine = Integer.parseInt(parts[1]);
 				int numDocLines = document.getNumberOfLines(); // Get total lines once
-//
-//				if (startLine < 1 || endLine < startLine || startLine > numDocLines) {
-//					Log.logWarn("Invalid line numbers in location: " + location + " (Doc lines: " + numDocLines + ")");
-//					return null;
-//				}
-//
-//				final int CONTEXT_LINES = 3; // Number of context lines to add before and after
-//
+				//
+				// if (startLine < 1 || endLine < startLine || startLine > numDocLines) {
+				// Log.logWarn("Invalid line numbers in location: " + location + " (Doc lines: "
+				// + numDocLines + ")");
+				// return null;
+				// }
+				//
+				// final int CONTEXT_LINES = 3; // Number of context lines to add before and
+				// after
+				//
 				// Convert 1-based line numbers to 0-based indices for the *original* selection
 				int originalStartLineIndex = startLine - 1;
 				// Ensure original endLineIndex doesn't exceed document bounds
 				int originalEndLineIndex = Math.min(endLine - 1, numDocLines - 1);
-//
-//				// Calculate the start line index including context, clamped to document start
-//				// (0)
-//				int contextStartLineIndex = Math.max(0, originalStartLineIndex - CONTEXT_LINES);
-//
-//				// Calculate the end line index including context, clamped to document end
-//				int contextEndLineIndex = Math.min(numDocLines - 1, originalEndLineIndex + CONTEXT_LINES);
-//
-//				try {
-//					// Get start offset from the beginning of the context start line
-//					start = document.getLineOffset(contextStartLineIndex);
-//
-//					// Get end offset from the end of the context end line
-//					IRegion contextEndLineInfo = document.getLineInformation(contextEndLineIndex);
-//					end = contextEndLineInfo.getOffset() + contextEndLineInfo.getLength();
-//				} catch (BadLocationException e) {
-//					// This should theoretically not happen due to boundary checks, but handle
-//					// defensively
-//					Log.logError("Error calculating offsets with context for location: " + location, e);
-//					return null; // Or handle error appropriately
-//				}
+				//
+				// // Calculate the start line index including context, clamped to document
+				// start
+				// // (0)
+				// int contextStartLineIndex = Math.max(0, originalStartLineIndex -
+				// CONTEXT_LINES);
+				//
+				// // Calculate the end line index including context, clamped to document end
+				// int contextEndLineIndex = Math.min(numDocLines - 1, originalEndLineIndex +
+				// CONTEXT_LINES);
+				//
+				// try {
+				// // Get start offset from the beginning of the context start line
+				// start = document.getLineOffset(contextStartLineIndex);
+				//
+				// // Get end offset from the end of the context end line
+				// IRegion contextEndLineInfo =
+				// document.getLineInformation(contextEndLineIndex);
+				// end = contextEndLineInfo.getOffset() + contextEndLineInfo.getLength();
+				// } catch (BadLocationException e) {
+				// // This should theoretically not happen due to boundary checks, but handle
+				// // defensively
+				// Log.logError("Error calculating offsets with context for location: " +
+				// location, e);
+				// return null; // Or handle error appropriately
+				// }
 
 				int safeStartLineIndex = Math.max(0, originalStartLineIndex);
 				int safeEndLineIndex = Math.min(numDocLines - 1, originalEndLineIndex);
@@ -616,8 +611,7 @@ public class ApplyChangeTool {
 				try {
 					IRegion contextEndLineInfo = document.getLineInformation(safeEndLineIndex);
 					end = contextEndLineInfo.getOffset() + contextEndLineInfo.getLength();
-					return new int[] { document.getLineOffset(safeStartLineIndex),
-							end };
+					return new int[] { document.getLineOffset(safeStartLineIndex), end };
 				} catch (BadLocationException e) {
 					Log.logError("Error calculating offsets with context for location: " + location, e);
 					return null;

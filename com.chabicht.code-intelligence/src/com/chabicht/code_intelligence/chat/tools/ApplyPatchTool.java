@@ -26,88 +26,38 @@ import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.text.edits.DeleteEdit;
 import org.eclipse.text.edits.InsertEdit;
-import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.text.edits.TextEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
-import com.chabicht.code_intelligence.util.GsonUtil; // If you still want to log JSON
-import com.chabicht.code_intelligence.util.Log; // Your Log utility
+import com.chabicht.code_intelligence.util.Log;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
+import com.github.difflib.patch.DeltaType;
 import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
-import com.google.gson.Gson;
 
 public class ApplyPatchTool {
-
-	static class ChangeOperation {
-		private final String fileName;
-		private final String originalText;
-		private final String replacement;
-		private final int startLine; // 1-based
-		private final int endLine; // 1-based, (startLine - 1) for pure insert before startLine
-		private final String lineDelimiter;
-
-		public ChangeOperation(String fileName, String lineDelimiter, int startLine, int endLine,
-				String originalText,
-				String replacement) {
-			this.fileName = fileName;
-			this.startLine = startLine;
-			this.endLine = endLine;
-			this.originalText = originalText; // Text from the patch's original hunk
-			this.replacement = replacement; // Text from the patch's revised hunk
-			this.lineDelimiter = lineDelimiter;
-		}
-
-		public String getFileName() {
-			return fileName;
-		}
-
-		public int getStartLine() {
-			return startLine;
-		}
-
-		public int getEndLine() {
-			return endLine;
-		}
-
-		public String getOriginalText() {
-			return originalText;
-		}
-
-		public String getReplacement() {
-			return replacement;
-		}
-
-		public String getLineDelimiter() {
-			return lineDelimiter;
-		}
-	}
 
 	public static class ApplyPatchResult {
 		private final boolean success;
 		private final String message;
-		private final List<ChangeOperation> operations; // List of operations created
 
-		private ApplyPatchResult(boolean success, String message,
-				List<ChangeOperation> operations) {
+		private ApplyPatchResult(boolean success, String message) {
 			this.success = success;
 			this.message = message;
-			this.operations = operations != null ? operations : new ArrayList<>();
 		}
 
-		public static ApplyPatchResult success(String message,
-				List<ChangeOperation> operations) {
-			return new ApplyPatchResult(true, message, operations);
+		public static ApplyPatchResult success(String message) {
+			return new ApplyPatchResult(true, message);
 		}
 
 		public static ApplyPatchResult failure(String message) {
-			return new ApplyPatchResult(false, message, null);
+			return new ApplyPatchResult(false, message);
 		}
 
 		public boolean isSuccess() {
@@ -117,13 +67,9 @@ public class ApplyPatchTool {
 		public String getMessage() {
 			return message;
 		}
-
-		public List<ChangeOperation> getOperations() {
-			return operations;
-		}
 	}
 
-	private List<ChangeOperation> pendingChanges = new ArrayList<>();
+	private Map<String, MultiStateTextFileChange> pendingFileChanges = new HashMap<>();
 	private IResourceAccess resourceAccess;
 
 	public ApplyPatchTool(IResourceAccess resourceAccess) {
@@ -151,14 +97,22 @@ public class ApplyPatchTool {
 		}
 
 		Map<IFile, IDocument> tempDocMap = new HashMap<>();
-		IDocument document = null;
-		List<ChangeOperation> newOperations = new ArrayList<>();
 
 		try {
-			document = resourceAccess.getDocumentAndConnect(file, tempDocMap);
-			if (document == null) {
-				return ApplyPatchResult.failure("Could not get document for file: " + fileName);
+			String fullPath = file.getFullPath().toString(); // Use full path as key
+			MultiStateTextFileChange mstfcForFile = pendingFileChanges.get(fullPath);
+			boolean isNewMstfc = false;
+
+			if (mstfcForFile == null) {
+				mstfcForFile = new MultiStateTextFileChange("Patched changes for " + fileName, file);
+				if (file.getFileExtension() != null) {
+					mstfcForFile.setTextType(file.getFileExtension());
+				} else {
+					mstfcForFile.setTextType("txt"); // Default
+				}
+				isNewMstfc = true;
 			}
+			IDocument document = mstfcForFile.getCurrentDocument(new NullProgressMonitor());
 
 			String lineDelimiter = TextUtilities.getDefaultLineDelimiter(document);
 			List<String> originalDocLines = Arrays.asList(document.get().split("\\R", -1));
@@ -166,11 +120,8 @@ public class ApplyPatchTool {
 
 			Patch<String> patch;
 			try {
-				// DiffUtils.parseUnifiedDiff expects the patch lines, not the original file
-				// lines.
 				patch = UnifiedDiffUtils.parseUnifiedDiff(patchLines);
-			} catch (Exception e) { // Catch broader exceptions from parsing, though parseUnifiedDiff is quite
-									// robust
+			} catch (Exception e) {
 				Log.logError("Failed to parse unified diff: " + e.getMessage(), e);
 				return ApplyPatchResult.failure("Failed to parse unified diff: " + e.getMessage());
 			}
@@ -207,22 +158,41 @@ public class ApplyPatchTool {
 					patchedDocLines.remove(0);
 				}
 
+				TextFileChange change = new TextFileChange("Patch", file);
+				change.setEdit(new ReplaceEdit(0, document.getLength(), String.join(lineDelimiter, patchedDocLines)));
+				mstfcForFile.addChange(change);
+
+				// NEW: Generate preview using the MultiStateTextFileChange
+				String previewContentString;
+				List<String> previewLines;
+				try {
+					IDocument previewDocument = mstfcForFile.getPreviewDocument(new NullProgressMonitor());
+					previewContentString = previewDocument.get();
+					previewLines = Arrays.asList(previewContentString.split("\\R", -1));
+				} catch (CoreException e) {
+					Log.logError("Failed to generate preview using MultiStateTextFileChange for " + fileName + ": "
+							+ e.getMessage(), e);
+					return ApplyPatchResult.failure("Error generating preview for " + fileName + ": " + e.getMessage());
+				}
+
 				// The current result is only a dummy.
-				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines, patchedDocLines,
+				// MODIFIED: Call generateChangedLinesReport with originalDocLines and
+				// previewLines
+				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines, previewLines,
 						lineDelimiter);
-				applyPatchResult = ApplyPatchResult.success(
-						"The patch was successfully validated and a change operation was queued to apply the patch after user review.\n"
-								+ changedLinesReport,
-						pendingChanges);
 
-				List<ChangeOperation> ops = createChangeOperations(document, fileName, originalDocLines,
-						patchedDocLines,
-						lineDelimiter);
-				newOperations.addAll(ops);
+				applyPatchResult = ApplyPatchResult
+						.success("The patch was successfully validated. A MultiStateTextFileChange has been prepared.\n"
+								+ changedLinesReport);
 
-				pendingChanges.addAll(newOperations);
-				Log.logInfo("Validated and added " + newOperations.size() + " change operations from patch for file: "
-						+ fileName);
+				// MODIFIED: Use the counter and manage the map of pendingFileChanges
+				if (isNewMstfc) {
+					pendingFileChanges.put(fullPath, mstfcForFile);
+					Log.logInfo("Created and queued MultiStateTextFileChange for file: " + fullPath);
+				} else {
+					// mstfcForFile was retrieved and modified in place, already in map.
+					Log.logInfo("Added changes to existing MultiStateTextFileChange for file: " + fullPath);
+				}
 			}
 			return applyPatchResult;
 		} catch (Exception e) { // Catch any other unexpected errors
@@ -231,23 +201,6 @@ public class ApplyPatchTool {
 		} finally {
 			resourceAccess.disconnectAllDocuments(tempDocMap);
 		}
-	}
-
-	private List<ChangeOperation> createChangeOperations(IDocument doc, String fileName, List<String> originalDocLines,
-			List<String> patchedDocLines, String lineDelimiter) {
-		ArrayList<ChangeOperation> res = new ArrayList<>();
-
-		Patch<String> patch = DiffUtils.diff(originalDocLines, patchedDocLines);
-		for (AbstractDelta<String> delta : patch.getDeltas()) {
-			int startLine = delta.getSource().getPosition() + 1;
-			int endLine = startLine + delta.getSource().size() - 1;
-			ChangeOperation op = new ChangeOperation(fileName, lineDelimiter, startLine, endLine,
-					String.join(lineDelimiter, delta.getSource().getLines()),
-					String.join(lineDelimiter, delta.getTarget().getLines()));
-			res.add(op);
-		}
-
-		return res;
 	}
 
 	private String generateChangedLinesReport(String fileName, List<String> originalDocLines,
@@ -313,7 +266,7 @@ public class ApplyPatchTool {
 		}
 
 		String changes = messageContexts.stream().map(mc -> mc.compile(true)) // mc.compile(true) generates the
-																				// formatted hunk string
+				// formatted hunk string
 				.collect(java.util.stream.Collectors.joining("\n")); // Join hunks with a newline
 		return prefix + changes;
 	}
@@ -321,15 +274,14 @@ public class ApplyPatchTool {
 	private ApplyPatchResult attemptApplyPatch(List<String> originalDocLines, Patch<String> patch,
 			List<String> patchedDocLines) {
 		PatchMethod[] patchMethods = new PatchMethod[] { () -> patch.applyTo(originalDocLines),
-				() -> patch.applyFuzzy(originalDocLines, 1),
-				() -> patch.applyFuzzy(originalDocLines, 3),
+				() -> patch.applyFuzzy(originalDocLines, 1), () -> patch.applyFuzzy(originalDocLines, 3),
 				() -> patch.applyFuzzy(originalDocLines, 10), () -> patch.applyFuzzy(originalDocLines, 50),
 				() -> patch.applyFuzzy(originalDocLines, 100) };
 		for (int i = 0; i < patchMethods.length; i++) {
 			PatchMethod patchMethod = patchMethods[i];
 			try {
 				patchedDocLines.addAll(patchMethod.apply());
-				return ApplyPatchResult.success("dummy", null);
+				return ApplyPatchResult.success("dummy");
 			} catch (IndexOutOfBoundsException e) {
 				if (i < patchMethods.length - 1) {
 					continue;
@@ -350,18 +302,21 @@ public class ApplyPatchTool {
 		return ApplyPatchResult.failure("Patch cannot be applied: no more retries.");
 	}
 
+	// MODIFIED: Updated field name
 	public void clearChanges() {
-		int count = pendingChanges.size();
-		pendingChanges.clear();
+		int count = pendingFileChanges.size();
+		pendingFileChanges.clear();
 		Log.logInfo("Cleared " + count + " pending changes.");
 	}
 
+	// MODIFIED: Updated field name
 	public int getPendingChangeCount() {
-		return pendingChanges.size();
+		return pendingFileChanges.size();
 	}
 
 	public void applyPendingChanges() {
-		if (pendingChanges.isEmpty()) {
+		// MODIFIED: Updated field name
+		if (pendingFileChanges.isEmpty()) {
 			Log.logInfo("No changes to apply.");
 			return;
 		}
@@ -374,123 +329,107 @@ public class ApplyPatchTool {
 	}
 
 	private void performRefactoring() throws CoreException {
-		Map<String, List<ChangeOperation>> changesByFile = new HashMap<>();
-		for (ChangeOperation op : pendingChanges) {
-			changesByFile.computeIfAbsent(op.getFileName(), k -> new ArrayList<>()).add(op);
+		// MODIFIED: Simplified logic to use pendingFileChanges directly
+		if (pendingFileChanges.isEmpty()) {
+			Log.logInfo("No MultiStateTextFileChanges to apply.");
+			return;
 		}
 
 		CompositeChange rootChange = new CompositeChange("Apply Patched Changes");
-		Map<IFile, IDocument> documentMap = new HashMap<>();
 
-		try {
-			for (Map.Entry<String, List<ChangeOperation>> entry : changesByFile.entrySet()) {
-				String fileName = entry.getKey();
-				List<ChangeOperation> fileChanges = entry.getValue();
-				IFile file = resourceAccess.findFileByNameBestEffort(fileName);
-				if (file == null) {
-					Log.logError("Skipping patch changes for file not found: " + fileName);
-					continue;
-				}
-
-				IDocument document = resourceAccess.getDocumentAndConnect(file, documentMap);
-				if (document == null) {
-					Log.logError("Skipping patch changes, could not get document: " + fileName);
-					continue;
-				}
-
-				MultiStateTextFileChange multiStateTextFileChange = new MultiStateTextFileChange(
-						"Patched changes in " + fileName, file);
-				IDocument doc = multiStateTextFileChange.getCurrentDocument(new NullProgressMonitor());
-				for (ChangeOperation op : fileChanges) {
-					try {
-						TextEdit edit = createEditForOperation(document, op);
-						String type = edit instanceof InsertEdit ? "Insert" : "Replacement";
-
-						TextFileChange fileChange = new TextFileChange(
-								String.format("%s at Line %s-%s", type, op.getStartLine(), op.getEndLine()), file);
-						fileChange.setEdit(edit);
-
-						multiStateTextFileChange.addChange(fileChange);
-					} catch (BadLocationException | IllegalArgumentException | MalformedTreeException e) {
-						Gson gson = GsonUtil.createGson();
-						String json = gson.toJson(op);
-						Log.logError("Failed to create edit from patch operation for " + fileName + " (op lines "
-								+ op.getStartLine() + "-" + op.getEndLine() + "): " + e.getMessage() + "\nJSON Op:\n"
-								+ json, e);
-					}
-				}
-				rootChange.add(multiStateTextFileChange);
-			}
-
-			if (rootChange.getChildren().length == 0) {
-				Log.logInfo("No valid patch changes could be prepared for refactoring.");
-				clearChanges();
-				return;
-			}
-
-			Refactoring refactoring = new Refactoring() {
-				@Override
-				public String getName() {
-					return "Apply Patched Code Changes";
-				}
-
-				@Override
-				public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
-					return new RefactoringStatus();
-				}
-
-				@Override
-				public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
-					return new RefactoringStatus();
-				}
-
-				@Override
-				public Change createChange(IProgressMonitor pm) {
-					return rootChange;
-				}
-			};
-
-			Display.getDefault().asyncExec(() -> {
-				try {
-					IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
-					if (window == null) {
-						Log.logError("Cannot apply patch changes: No active workbench window.");
-						return;
-					}
-					RefactoringWizard wizard = new RefactoringWizard(refactoring,
-							RefactoringWizard.DIALOG_BASED_USER_INTERFACE
-									| RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
-						@Override
-						protected void addUserInputPages() {
-							/* None needed */ }
-					};
-					RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
-					operation.run(window.getShell(), "Preview Patched Code Changes");
-					pendingChanges.clear(); // Clear after wizard is handled
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-					Log.logError("Patch refactoring wizard interrupted: " + e.getMessage(), e);
-				} catch (Exception e) {
-					Log.logError("Failed to open or run patch refactoring wizard: " + e.getMessage(), e);
-				}
-			});
-		} finally {
-			resourceAccess.disconnectAllDocuments(documentMap);
+		// NEW LOGIC: Iterate over the prepared MultiStateTextFileChange objects
+		for (MultiStateTextFileChange mstfc : pendingFileChanges.values()) {
+			rootChange.add(mstfc);
 		}
+
+		// The rest of the method (checking rootChange.getChildren(), creating
+		// Refactoring,
+		// and Display.asyncExec) remains largely the same.
+
+		if (rootChange.getChildren().length == 0) { // This getChildren() is on CompositeChange, which is correct.
+			Log.logInfo("No valid patch changes (MSTFCs) could be prepared for refactoring.");
+			return;
+		}
+
+		Refactoring refactoring = new Refactoring() {
+			@Override
+			public String getName() {
+				return "Apply Patched Code Changes";
+			}
+
+			@Override
+			public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
+				return new RefactoringStatus();
+			}
+
+			@Override
+			public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
+				return new RefactoringStatus();
+			}
+
+			@Override
+			public Change createChange(IProgressMonitor pm) {
+				return rootChange;
+			}
+		};
+
+		Display.getDefault().asyncExec(() -> {
+			try {
+				IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+				if (window == null) {
+					Log.logError("Cannot apply patch changes: No active workbench window.");
+					// It's important to clear changes even if the wizard doesn't run
+					pendingFileChanges.clear(); // Use the new field name
+					return;
+				}
+				RefactoringWizard wizard = new RefactoringWizard(refactoring,
+						RefactoringWizard.DIALOG_BASED_USER_INTERFACE | RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
+					@Override
+					protected void addUserInputPages() {
+						/* None needed */ }
+				};
+				RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
+				operation.run(window.getShell(), "Preview Patched Code Changes");
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				Log.logError("Patch refactoring wizard interrupted: " + e.getMessage(), e);
+			} catch (Exception e) {
+				Log.logError("Failed to open or run patch refactoring wizard: " + e.getMessage(), e);
+			} finally {
+				pendingFileChanges.clear(); // Clear after wizard is handled or if an error occurs
+			}
+		});
+	}
+
+	private String typeOf(TextEdit edit) {
+		String type;
+		if (edit instanceof InsertEdit) {
+			type = "Insert";
+		} else if (edit instanceof DeleteEdit) {
+			type = "Deletion";
+		} else {
+			type = "Replacement";
+		}
+		return type;
 	}
 
 	/**
 	 * Creates a ReplaceEdit for a given ChangeOperation derived from a patch delta.
+	 * 
+	 * @param lineDelimiter
 	 */
-	private TextEdit createEditForOperation(IDocument document, ChangeOperation op)
+	private TextEdit createEditForOperation(IDocument document, AbstractDelta<String> delta, String lineDelimiter)
 			throws BadLocationException, IllegalArgumentException {
-		int opStartLine1Based = op.getStartLine();
-		int opEndLine1Based = op.getEndLine(); // This is (opStartLine1Based - 1) for pure inserts
-		String replacementText = op.getReplacement();
+		int opStartLine1Based = delta.getSource().getPosition() + 1;
+		// This is (opStartLine1Based - 1) for pure inserts
+		int opEndLine1Based = delta.getSource().getPosition() + delta.getSource().getLines().size();
+		String replacementText = String.join(lineDelimiter, delta.getTarget().getLines());
 
 		// Handle pure insert case (where opEndLine1Based < opStartLine1Based)
-		if (opEndLine1Based < opStartLine1Based) {
+		if (DeltaType.INSERT.equals(delta.getType())) {
 			int insertLine0Based = opStartLine1Based - 1;
+
+			replacementText = replacementText + lineDelimiter;
 
 			// Check if inserting before the first line (insertLine0Based = 0 if
 			// opStartLine1Based = 1)
@@ -511,31 +450,46 @@ public class ApplyPatchTool {
 					offset = document.getLineOffset(insertLine0Based); // insertLine0Based is correct for getLineOffset
 				}
 			}
-			return new InsertEdit(offset, replacementText + op.getLineDelimiter());
-		} else if (op.getReplacement().length() == 0) {
+			// For inserts, the replacement text should not include the line delimiter if
+			// it's already part of the document structure
+			// However, if inserting at EOF, or into an empty document, it might need one.
+			// The current logic in createChangeOperations passes the raw delta target
+			// lines.
+			// If the delta target lines already include the delimiter, this is fine.
+			// If not, and it's a new line, it might need op.getLineDelimiter() appended.
+			// For now, keeping it as is, assuming replacementText from delta is correct.
+			return new InsertEdit(offset, replacementText);
+		} else if (DeltaType.DELETE.equals(delta.getType())) {
+			// This is a pure deletion
 			int startLine0Based = opStartLine1Based - 1;
 			int endLine0Based = opEndLine1Based - 1;
 
-			if (opStartLine1Based < 1 || opEndLine1Based > document.getNumberOfLines() + 1) {
+			if (opStartLine1Based < 1 || opEndLine1Based > document.getNumberOfLines()) { // Adjusted condition for
+																							// deletion
 				throw new BadLocationException(
 						"Invalid line number for deletion: " + opStartLine1Based + ":" + opEndLine1Based + ".");
 			}
 
-			// Delete whole lines except end is on the last line.
 			IRegion startInfo = document.getLineInformation(startLine0Based);
+			int offset = startInfo.getOffset();
 			int length;
+
+			// Calculate length to include the line delimiter of the last deleted line
+			// unless it's the very last line of the document.
 			if (endLine0Based < document.getNumberOfLines() - 1) {
-				IRegion endInfo = document.getLineInformation(endLine0Based + 1);
-				length = endInfo.getOffset() - startInfo.getOffset();
+				// If not the last line, delete up to the start of the next line
+				IRegion nextLineInfo = document.getLineInformation(endLine0Based + 1);
+				length = nextLineInfo.getOffset() - offset;
 			} else {
+				// If it's the last line(s) of the document, delete up to the end of the last
+				// line
 				IRegion endInfo = document.getLineInformation(endLine0Based);
-				length = endInfo.getOffset() - startInfo.getOffset() + endInfo.getLength();
+				length = (endInfo.getOffset() + endInfo.getLength()) - offset;
 			}
 
-			int offset = startInfo.getOffset();
 			return new DeleteEdit(offset, length);
 		} else {
-			// Modification or Deletion
+			// Modification (replacement)
 			int startLine0Based = opStartLine1Based - 1;
 			int endLine0Based = opEndLine1Based - 1; // This is the last line index of the original chunk
 
@@ -549,7 +503,8 @@ public class ApplyPatchTool {
 			IRegion endLineInfo = document.getLineInformation(endLine0Based);
 
 			int offset = startLineInfo.getOffset();
-			// For deletion, original text spans from start of startLine to end of endLine
+			// For replacement, original text spans from start of startLine to end of
+			// endLine
 			int length = (endLineInfo.getOffset() + endLineInfo.getLength()) - offset;
 
 			return new ReplaceEdit(offset, length, replacementText);

@@ -28,10 +28,8 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_ENABLED, false);
 		for (Tool t : ToolDefinitions.getInstance().getTools()) {
-			boolean isApplyChange = "apply_change".equals(t.getName());
 			store.setDefault(PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX + "." + t.getName() + "."
-					+ PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX,
-					!isApplyChange);
+					+ PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX, true);
 		}
 	}
 

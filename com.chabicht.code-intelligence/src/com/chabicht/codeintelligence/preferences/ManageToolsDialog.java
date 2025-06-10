@@ -100,7 +100,8 @@ public class ManageToolsDialog extends Dialog {
         // Set initial checked state
         IPreferenceStore store = Activator.getDefault().getPreferenceStore();
 		for (Tool tool : tools) {
-            boolean enabled = store.getBoolean(PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX + "." + tool.getName());
+			boolean enabled = store.getBoolean(String.format("%s.%s.%s", PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX,
+					tool.getName(), PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX));
             tableViewer.setChecked(tool, enabled);
         }
 
@@ -119,7 +120,8 @@ public class ManageToolsDialog extends Dialog {
         for (ToolDefinitions.Tool tool : tools) {
             boolean isChecked = tableViewer.getChecked(tool);
             tool.setEnabled(isChecked); // Update the model
-            store.setValue(PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX + "." + tool.getName(), isChecked);
+			store.setValue(String.format("%s.%s.%s", PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX, tool.getName(),
+					PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX), isChecked);
         }
         // Potentially trigger a refresh or notification if needed by other parts of the application
         Activator.getDefault().triggerConfigChangeNotification();
