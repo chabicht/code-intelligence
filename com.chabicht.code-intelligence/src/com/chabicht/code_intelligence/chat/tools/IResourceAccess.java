@@ -39,5 +39,37 @@ public interface IResourceAccess {
 	 * @param content  The content to write into the new file.
 	 * @return A {@link CreateFileTool.CreateFileResult} indicating success or failure.
 	 */
-	CreateFileTool.CreateFileResult createFileInWorkspace(String filePath, String content);
+	CreateFileResult createFileInWorkspace(String filePath, String content);
+
+	class CreateFileResult {
+		private final boolean success;
+		private final String message;
+		private final String filePath;
+
+		public CreateFileResult(boolean success, String message, String filePath) {
+			this.success = success;
+			this.message = message;
+			this.filePath = filePath;
+		}
+
+		public boolean isSuccess() {
+			return success;
+		}
+
+		public String getMessage() {
+			return message;
+		}
+
+		public String getFilePath() {
+			return filePath;
+		}
+
+		public static CreateFileResult failure(String message) {
+			return new CreateFileResult(false, message, null);
+		}
+
+		public static CreateFileResult failure(String message, String filePath) {
+			return new CreateFileResult(false, message, filePath);
+		}
+	}
 }

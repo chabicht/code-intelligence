@@ -8,28 +8,9 @@ import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.NullProgressMonitor;
-import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
-import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.text.TextUtilities;
-import org.eclipse.ltk.core.refactoring.Change;
-import org.eclipse.ltk.core.refactoring.CompositeChange;
-import org.eclipse.ltk.core.refactoring.MultiStateTextFileChange;
-import org.eclipse.ltk.core.refactoring.Refactoring;
-import org.eclipse.ltk.core.refactoring.RefactoringStatus;
-import org.eclipse.ltk.core.refactoring.TextFileChange;
-import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
-import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
-import org.eclipse.swt.widgets.Display;
-import org.eclipse.text.edits.DeleteEdit;
-import org.eclipse.text.edits.InsertEdit;
 import org.eclipse.text.edits.ReplaceEdit;
-import org.eclipse.text.edits.TextEdit;
-import org.eclipse.ui.IWorkbenchWindow;
-import org.eclipse.ui.PlatformUI;
 
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.util.Log;
@@ -37,7 +18,6 @@ import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
-import com.github.difflib.patch.DeltaType;
 import com.github.difflib.patch.Patch;
 import com.github.difflib.patch.PatchFailedException;
 
@@ -69,7 +49,6 @@ public class ApplyPatchTool {
 		}
 	}
 
-	private Map<String, MultiStateTextFileChange> pendingFileChanges = new HashMap<>();
 	private IResourceAccess resourceAccess;
 
 	public ApplyPatchTool(IResourceAccess resourceAccess) {
@@ -83,121 +62,71 @@ public class ApplyPatchTool {
 	 * @param patchString The unified diff patch content as a string.
 	 * @return An ApplyPatchResult indicating success or failure.
 	 */
-	public ApplyPatchResult addChangesFromPatch(String fileName, String patchString) {
+	public ToolChangePreparationResult preparePatchChange(String fileName, String patchString) {
 		if (fileName == null || fileName.trim().isEmpty()) {
-			return ApplyPatchResult.failure("File name cannot be null or empty");
+			return ToolChangePreparationResult.failure("File name cannot be null or empty");
 		}
 		if (patchString == null || patchString.trim().isEmpty()) {
-			return ApplyPatchResult.failure("Patch string cannot be null or empty");
+			return ToolChangePreparationResult.failure("Patch string cannot be null or empty");
 		}
 
 		IFile file = resourceAccess.findFileByNameBestEffort(fileName);
 		if (file == null) {
-			return ApplyPatchResult.failure("File not found: " + fileName);
+			return ToolChangePreparationResult.failure("File not found: " + fileName);
 		}
 
 		Map<IFile, IDocument> tempDocMap = new HashMap<>();
-
 		try {
-			String fullPath = file.getFullPath().toString(); // Use full path as key
-			MultiStateTextFileChange mstfcForFile = pendingFileChanges.get(fullPath);
-			boolean isNewMstfc = false;
-
-			if (mstfcForFile == null) {
-				mstfcForFile = new MultiStateTextFileChange("Patched changes for " + fileName, file);
-				if (file.getFileExtension() != null) {
-					mstfcForFile.setTextType(file.getFileExtension());
-				} else {
-					mstfcForFile.setTextType("txt"); // Default
-				}
-				isNewMstfc = true;
+			IDocument document = resourceAccess.getDocumentAndConnect(file, tempDocMap);
+			if (document == null) {
+				return ToolChangePreparationResult.failure("Could not get document for file: " + fileName);
 			}
-			IDocument document = mstfcForFile.getCurrentDocument(new NullProgressMonitor());
 
 			String lineDelimiter = TextUtilities.getDefaultLineDelimiter(document);
 			List<String> originalDocLines = Arrays.asList(document.get().split("\\R", -1));
 			List<String> patchLines = Arrays.asList(patchString.split("\\R", -1));
 
-			Patch<String> patch;
-			try {
-				patch = UnifiedDiffUtils.parseUnifiedDiff(patchLines);
-			} catch (Exception e) {
-				Log.logError("Failed to parse unified diff: " + e.getMessage(), e);
-				return ApplyPatchResult.failure("Failed to parse unified diff: " + e.getMessage());
-			}
-
+			Patch<String> patch = UnifiedDiffUtils.parseUnifiedDiff(patchLines);
 			if (patch.getDeltas().isEmpty()) {
-				Log.logError("Empty diff for file: " + fileName);
-				return ApplyPatchResult.failure(
-						"The parser returned an empty patch. This is probably due to the patch_content not being a valid unified diff.  \n"
-								+ "Here's an example:\n" + "```diff\n" + "--- /path/to/File.java\n"
-								+ "+++ /path/to/File.java\n" + "@@ -123,1 +123,2 @@\n" + " some text\n" + " \n"
-								+ "-foo\n" + "+bar\n" + "+baz\n" + "```\n");
+				return ToolChangePreparationResult.failure(
+						"The parser returned an empty patch. This is probably due to the patch_content not being a valid unified diff.");
 			}
 
-			// Hack: The difflib code expects 0-based line numbers, while AI models (and
-			// e.g. the diff -u tool) tend to use 1-based line numbers.
-			// So we add a blank line at the start of the originalDocLines, apply the patch,
-			// and then remove the blank line again.
-			List<String> tmp = new ArrayList<String>(originalDocLines.size() + 1);
-			tmp.add("");
-			tmp.addAll(originalDocLines);
-			originalDocLines = tmp;
+			// 1-based line number hack for difflib
+			List<String> tempOriginal = new ArrayList<>(originalDocLines);
+			tempOriginal.add(0, "");
 
-			// Validate the patch by trying to apply it (in memory)
-			List<String> patchedDocLines = new ArrayList<>();
-			ApplyPatchResult applyPatchResult = attemptApplyPatch(originalDocLines, patch, patchedDocLines);
+			List<String> patchedDocLinesAttempt = new ArrayList<>();
+			ApplyPatchResult validationResult = attemptApplyPatch(tempOriginal, patch, patchedDocLinesAttempt);
 
-			if (applyPatchResult.isSuccess()) {
-				// Hack: The difflib code expects 0-based line numbers, while AI models (and
-				// e.g. the diff -u tool) tend to use 1-based line numbers.
-				// So we add a blank line at the start of the originalDocLines, apply the patch,
-				// and then remove the blank line again.
-				if (StringUtils.isBlank(originalDocLines.get(0)) && StringUtils.isBlank(patchedDocLines.get(0))) {
-					originalDocLines.remove(0);
-					patchedDocLines.remove(0);
+			if (validationResult.isSuccess()) {
+				// Remove the prepended blank line
+				if (!patchedDocLinesAttempt.isEmpty() && StringUtils.isBlank(patchedDocLinesAttempt.get(0))) {
+					patchedDocLinesAttempt.remove(0);
 				}
 
-				TextFileChange change = new TextFileChange("Patch", file);
-				change.setEdit(new ReplaceEdit(0, document.getLength(), String.join(lineDelimiter, patchedDocLines)));
-				mstfcForFile.addChange(change);
+				String patchedContent = String.join(lineDelimiter, patchedDocLinesAttempt);
+				ReplaceEdit wholeDocumentReplaceEdit = new ReplaceEdit(0, document.getLength(), patchedContent);
 
-				// NEW: Generate preview using the MultiStateTextFileChange
-				String previewContentString;
-				List<String> previewLines;
-				try {
-					IDocument previewDocument = mstfcForFile.getPreviewDocument(new NullProgressMonitor());
-					previewContentString = previewDocument.get();
-					previewLines = Arrays.asList(previewContentString.split("\\R", -1));
-				} catch (CoreException e) {
-					Log.logError("Failed to generate preview using MultiStateTextFileChange for " + fileName + ": "
-							+ e.getMessage(), e);
-					return ApplyPatchResult.failure("Error generating preview for " + fileName + ": " + e.getMessage());
-				}
+				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines,
+						patchedDocLinesAttempt, lineDelimiter);
 
-				// The current result is only a dummy.
-				// MODIFIED: Call generateChangedLinesReport with originalDocLines and
-				// previewLines
-				String changedLinesReport = generateChangedLinesReport(fileName, originalDocLines, previewLines,
-						lineDelimiter);
-
-				applyPatchResult = ApplyPatchResult
-						.success("The patch was successfully validated. A MultiStateTextFileChange has been prepared.\n"
-								+ changedLinesReport);
-
-				// MODIFIED: Use the counter and manage the map of pendingFileChanges
-				if (isNewMstfc) {
-					pendingFileChanges.put(fullPath, mstfcForFile);
-					Log.logInfo("Created and queued MultiStateTextFileChange for file: " + fullPath);
-				} else {
-					// mstfcForFile was retrieved and modified in place, already in map.
-					Log.logInfo("Added changes to existing MultiStateTextFileChange for file: " + fullPath);
-				}
+				return ToolChangePreparationResult.success(
+						"Patch validated and change prepared.\n" + changedLinesReport, file,
+						java.util.Collections.singletonList(wholeDocumentReplaceEdit), changedLinesReport // For a
+																											// patch,
+																											// the
+																											// report
+																											// itself is
+																											// the best
+																											// "preview"
+				);
+			} else {
+				return ToolChangePreparationResult.failure("Patch validation failed: " + validationResult.getMessage());
 			}
-			return applyPatchResult;
-		} catch (Exception e) { // Catch any other unexpected errors
-			Log.logError("Unexpected error processing patch for file " + fileName + ": " + e.getMessage(), e);
-			return ApplyPatchResult.failure("Unexpected error processing patch: " + e.getMessage());
+		} catch (Exception e) {
+			Log.logError("Unexpected error preparing patch for " + fileName, e);
+			return ToolChangePreparationResult.failure("Unexpected error preparing patch: " + e.getMessage());
 		} finally {
 			resourceAccess.disconnectAllDocuments(tempDocMap);
 		}
@@ -300,215 +229,6 @@ public class ApplyPatchTool {
 			}
 		}
 		return ApplyPatchResult.failure("Patch cannot be applied: no more retries.");
-	}
-
-	// MODIFIED: Updated field name
-	public void clearChanges() {
-		int count = pendingFileChanges.size();
-		pendingFileChanges.clear();
-		Log.logInfo("Cleared " + count + " pending changes.");
-	}
-
-	// MODIFIED: Updated field name
-	public int getPendingChangeCount() {
-		return pendingFileChanges.size();
-	}
-
-	public void applyPendingChanges() {
-		// MODIFIED: Updated field name
-		if (pendingFileChanges.isEmpty()) {
-			Log.logInfo("No changes to apply.");
-			return;
-		}
-		try {
-			performRefactoring();
-		} catch (Exception e) {
-			Log.logError("Failed to initiate refactoring process for patch: " + e.getMessage(), e);
-			clearChanges();
-		}
-	}
-
-	private void performRefactoring() throws CoreException {
-		// MODIFIED: Simplified logic to use pendingFileChanges directly
-		if (pendingFileChanges.isEmpty()) {
-			Log.logInfo("No MultiStateTextFileChanges to apply.");
-			return;
-		}
-
-		CompositeChange rootChange = new CompositeChange("Apply Patched Changes");
-
-		// NEW LOGIC: Iterate over the prepared MultiStateTextFileChange objects
-		for (MultiStateTextFileChange mstfc : pendingFileChanges.values()) {
-			rootChange.add(mstfc);
-		}
-
-		// The rest of the method (checking rootChange.getChildren(), creating
-		// Refactoring,
-		// and Display.asyncExec) remains largely the same.
-
-		if (rootChange.getChildren().length == 0) { // This getChildren() is on CompositeChange, which is correct.
-			Log.logInfo("No valid patch changes (MSTFCs) could be prepared for refactoring.");
-			return;
-		}
-
-		Refactoring refactoring = new Refactoring() {
-			@Override
-			public String getName() {
-				return "Apply Patched Code Changes";
-			}
-
-			@Override
-			public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
-				return new RefactoringStatus();
-			}
-
-			@Override
-			public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
-				return new RefactoringStatus();
-			}
-
-			@Override
-			public Change createChange(IProgressMonitor pm) {
-				return rootChange;
-			}
-		};
-
-		Display.getDefault().asyncExec(() -> {
-			try {
-				IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
-				if (window == null) {
-					Log.logError("Cannot apply patch changes: No active workbench window.");
-					// It's important to clear changes even if the wizard doesn't run
-					pendingFileChanges.clear(); // Use the new field name
-					return;
-				}
-				RefactoringWizard wizard = new RefactoringWizard(refactoring,
-						RefactoringWizard.DIALOG_BASED_USER_INTERFACE | RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
-					@Override
-					protected void addUserInputPages() {
-						/* None needed */ }
-				};
-				RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
-				operation.run(window.getShell(), "Preview Patched Code Changes");
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				Log.logError("Patch refactoring wizard interrupted: " + e.getMessage(), e);
-			} catch (Exception e) {
-				Log.logError("Failed to open or run patch refactoring wizard: " + e.getMessage(), e);
-			} finally {
-				pendingFileChanges.clear(); // Clear after wizard is handled or if an error occurs
-			}
-		});
-	}
-
-	private String typeOf(TextEdit edit) {
-		String type;
-		if (edit instanceof InsertEdit) {
-			type = "Insert";
-		} else if (edit instanceof DeleteEdit) {
-			type = "Deletion";
-		} else {
-			type = "Replacement";
-		}
-		return type;
-	}
-
-	/**
-	 * Creates a ReplaceEdit for a given ChangeOperation derived from a patch delta.
-	 * 
-	 * @param lineDelimiter
-	 */
-	private TextEdit createEditForOperation(IDocument document, AbstractDelta<String> delta, String lineDelimiter)
-			throws BadLocationException, IllegalArgumentException {
-		int opStartLine1Based = delta.getSource().getPosition() + 1;
-		// This is (opStartLine1Based - 1) for pure inserts
-		int opEndLine1Based = delta.getSource().getPosition() + delta.getSource().getLines().size();
-		String replacementText = String.join(lineDelimiter, delta.getTarget().getLines());
-
-		// Handle pure insert case (where opEndLine1Based < opStartLine1Based)
-		if (DeltaType.INSERT.equals(delta.getType())) {
-			int insertLine0Based = opStartLine1Based - 1;
-
-			replacementText = replacementText + lineDelimiter;
-
-			// Check if inserting before the first line (insertLine0Based = 0 if
-			// opStartLine1Based = 1)
-			// or appending to document (insertLine0Based = document.getNumberOfLines() if
-			// opStartLine1Based = document.getNumberOfLines() + 1)
-			if (opStartLine1Based < 1 || opStartLine1Based > document.getNumberOfLines() + 1) {
-				throw new BadLocationException("Invalid line number for insert: " + opStartLine1Based + ", doc lines: "
-						+ document.getNumberOfLines());
-			}
-
-			int offset;
-			if (opStartLine1Based == document.getNumberOfLines() + 1) { // Append to end of document
-				offset = document.getLength();
-			} else { // Insert before an existing line or at the beginning of an empty document
-				if (document.getNumberOfLines() == 0 && opStartLine1Based == 1) {
-					offset = 0;
-				} else {
-					offset = document.getLineOffset(insertLine0Based); // insertLine0Based is correct for getLineOffset
-				}
-			}
-			// For inserts, the replacement text should not include the line delimiter if
-			// it's already part of the document structure
-			// However, if inserting at EOF, or into an empty document, it might need one.
-			// The current logic in createChangeOperations passes the raw delta target
-			// lines.
-			// If the delta target lines already include the delimiter, this is fine.
-			// If not, and it's a new line, it might need op.getLineDelimiter() appended.
-			// For now, keeping it as is, assuming replacementText from delta is correct.
-			return new InsertEdit(offset, replacementText);
-		} else if (DeltaType.DELETE.equals(delta.getType())) {
-			// This is a pure deletion
-			int startLine0Based = opStartLine1Based - 1;
-			int endLine0Based = opEndLine1Based - 1;
-
-			if (opStartLine1Based < 1 || opEndLine1Based > document.getNumberOfLines()) { // Adjusted condition for
-																							// deletion
-				throw new BadLocationException(
-						"Invalid line number for deletion: " + opStartLine1Based + ":" + opEndLine1Based + ".");
-			}
-
-			IRegion startInfo = document.getLineInformation(startLine0Based);
-			int offset = startInfo.getOffset();
-			int length;
-
-			// Calculate length to include the line delimiter of the last deleted line
-			// unless it's the very last line of the document.
-			if (endLine0Based < document.getNumberOfLines() - 1) {
-				// If not the last line, delete up to the start of the next line
-				IRegion nextLineInfo = document.getLineInformation(endLine0Based + 1);
-				length = nextLineInfo.getOffset() - offset;
-			} else {
-				// If it's the last line(s) of the document, delete up to the end of the last
-				// line
-				IRegion endInfo = document.getLineInformation(endLine0Based);
-				length = (endInfo.getOffset() + endInfo.getLength()) - offset;
-			}
-
-			return new DeleteEdit(offset, length);
-		} else {
-			// Modification (replacement)
-			int startLine0Based = opStartLine1Based - 1;
-			int endLine0Based = opEndLine1Based - 1; // This is the last line index of the original chunk
-
-			if (startLine0Based < 0 || endLine0Based < startLine0Based
-					|| endLine0Based >= document.getNumberOfLines()) {
-				throw new BadLocationException("Invalid line range for operation: " + opStartLine1Based + "-"
-						+ opEndLine1Based + ", doc lines: " + document.getNumberOfLines());
-			}
-
-			IRegion startLineInfo = document.getLineInformation(startLine0Based);
-			IRegion endLineInfo = document.getLineInformation(endLine0Based);
-
-			int offset = startLineInfo.getOffset();
-			// For replacement, original text spans from start of startLine to end of
-			// endLine
-			int length = (endLineInfo.getOffset() + endLineInfo.getLength()) - offset;
-
-			return new ReplaceEdit(offset, length, replacementText);
-		}
 	}
 
 	private static interface PatchMethod {

@@ -200,13 +200,13 @@ public class ResourceAccess implements IResourceAccess {
 	}
 
 	@Override
-	public CreateFileTool.CreateFileResult createFileInWorkspace(String filePath, String content) {
+	public CreateFileResult createFileInWorkspace(String filePath, String content) {
 		IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 		IPath path = new Path(filePath);
 		IFile file = root.getFile(path);
 
 		if (file.exists()) {
-			return CreateFileTool.CreateFileResult.failure("File already exists: " + filePath, filePath);
+			return CreateFileResult.failure("File already exists: " + filePath, filePath);
 		}
 
 		// Ensure parent folders exist
@@ -216,7 +216,7 @@ public class ResourceAccess implements IResourceAccess {
 				((org.eclipse.core.resources.IFolder) parent).create(true, true, new NullProgressMonitor());
 			} catch (CoreException e) {
 				Log.logError("Failed to create parent directory for " + filePath + ": " + e.getMessage(), e);
-				return CreateFileTool.CreateFileResult.failure(
+				return CreateFileResult.failure(
 						"Failed to create parent directory: " + e.getMessage(), filePath);
 			}
 		}
@@ -224,10 +224,10 @@ public class ResourceAccess implements IResourceAccess {
 		InputStream source = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
 		try {
 			file.create(source, true, new NullProgressMonitor());
-			return new CreateFileTool.CreateFileResult(true, "File created successfully: " + filePath, filePath);
+			return new CreateFileResult(true, "File created successfully: " + filePath, filePath);
 		} catch (CoreException e) {
 			Log.logError("Failed to create file " + filePath + ": " + e.getMessage(), e);
-			return CreateFileTool.CreateFileResult.failure("Failed to create file: " + e.getMessage(), filePath);
+			return CreateFileResult.failure("Failed to create file: " + e.getMessage(), filePath);
 		} finally {
 			try {
 				source.close();

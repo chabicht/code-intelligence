@@ -1,9 +1,27 @@
 package com.chabicht.code_intelligence.chat;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.ltk.core.refactoring.Change;
+import org.eclipse.ltk.core.refactoring.CompositeChange;
+import org.eclipse.ltk.core.refactoring.MultiStateTextFileChange;
+import org.eclipse.ltk.core.refactoring.Refactoring;
+import org.eclipse.ltk.core.refactoring.RefactoringStatus;
+import org.eclipse.ltk.core.refactoring.TextFileChange;
+import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
+import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.text.edits.MultiTextEdit;
+import org.eclipse.text.edits.TextEdit;
+import org.eclipse.ui.IWorkbenchWindow;
+import org.eclipse.ui.PlatformUI;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
@@ -12,6 +30,7 @@ import com.chabicht.code_intelligence.chat.tools.CreateFileTool; // Added import
 import com.chabicht.code_intelligence.chat.tools.ReadFileContentTool;
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
+import com.chabicht.code_intelligence.chat.tools.ToolChangePreparationResult;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
@@ -23,19 +42,34 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 
 public class FunctionCallSession {
-
 	private final ResourceAccess resourceAccess = new ResourceAccess();
 	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
 	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess);
 	private final ReadFileContentTool readFileContentTool = new ReadFileContentTool(resourceAccess);
-	private final CreateFileTool createFileTool = new CreateFileTool(resourceAccess); // Added tool instance
-	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess); // Added SearchTool instance
+	private final CreateFileTool createFileTool = new CreateFileTool();
+	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess);
 	private final Gson gson = GsonUtil.createGson();
 
+	private final Map<String, MultiStateTextFileChange> pendingTextFileChanges = new HashMap<>();
+	private final Map<String, Change> pendingCreateFileChanges = new HashMap<>();
 	private final List<UUID> messagesWithPendingChanges = new ArrayList<>();
 
 	public FunctionCallSession() {
 		// Initialization if needed
+	}
+
+	private MultiStateTextFileChange getOrCreateMultiStateTextFileChange(IFile file) {
+		String fullPath = file.getFullPath().toString();
+		return pendingTextFileChanges.computeIfAbsent(fullPath, k -> {
+			MultiStateTextFileChange mstfc = new MultiStateTextFileChange("Changes for " + file.getName(), file);
+			if (file.getFileExtension() != null) {
+				mstfc.setTextType(file.getFileExtension());
+			} else {
+				mstfc.setTextType("txt");
+			}
+			Activator.logInfo("Created new MultiStateTextFileChange for: " + fullPath);
+			return mstfc;
+		});
 	}
 
 	public ApplyChangeTool getApplyChangeTool() {
@@ -84,7 +118,7 @@ public class FunctionCallSession {
 				handleReadFileContent(call, result, argsJson);
 				break;
 			case "create_file": // Added case for create_file
-				handleCreateFile(call, result, argsJson);
+				handleCreateFile(message.getId(), call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -105,10 +139,7 @@ public class FunctionCallSession {
 	 */
 	private void handleApplyChange(UUID messageId, FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
-			// Define the type for Gson parsing: Map<String, String>
 			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
-
-			// Extract arguments using the names defined in the function declaration
 			String fileName = args.has("file_name") ? args.get("file_name").getAsString() : null;
 			String location = args.has("location_in_file") ? args.get("location_in_file").getAsString() : null;
 			String originalText = args.has("original_text") ? args.get("original_text").getAsString() : null;
@@ -119,8 +150,6 @@ public class FunctionCallSession {
 				String errorMsg = "Missing required argument for apply_change. Args: " + functionArgsJson;
 				Activator.logError(errorMsg);
 				result.addPrettyResult("error", errorMsg, false);
-
-				// Add JSON result for error
 				JsonObject jsonResult = new JsonObject();
 				jsonResult.addProperty("status", "Error");
 				jsonResult.addProperty("message", errorMsg);
@@ -128,59 +157,39 @@ public class FunctionCallSession {
 				return;
 			}
 
-			// Apply the change and get the result with the diff preview
-			ApplyChangeTool.ApplyChangeResult changeResult = applyChangeTool.addChange(fileName, location, originalText,
+			ToolChangePreparationResult prepResult = applyChangeTool.prepareChange(fileName, location, originalText,
 					replacementText);
 
-			// Store it in the result object so it can be displayed to the user
-			// The 'true' parameter marks this as markdown content for proper rendering
-			result.addPrettyResult("preview", "```diff\n" + changeResult.getDiffPreview() + "\n```", true);
-
-			// Populate pretty params for this function call
 			call.addPrettyParam("file_name", fileName, false);
 			call.addPrettyParam("location_in_file", location, false);
-			call.addPrettyParam("original_text", originalText, true); // Using markdown for code
-			call.addPrettyParam("replacement_text", replacementText, true); // Using markdown for code
+			call.addPrettyParam("original_text", originalText, true);
+			call.addPrettyParam("replacement_text", replacementText, true);
 
-			// Create JSON result object
 			JsonObject jsonResult = new JsonObject();
+			if (prepResult.isSuccess()) {
+				MultiStateTextFileChange mstfc = getOrCreateMultiStateTextFileChange(prepResult.getFile());
+				TextFileChange tfc = new TextFileChange("Apply Change", prepResult.getFile());
+				MultiTextEdit multiEdit = new MultiTextEdit();
+				multiEdit.addChildren(prepResult.getEdits().toArray(new TextEdit[0]));
+				tfc.setEdit(multiEdit);
+				mstfc.addChange(tfc);
 
-			// Set result based on validation outcome
-			if (changeResult.isSuccess()) {
-				result.addPrettyResult("status", "Success", false);
-				result.addPrettyResult("message", changeResult.getMessage(), false);
-
-				jsonResult.addProperty("status", "Success");
-				jsonResult.addProperty("message", changeResult.getMessage());
-
+				result.addPrettyResult("preview", "```diff\n" + prepResult.getDiffPreview() + "\n```", true);
+				result.addPrettyResult("status", "Change Queued", false);
+				jsonResult.addProperty("status", "Queued");
 				messagesWithPendingChanges.add(messageId);
 			} else {
 				result.addPrettyResult("status", "Error", false);
-				result.addPrettyResult("message", changeResult.getMessage(), false);
-
 				jsonResult.addProperty("status", "Error");
-				jsonResult.addProperty("message", changeResult.getMessage());
 			}
-
-			// Set the JSON result
+			result.addPrettyResult("message", prepResult.getMessage(), false);
+			jsonResult.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResult));
-
-		} catch (JsonSyntaxException e) {
-			String errorMsg = "Failed to parse JSON arguments for apply_change: " + e.getMessage();
-			Activator.logError(errorMsg, e);
-			result.addPrettyResult("status", "Error", false);
-			result.addPrettyResult("message", errorMsg, false);
-
-			JsonObject jsonResult = new JsonObject();
-			jsonResult.addProperty("status", "Error");
-			jsonResult.addProperty("message", errorMsg);
-			result.setResultJson(gson.toJson(jsonResult));
-		} catch (Exception e) { // Catch unexpected errors during handling
+		} catch (Exception e) {
 			String errorMsg = "Error processing apply_change function call: " + e.getMessage();
 			Activator.logError(errorMsg, e);
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);
-
 			JsonObject jsonResult = new JsonObject();
 			jsonResult.addProperty("status", "Error");
 			jsonResult.addProperty("message", errorMsg);
@@ -208,7 +217,6 @@ public class FunctionCallSession {
 						+ functionArgsJson;
 				Activator.logError(errorMsg);
 				result.addPrettyResult("error", errorMsg, false);
-
 				JsonObject jsonResult = new JsonObject();
 				jsonResult.addProperty("status", "Error");
 				jsonResult.addProperty("message", errorMsg);
@@ -216,43 +224,33 @@ public class FunctionCallSession {
 				return;
 			}
 
-			ApplyPatchTool.ApplyPatchResult patchResult = applyPatchTool.addChangesFromPatch(fileName, patchContent);
+			ToolChangePreparationResult prepResult = applyPatchTool.preparePatchChange(fileName, patchContent);
 
 			call.addPrettyParam("file_name", fileName, false);
 			call.addPrettyParam("patch_content", "```diff\n" + patchContent + "\n```", true);
 
 			JsonObject jsonResult = new JsonObject();
-			if (patchResult.isSuccess()) {
-				result.addPrettyResult("status", "Success", false);
-				result.addPrettyResult("message", patchResult.getMessage(), true);
-				jsonResult.addProperty("status", "Success");
-				jsonResult.addProperty("message", patchResult.getMessage());
+			if (prepResult.isSuccess()) {
+				MultiStateTextFileChange mstfc = getOrCreateMultiStateTextFileChange(prepResult.getFile());
+				TextFileChange tfc = new TextFileChange("Apply Patch", prepResult.getFile());
+				tfc.setEdit(prepResult.getEdits().get(0)); // Patch tool returns one big ReplaceEdit
+				mstfc.addChange(tfc);
 
+				result.addPrettyResult("status", "Patch Queued", false);
+				jsonResult.addProperty("status", "Queued");
 				messagesWithPendingChanges.add(messageId);
 			} else {
 				result.addPrettyResult("status", "Error", false);
-				result.addPrettyResult("message", patchResult.getMessage(), true);
 				jsonResult.addProperty("status", "Error");
-				jsonResult.addProperty("message", patchResult.getMessage());
 			}
-			result.setResultJson(gson.toJson(jsonResult));
-
-		} catch (JsonSyntaxException e) {
-			String errorMsg = "Failed to parse JSON arguments for apply_patch: " + e.getMessage();
-			Activator.logError(errorMsg, e);
-			result.addPrettyResult("status", "Error", false);
-			result.addPrettyResult("message", errorMsg, false);
-
-			JsonObject jsonResult = new JsonObject();
-			jsonResult.addProperty("status", "Error");
-			jsonResult.addProperty("message", errorMsg);
+			result.addPrettyResult("message", prepResult.getMessage(), true);
+			jsonResult.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) {
 			String errorMsg = "Error processing apply_patch function call: " + e.getMessage();
 			Activator.logError(errorMsg, e);
 			result.addPrettyResult("status", "Error", false);
 			result.addPrettyResult("message", errorMsg, false);
-
 			JsonObject jsonResult = new JsonObject();
 			jsonResult.addProperty("status", "Error");
 			jsonResult.addProperty("message", errorMsg);
@@ -276,7 +274,7 @@ public class FunctionCallSession {
 				searchText = args.get("search_pattern").getAsString();
 				searchParamName = "search_pattern";
 			}
-			
+
 			List<String> fileNamePatterns = null;
 			if (args.has("file_name_patterns") && !args.get("file_name_patterns").isJsonNull()) {
 				JsonArray patternsArray = args.get("file_name_patterns").getAsJsonArray();
@@ -286,10 +284,9 @@ public class FunctionCallSession {
 				}
 			}
 
-			boolean isCaseSensitive = args.has("is_case_sensitive") 
-					? args.get("is_case_sensitive").getAsBoolean() : false;
-			boolean isWholeWord = args.has("is_whole_word") 
-					? args.get("is_whole_word").getAsBoolean() : false;
+			boolean isCaseSensitive = args.has("is_case_sensitive") ? args.get("is_case_sensitive").getAsBoolean()
+					: false;
+			boolean isWholeWord = args.has("is_whole_word") ? args.get("is_whole_word").getAsBoolean() : false;
 
 			// Basic validation
 			if (searchText == null) {
@@ -365,18 +362,24 @@ public class FunctionCallSession {
 	 * @param call             The FunctionCall object
 	 * @param result           The FunctionResult object to populate
 	 * @param functionArgsJson JSON arguments for read_file_content. Expected:
-	 *                         {"file_name": "...", "start_line": ..., "end_line": ...}
+	 *                         {"file_name": "...", "start_line": ..., "end_line":
+	 *                         ...}
 	 */
 	private void handleReadFileContent(FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
 			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
 
 			String fileName = args.has("file_name") ? args.get("file_name").getAsString() : null;
-			Integer startLine = args.has("start_line") && !args.get("start_line").isJsonNull() ? args.get("start_line").getAsInt() : null;
-			Integer endLine = args.has("end_line") && !args.get("end_line").isJsonNull() ? args.get("end_line").getAsInt() : null;
+			Integer startLine = args.has("start_line") && !args.get("start_line").isJsonNull()
+					? args.get("start_line").getAsInt()
+					: null;
+			Integer endLine = args.has("end_line") && !args.get("end_line").isJsonNull()
+					? args.get("end_line").getAsInt()
+					: null;
 
 			if (fileName == null) {
-				String errorMsg = "Missing required argument 'file_name' for read_file_content. Args: " + functionArgsJson;
+				String errorMsg = "Missing required argument 'file_name' for read_file_content. Args: "
+						+ functionArgsJson;
 				Activator.logError(errorMsg);
 				result.addPrettyResult("error", errorMsg, false);
 				JsonObject jsonResult = new JsonObject();
@@ -395,17 +398,22 @@ public class FunctionCallSession {
 				call.addPrettyParam("end_line", String.valueOf(endLine), false);
 			}
 
-			ReadFileContentTool.ReadFileContentResult readResult = readFileContentTool.readFileContent(fileName, startLine, endLine);
+			ReadFileContentTool.ReadFileContentResult readResult = readFileContentTool.readFileContent(fileName,
+					startLine, endLine);
 
 			JsonObject jsonResponse = new JsonObject();
 			if (readResult.isSuccess()) {
 				result.addPrettyResult("status", "Success", false);
 				result.addPrettyResult("message", readResult.getMessage(), false);
 				// Add file path and actual range to pretty results for clarity
-				result.addPrettyResult("file_path_read", readResult.getFilePath() != null ? readResult.getFilePath() : "N/A", false);
-				if (readResult.getActualStartLine() > 0 || readResult.getActualEndLine() > 0) { // Check if a valid range was read
-					result.addPrettyResult("lines_read", readResult.getActualStartLine() + " - " + readResult.getActualEndLine(), false);
-				} else if (readResult.getFilePath() != null && readResult.getContentWithLineNumbers() != null && readResult.getContentWithLineNumbers().isEmpty()) {
+				result.addPrettyResult("file_path_read",
+						readResult.getFilePath() != null ? readResult.getFilePath() : "N/A", false);
+				if (readResult.getActualStartLine() > 0 || readResult.getActualEndLine() > 0) { // Check if a valid
+																								// range was read
+					result.addPrettyResult("lines_read",
+							readResult.getActualStartLine() + " - " + readResult.getActualEndLine(), false);
+				} else if (readResult.getFilePath() != null && readResult.getContentWithLineNumbers() != null
+						&& readResult.getContentWithLineNumbers().isEmpty()) {
 					result.addPrettyResult("lines_read", "File is empty", false);
 				}
 
@@ -440,21 +448,21 @@ public class FunctionCallSession {
 	}
 
 	/**
-	 * Specifically handles the "create_file" function call. Parses arguments
-	 * and attempts to create a new file with the given content.
+	 * Specifically handles the "create_file" function call. Parses arguments and
+	 * attempts to create a new file with the given content.
 	 *
 	 * @param call             The FunctionCall object
 	 * @param result           The FunctionResult object to populate
 	 * @param functionArgsJson JSON arguments for create_file. Expected:
 	 *                         {"file_path": "...", "content": "..."}
 	 */
-	private void handleCreateFile(FunctionCall call, FunctionResult result, String functionArgsJson) {
+	private void handleCreateFile(UUID messageId, FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
 			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
 			String filePath = args.has("file_path") ? args.get("file_path").getAsString() : null;
-			String content = args.has("content") ? args.get("content").getAsString() : null; // Content can be empty
+			String content = args.has("content") ? args.get("content").getAsString() : null;
 
-			if (filePath == null || content == null) { // content being null is an issue, empty string is fine.
+			if (filePath == null || content == null) {
 				String errorMsg = "Missing required arguments for create_file. Expected 'file_path' and 'content'. Args: "
 						+ functionArgsJson;
 				Activator.logError(errorMsg);
@@ -467,43 +475,26 @@ public class FunctionCallSession {
 				return;
 			}
 
-			call.addPrettyParam("file_path", filePath, false);
-			call.addPrettyParam("content", content, true); // Display content in a code block
+			CreateFileTool.CreateFilePreparationResult prepResult = createFileTool.prepareCreateFileChange(filePath,
+					content);
 
-			CreateFileTool.CreateFileResult createResult = createFileTool.createFile(filePath, content);
+			call.addPrettyParam("file_path", filePath, false);
+			call.addPrettyParam("content", content, true);
 
 			JsonObject jsonResponse = new JsonObject();
-			if (createResult.isSuccess()) {
-				result.addPrettyResult("status", "Success", false);
-				result.addPrettyResult("message", createResult.getMessage(), false);
-				result.addPrettyResult("file_path_created", createResult.getFilePath(), false);
-				jsonResponse.addProperty("status", "Success");
-				jsonResponse.addProperty("message", createResult.getMessage());
-				jsonResponse.addProperty("file_path", createResult.getFilePath());
+			if (prepResult.isSuccess()) {
+				pendingCreateFileChanges.put(filePath, prepResult.getChange());
+				result.addPrettyResult("status", "Queued for Review", false);
+				jsonResponse.addProperty("status", "Queued");
+				messagesWithPendingChanges.add(messageId);
 			} else {
 				result.addPrettyResult("status", "Error", false);
-				result.addPrettyResult("message", createResult.getMessage(), false);
-				if (createResult.getFilePath() != null) {
-					result.addPrettyResult("file_path_attempted", createResult.getFilePath(), false);
-				}
 				jsonResponse.addProperty("status", "Error");
-				jsonResponse.addProperty("message", createResult.getMessage());
-				if (createResult.getFilePath() != null) {
-					jsonResponse.addProperty("file_path", createResult.getFilePath());
-				}
 			}
+			result.addPrettyResult("message", prepResult.getMessage(), false);
+			jsonResponse.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResponse));
-
-		} catch (JsonSyntaxException e) {
-			String errorMsg = "Failed to parse JSON arguments for create_file: " + e.getMessage();
-			Activator.logError(errorMsg, e);
-			result.addPrettyResult("status", "Error", false);
-			result.addPrettyResult("message", errorMsg, false);
-			JsonObject jsonResult = new JsonObject();
-			jsonResult.addProperty("status", "Error");
-			jsonResult.addProperty("message", errorMsg);
-			result.setResultJson(gson.toJson(jsonResult));
-		} catch (Exception e) { // Catch general Exception
+		} catch (Exception e) {
 			String errorMsg = "Error processing create_file function call: " + e.getMessage();
 			Activator.logError(errorMsg, e);
 			result.addPrettyResult("status", "Error", false);
@@ -521,7 +512,7 @@ public class FunctionCallSession {
 	 * @return true if there are pending changes, false otherwise.
 	 */
 	public boolean hasPendingChanges() {
-		return applyChangeTool.getPendingChangeCount() > 0 || applyPatchTool.getPendingChangeCount() > 0;
+		return !pendingTextFileChanges.isEmpty() || !pendingCreateFileChanges.isEmpty();
 	}
 
 	/**
@@ -529,13 +520,19 @@ public class FunctionCallSession {
 	 * typically shows a preview dialog to the user for each tool's changes.
 	 */
 	public void applyPendingChanges() {
+		CompositeChange rootChange = new CompositeChange("Apply AI Suggested Code Changes");
+
+		rootChange.addAll(pendingTextFileChanges.values().toArray(new Change[0]));
+		rootChange.addAll(pendingCreateFileChanges.values().toArray(new Change[0]));
+
 		try {
-			if (applyChangeTool.getPendingChangeCount() > 0) {
-				applyChangeTool.applyChanges();
+			if (rootChange.getChildren().length > 0) {
+				launchRefactoringWizard(rootChange);
+			} else {
+				Activator.logInfo("No pending changes from any tool to apply.");
 			}
-			if (applyPatchTool.getPendingChangeCount() > 0) {
-				applyPatchTool.applyPendingChanges();
-			}
+		} catch (Exception e) {
+			Activator.logError("Failed to initiate refactoring process: " + e.getMessage(), e);
 		} finally {
 			clearPendingChanges();
 		}
@@ -546,16 +543,90 @@ public class FunctionCallSession {
 	 * from all tools.
 	 */
 	public void clearPendingChanges() {
-		if (applyChangeTool.getPendingChangeCount() > 0) {
-			applyChangeTool.clearChanges();
-		}
-		if (applyPatchTool.getPendingChangeCount() > 0) {
-			applyPatchTool.clearChanges();
-		}
+		pendingTextFileChanges.clear();
+		pendingCreateFileChanges.clear();
 		messagesWithPendingChanges.clear();
 	}
 
 	public List<UUID> getMessagesWithPendingChanges() {
 		return messagesWithPendingChanges;
+	}
+
+	/**
+	 * Generates a user-friendly summary of all pending file creations and
+	 * modifications.
+	 * 
+	 * @return A string summarizing the pending changes, formatted for display in
+	 *         the chat.
+	 */
+	public String getPendingChangesSummary() {
+		List<String> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
+		List<String> createdFiles = new ArrayList<>(pendingCreateFileChanges.keySet());
+
+		java.util.Collections.sort(modifiedFiles);
+		java.util.Collections.sort(createdFiles);
+
+		if (modifiedFiles.isEmpty() && createdFiles.isEmpty()) {
+			return "Tool usage complete. No file changes were queued.";
+		}
+
+		StringBuilder summary = new StringBuilder("Tool usage complete. The following changes are queued for review:");
+
+		for (String path : createdFiles) {
+			summary.append("\n- **Create:** `").append(path).append("`");
+		}
+		for (String path : modifiedFiles) {
+			summary.append("\n- **Modify:** `").append(path).append("`");
+		}
+
+		return summary.toString();
+	}
+
+	private void launchRefactoringWizard(CompositeChange rootChange) {
+		Refactoring refactoring = new Refactoring() {
+			@Override
+			public String getName() {
+				return "Apply AI Suggested Code Changes"; // Wizard title
+			}
+
+			@Override
+			public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
+				return new RefactoringStatus();
+			}
+
+			@Override
+			public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
+				return new RefactoringStatus();
+			}
+
+			@Override
+			public Change createChange(IProgressMonitor pm) {
+				return rootChange;
+			}
+		};
+
+		Display.getDefault().asyncExec(() -> {
+			try {
+				IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+				if (window == null) {
+					Activator.logError("Cannot apply AI changes: No active workbench window.");
+					return;
+				}
+				RefactoringWizard wizard = new RefactoringWizard(refactoring,
+						RefactoringWizard.DIALOG_BASED_USER_INTERFACE | RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
+					@Override
+					protected void addUserInputPages() {
+						// No custom input pages needed
+					}
+				};
+				RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
+				operation.run(window.getShell(), "Preview AI Suggested Changes"); // Dialog title
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				Activator.logError("AI changes refactoring wizard interrupted: " + e.getMessage(), e);
+			} catch (Exception e) {
+				Activator.logError("Failed to open or run AI changes refactoring wizard: " + e.getMessage(), e);
+			}
+		});
 	}
 }

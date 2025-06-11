@@ -10,37 +10,21 @@ import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
-import org.eclipse.ltk.core.refactoring.Change;
-import org.eclipse.ltk.core.refactoring.CompositeChange;
-import org.eclipse.ltk.core.refactoring.Refactoring;
-import org.eclipse.ltk.core.refactoring.RefactoringStatus;
-import org.eclipse.ltk.core.refactoring.TextFileChange;
-import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
-import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
-import org.eclipse.swt.widgets.Display;
+import org.eclipse.jface.text.TextUtilities;
 import org.eclipse.text.edits.DeleteEdit;
-import org.eclipse.text.edits.MultiTextEdit;
+import org.eclipse.text.edits.InsertEdit;
 import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.text.edits.TextEdit;
-import org.eclipse.ui.IWorkbenchWindow;
-import org.eclipse.ui.PlatformUI;
 
-import com.chabicht.code_intelligence.util.GsonUtil;
 import com.chabicht.code_intelligence.util.Log;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
-import com.google.gson.Gson;
 
 public class ApplyChangeTool {
-	private static final Pattern INDENT_SEARCH_PATTERN = Pattern.compile("^\s*");
-
 	// Inner class to hold change information
 	static class ChangeOperation {
 		private final String fileName;
@@ -117,7 +101,6 @@ public class ApplyChangeTool {
 	}
 
 	// List to store pending changes
-	private Map<String, TextFileChange> pendingFileChanges = new HashMap<>();
 	private IResourceAccess resourceAccess;
 
 	public ApplyChangeTool(IResourceAccess resourceAccess) {
@@ -134,97 +117,75 @@ public class ApplyChangeTool {
 	 * @param replacement  The text to replace the original content with.
 	 * @return An ApplyChangeResult indicating success or failure with details.
 	 */
-	public ApplyChangeResult addChange(String fileName, String location, String originalText, String replacement) {
+	public ToolChangePreparationResult prepareChange(String fileName, String location, String originalText,
+			String replacement) {
 		// Basic validation
 		if (fileName == null || fileName.trim().isEmpty()) {
-			return ApplyChangeResult.failure("File name cannot be null or empty");
+			return ToolChangePreparationResult.failure("File name cannot be null or empty");
 		}
 		if (location == null || location.trim().isEmpty()) {
-			return ApplyChangeResult.failure("Location cannot be null or empty");
+			return ToolChangePreparationResult.failure("Location cannot be null or empty");
 		}
-		if (originalText == null || originalText.trim().isEmpty()) {
-			return ApplyChangeResult.failure("Original text cannot be null or empty");
+		if (originalText == null) {
+			originalText = ""; // Treat null as empty for insertions
 		}
-		// Allow empty replacements (deletions)
 		if (replacement == null) {
-			replacement = "";
+			replacement = ""; // Allow empty replacements (deletions)
 		}
 
-		// Find the file
 		IFile file = resourceAccess.findFileByNameBestEffort(fileName);
 		if (file == null) {
-			return ApplyChangeResult.failure("File not found: " + fileName);
+			return ToolChangePreparationResult.failure("File not found: " + fileName);
 		}
 
-		// Get document and validate change
-		IDocument document = null;
 		Map<IFile, IDocument> tempDocMap = new HashMap<>();
-
 		try {
-			// Get or create TextFileChange for this file
-			String fullPath = file.getFullPath().toString(); // Use full path as key
-			TextFileChange tfc = pendingFileChanges.get(fullPath);
-			MultiTextEdit multiEdit;
-
-			if (tfc == null) {
-				tfc = new TextFileChange("Changes in " + fileName, file);
-				if (file.getFileExtension() != null) {
-					tfc.setTextType(file.getFileExtension());
-				} else {
-					tfc.setTextType("txt"); // Default
-				}
-				multiEdit = new MultiTextEdit();
-				tfc.setEdit(multiEdit);
-				pendingFileChanges.put(fullPath, tfc);
-			} else {
-				multiEdit = (MultiTextEdit) tfc.getEdit(); // Assume it's always MultiTextEdit
-			}
-
-			document = tfc.getCurrentDocument(new NullProgressMonitor());
+			IDocument document = resourceAccess.getDocumentAndConnect(file, tempDocMap);
 			if (document == null) {
-				return ApplyChangeResult.failure("Could not get document for file: " + fileName);
+				return ToolChangePreparationResult.failure("Could not get document for file: " + fileName);
 			}
+
+			// If originalText is empty, this is an insertion. Otherwise, it's a
+			// replace/delete.
+			final boolean isInsertion = originalText.isEmpty();
 
 			// Parse location string to get search bounds
 			int[] searchBounds = parseLocationToOffsets(location, document);
 			if (searchBounds == null) {
-				return ApplyChangeResult.failure("Invalid location string: " + location);
+				return ToolChangePreparationResult.failure("Invalid location string: " + location);
 			}
 
-			try {
-				// Find the actual start and end offsets of the matched text
-				int[] matchOffsets = findOffsetsByPattern(originalText, document, searchBounds);
-
-				// Generate diff preview the document
-				DiffPreviewResult diffResult = generateDiffPreview(file, document, matchOffsets, replacement);
-
-				// Create the TextEdit
-				TextEdit edit = createActualTextEdit(document, diffResult.getStartLine(), diffResult.getEndLine(),
-						replacement);
-
-				multiEdit.addChild(edit);
-
-				// Create ChangeOperation for the result (still useful for reporting)
-				ChangeOperation opForReport = new ChangeOperation(fileName, diffResult.getStartLine(),
-						diffResult.getEndLine(), originalText, replacement);
-
-				Gson gson = GsonUtil.createGson();
-				String json = gson.toJson(opForReport);
-				// Log.logInfo("Validated and added change for file: " + fileName + " at
-				// location: " + location
-				// + "\n\nJSON:\n" + json);
-				Log.logInfo("Validated and added TextEdit for file: " + fileName + " at lines "
-						+ diffResult.getStartLine() + "-" + diffResult.getEndLine());
-
-				return ApplyChangeResult.success("Change validated and TextEdit queued for preview", opForReport,
-						diffResult.getDiffPreview());
-			} catch (IllegalArgumentException | BadLocationException e) {
-				return ApplyChangeResult.failure("Failed to locate original text: " + e.getMessage());
+			int[] matchOffsets;
+			if (isInsertion) {
+				// For an insertion, the location specifies the exact point.
+				// We use the start of the provided location range as the insertion offset.
+				// The location could be "o150:150" for a specific character offset,
+				// or "l10:10" for the start of a line.
+				matchOffsets = new int[] { searchBounds[0], searchBounds[0] };
+			} else {
+				// For replace/delete, find the actual start and end offsets of the matched text
+				matchOffsets = findOffsetsByPattern(originalText, document, searchBounds);
 			}
-		} catch (CoreException e) {
-			return ApplyChangeResult.failure("Failed to locate original text: " + e.getMessage());
+
+			// Generate diff preview for this specific change
+			DiffPreviewResult diffResult = generateDiffPreview(file, document, matchOffsets, replacement);
+
+			// Create the TextEdit
+			TextEdit edit = createActualTextEdit(document, diffResult.getStartLine(), diffResult.getEndLine(),
+					replacement, isInsertion, matchOffsets[0], location);
+
+			Log.logInfo("Prepared TextEdit for file: " + fileName + " at lines " + diffResult.getStartLine() + "-"
+					+ diffResult.getEndLine());
+
+			return ToolChangePreparationResult.success("Change validated and prepared for preview.", file,
+					java.util.Collections.singletonList(edit), // Return as a list
+					diffResult.getDiffPreview());
+		} catch (IllegalArgumentException | BadLocationException e) {
+			return ToolChangePreparationResult.failure("Failed to locate or prepare change: " + e.getMessage());
+		} catch (Exception e) {
+			Log.logError("Unexpected error preparing change for " + fileName, e);
+			return ToolChangePreparationResult.failure("Unexpected error preparing change: " + e.getMessage());
 		} finally {
-			// Always disconnect documents we connected during validation
 			resourceAccess.disconnectAllDocuments(tempDocMap);
 		}
 	}
@@ -262,156 +223,40 @@ public class ApplyChangeTool {
 	}
 
 	/**
-	 * Clear all pending changes from the queue.
-	 */
-	public void clearChanges() {
-		int count = pendingFileChanges.size();
-		pendingFileChanges.clear();
-		Log.logInfo("Cleared " + count + " pending changes.");
-	}
-
-	/**
-	 * Get the number of changes currently pending.
-	 *
-	 * @return The count of pending changes.
-	 */
-	public int getPendingChangeCount() {
-		return pendingFileChanges.size();
-	}
-
-	/**
-	 * Apply all pending changes using the Eclipse Refactoring API. This will
-	 * typically open a preview dialog for the user.
-	 */
-	public void applyChanges() {
-		if (pendingFileChanges.isEmpty()) {
-			Log.logInfo("No changes to apply.");
-			return;
-		}
-
-		try {
-			performRefactoring();
-		} catch (Exception e) {
-			// Log the error and potentially inform the user via UI
-			Log.logError("Failed to initiate refactoring process: " + e.getMessage(), e);
-			// Consider showing a dialog to the user here
-			clearChanges(); // Clear changes to prevent re-attempting a failed operation
-		}
-	}
-
-	/**
-	 * Creates and executes the refactoring operation based on pending changes.
-	 */
-	private void performRefactoring() throws CoreException {
-		// MODIFIED: Use pendingFileChanges directly
-		if (pendingFileChanges.isEmpty()) {
-			Log.logInfo("No TextFileChanges to apply.");
-			return;
-		}
-
-		// Create a composite change to hold all individual file changes
-		CompositeChange rootChange = new CompositeChange("Code Intelligence Changes");
-
-		// NEW LOGIC: Iterate over the prepared TextFileChange objects
-		for (TextFileChange tfc : pendingFileChanges.values()) {
-			// A TextFileChange might have been created but no actual edits added if all
-			// attempts failed
-			// or if it's an empty MultiTextEdit.
-			if (tfc.getEdit() instanceof MultiTextEdit) {
-				MultiTextEdit mte = (MultiTextEdit) tfc.getEdit();
-				if (mte.hasChildren()) {
-					rootChange.add(tfc);
-				}
-			} else if (tfc.getEdit() != null) {
-				// This case should ideally not happen if we always set a MultiTextEdit.
-				Log.logWarn("TextFileChange for " + tfc.getFile().getName()
-						+ " does not have a MultiTextEdit. Adding directly.");
-				rootChange.add(tfc);
-			}
-		}
-
-		// If no valid changes were created, don't proceed
-		if (rootChange.getChildren().length == 0) {
-			Log.logInfo("No valid changes (TextFileChanges with edits) could be prepared for refactoring.");
-			// clearChanges(); // This is now done in the finally block of the asyncExec or
-			// if wizard doesn't run
-			return;
-		}
-
-		// Create the refactoring object
-		Refactoring refactoring = new Refactoring() {
-			@Override
-			public String getName() {
-				return "Apply Code Intelligence Changes";
-			}
-
-			@Override
-			public RefactoringStatus checkInitialConditions(IProgressMonitor pm) {
-				// Can add initial checks here if needed
-				return new RefactoringStatus(); // Assume OK for now
-			}
-
-			@Override
-			public RefactoringStatus checkFinalConditions(IProgressMonitor pm) {
-				// Can add final checks here, e.g., ensuring files are writable
-				return new RefactoringStatus(); // Assume OK for now
-			}
-
-			@Override
-			public Change createChange(IProgressMonitor pm) {
-				// Return the composite change containing all file changes
-				return rootChange;
-			}
-		};
-
-		// Open the refactoring wizard in the UI thread
-		Display.getDefault().asyncExec(() -> {
-			try {
-				IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
-				if (window == null) {
-					Log.logError("Cannot apply changes: No active workbench window found.");
-					return; // Cannot proceed without a window/shell
-				}
-				// Use a standard RefactoringWizard
-				RefactoringWizard wizard = new RefactoringWizard(refactoring,
-						RefactoringWizard.DIALOG_BASED_USER_INTERFACE | RefactoringWizard.PREVIEW_EXPAND_FIRST_NODE) {
-					@Override
-					protected void addUserInputPages() {
-						// No custom input pages needed for this simple case
-					}
-				};
-				RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
-				operation.run(window.getShell(), "Preview Code Changes");
-
-				// Important: Clear pending changes *after* the wizard is potentially closed
-				// The user might cancel, but we assume the operation is "done" either way.
-				pendingFileChanges.clear();
-
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				Log.logError("Refactoring wizard interrupted: " + e.getMessage(), e);
-			} catch (Exception e) { // Catch broader exceptions during wizard operation
-				Log.logError("Failed to open or run refactoring wizard: " + e.getMessage(), e);
-			}
-		});
-	}
-
-	/**
-	 * Creates a ReplaceEdit by finding the originalText pattern, determining the
-	 * lines affected, applying the replacement conceptually, formatting the
-	 * affected lines, and creating an edit to replace the original lines with the
-	 * formatted ones.
+	 * Creates a TextEdit (either Replace, Delete, or Insert) based on the provided
+	 * parameters.
 	 *
 	 * @param document        The document to apply the edit to.
 	 * @param startLine1Based The 1-based starting line of the region to change.
 	 * @param endLine1Based   The 1-based ending line of the region to change.
-	 * @param replacementText The text to replace the original content with (empty
-	 *                        for deletion).
-	 * @return The created ReplaceEdit.
+	 * @param replacementText The text to replace the original content with.
+	 * @param isInsertion     True if the operation is an insertion.
+	 * @param insertionOffset The character offset for the insertion.
+	 * @param location        The original location string (e.g., "l10:12").
+	 * @return The created TextEdit.
 	 * @throws BadLocationException If location calculations fail.
 	 */
 	private TextEdit createActualTextEdit(IDocument document, int startLine1Based, int endLine1Based,
-			String replacementText) throws BadLocationException {
+			String replacementText, boolean isInsertion, int insertionOffset, String location)
+			throws BadLocationException {
+
+		if (isInsertion) {
+			// For an insertion, we create an InsertEdit.
+			// We must decide whether to add a newline. We add it for line-based
+			// insertions to ensure the new content is on its own line(s).
+			// For offset-based insertions, we don't, to allow for inline insertions.
+			String textToInsert = replacementText;
+			if (location.trim().toLowerCase().startsWith("l")) {
+				String lineDelimiter = TextUtilities.getDefaultLineDelimiter(document);
+				// Also check if the document is empty, in which case no delimiter is needed.
+				if (document.getLength() > 0 && !textToInsert.endsWith(lineDelimiter)) {
+					textToInsert += lineDelimiter;
+				}
+			}
+			return new InsertEdit(insertionOffset, textToInsert);
+		}
+
+		// Logic for Replace and Delete operations
 		int startLine0Based = startLine1Based - 1;
 		int endLine0Based = endLine1Based - 1;
 
