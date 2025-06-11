@@ -19,7 +19,7 @@ public class ChatConversation {
 	 * Role a chat message can have.
 	 */
 	public static enum Role {
-		SYSTEM, USER, ASSISTANT, TOOL;
+		SYSTEM, USER, ASSISTANT, TOOL_SUMMARY;
 	}
 
 	public static enum RangeType {
@@ -197,6 +197,7 @@ public class ChatConversation {
 		private final Role role;
 		private String content;
 		private final List<MessageContext> context = new ArrayList<>();
+		private final List<UUID> summarizedToolCallIds = new ArrayList<>();
 
 		private Optional<FunctionCall> functionCall = Optional.empty();
 		private Optional<FunctionResult> functionResult = Optional.empty();
@@ -206,7 +207,7 @@ public class ChatConversation {
 		private boolean isThinkingComplete;
 		private Map<String, Object> thinkingMetadata = new HashMap<>();
 
-		private ChatMessage() {
+		protected ChatMessage() {
 			id = UUID.randomUUID();
 			role = Role.USER;
 		}
@@ -235,6 +236,10 @@ public class ChatConversation {
 
 		public List<MessageContext> getContext() {
 			return context;
+		}
+
+		public List<UUID> getSummarizedToolCallIds() {
+			return summarizedToolCallIds;
 		}
 
 		public String getToolCallDetailsAsMarkdown() {

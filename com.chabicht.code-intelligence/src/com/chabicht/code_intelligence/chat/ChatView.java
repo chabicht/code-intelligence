@@ -8,9 +8,11 @@ import java.io.ByteArrayOutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -109,6 +111,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.util.Log;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.code_intelligence.util.ThemeUtil;
@@ -215,6 +218,9 @@ public class ChatView extends ViewPart {
 		}
 
 		private String messageContentToHtml(ChatMessage message) {
+			if (message.getRole() == Role.TOOL_SUMMARY) { // Add this new block
+				return toolSummaryToHtml(message);
+			}
 			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
 
 			String thinkHtml = "";
@@ -335,6 +341,23 @@ public class ChatView extends ViewPart {
 																														// HTML
 			}
 			return functionCallHtml;
+			}
+
+		private String toolSummaryToHtml(ChatMessage message) {
+		    String contentHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
+
+		    // Create a "Re-execute All" button
+		    String reexecuteAllButtonHtml = String.format(
+					"<button class=\"tool-action-button\" title=\"Re-execute all previous tool calls\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+		        + "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute All\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute All"
+		        + "</button>",
+		        message.getId(), // Pass the summary message's UUID
+		        getReexecuteIconBase64()
+		    );
+
+			String actions = String.format("<div class=\"tool-actions\">%s</div>", reexecuteAllButtonHtml);
+
+		    return String.format("<div class=\"tool-summary\">%s%s</div>", contentHtml, actions);
 		}
 
 		@Override
@@ -346,16 +369,39 @@ public class ChatView extends ViewPart {
 
 					connection = null;
 
-					addConversationToHistory();
-
 					if (isDebugPromptLoggingEnabled()) {
 						Activator.logInfo(conversation.toString());
 					}
 
 					// Apply pending changes after all function calls are done.
 					if (functionCallSession.hasPendingChanges()) {
+						// 1. Identify the sequence of tool calls that just finished.
+						Set<UUID> messagesWithPendingChanges = new HashSet<>(
+								functionCallSession.getMessagesWithPendingChanges());
+						List<ChatMessage> toolCallSequence = new ArrayList<>();
+						conversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
+								.forEach(toolCallSequence::add);
+
+						// 2. Create the new TOOL_SUMMARY message
+						int changeCount = functionCallSession.getApplyChangeTool().getPendingChangeCount() + functionCallSession.getApplyPatchTool().getPendingChangeCount();
+						String summaryContent = "Tool usage complete. " + changeCount + " file(s) have pending changes.";
+						ChatMessage summaryMessage = new ChatMessage(Role.TOOL_SUMMARY, summaryContent);
+
+						// 3. Populate the summary message with the IDs of the calls
+						for (ChatMessage msg : toolCallSequence) {
+							if(msg.getFunctionCall().isPresent()) {
+								 summaryMessage.getSummarizedToolCallIds().add(msg.getId());
+							}
+						}
+
+						// 4. Add the summary message to the conversation
+						conversation.addMessage(summaryMessage, false); // false because it's a final message
+
+						// 5. Trigger the refactoring dialog as before
 						functionCallSession.applyPendingChanges();
 					}
+
+					addConversationToHistory();
 				} else {
 					sendFunctionResult(message);
 				}
@@ -366,6 +412,29 @@ public class ChatView extends ViewPart {
 			});
 		}
 	};
+
+	public void reexecute(String messageUuidString) {
+		if (conversation == null || this.functionCallSession == null || this.chat == null) {
+			System.err.println(
+					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
+			return;
+		}
+
+		UUID messageUuid = UUID.fromString(messageUuidString);
+
+		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
+				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+
+		if (messageToReexecute != null) {
+			if (messageToReexecute.getFunctionCall().isPresent()) {
+				reexecuteToolCall(messageUuidString);
+			}
+
+			if (messageToReexecute.getSummarizedToolCallIds() != null) {
+				reexecuteToolSummary(messageUuidString);
+			}
+		}
+	}
 
 	private void reexecuteToolCall(String messageUuidString) {
 		// Ensure conversation, functionCallSession, and chat (ChatComponent) are
@@ -408,9 +477,71 @@ public class ChatView extends ViewPart {
 
 			this.functionCallSession.applyPendingChanges();
 		} else {
-			System.err.println(
+			Log.logError(
 					"ChatView: Cannot re-execute. Message not found, not a function call, or function call details missing for UUID: "
 							+ messageUuidString);
+		}
+	}
+
+	private void reexecuteToolSummary(String summaryMessageUuidString) {
+		if (conversation == null || this.functionCallSession == null) {
+			Log.logError("Cannot re-execute summary: conversation or session is null.");
+			return;
+		}
+
+		UUID summaryMessageUuid = UUID.fromString(summaryMessageUuidString);
+		ChatMessage summaryMessage = conversation.getMessages().stream()
+			.filter(m -> m.getId().equals(summaryMessageUuid) && m.getRole() == Role.TOOL_SUMMARY)
+			.findFirst().orElse(null);
+
+		if (summaryMessage == null) {
+			Log.logError("Could not find TOOL_SUMMARY message with UUID: " + summaryMessageUuidString);
+			return;
+		}
+
+		// 1. IMPORTANT: Clear any changes from the previous run.
+		functionCallSession.clearPendingChanges();
+
+		List<UUID> idsToReexecute = summaryMessage.getSummarizedToolCallIds();
+		Log.logInfo("Re-executing tool summary for " + idsToReexecute.size() + " tool calls.");
+
+		// 2. Re-process each tool call in the sequence
+		for (UUID messageId : idsToReexecute) {
+			ChatMessage messageToReexecute = conversation.getMessages().stream()
+				.filter(m -> m.getId().equals(messageId)).findFirst().orElse(null);
+
+			if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
+				// Reset the result from the previous run
+				messageToReexecute.setFunctionResult(
+					new FunctionResult(messageToReexecute.getFunctionCall().get().getId(),
+									   messageToReexecute.getFunctionCall().get().getFunctionName())
+				);
+
+				// Re-handle the call. This will populate the new result and queue changes.
+				functionCallSession.handleFunctionCall(messageToReexecute);
+
+				// Update the UI for this specific message to show it's processing again
+				if (chatListener != null) {
+					chatListener.onMessageUpdated(messageToReexecute);
+				}
+			}
+		}
+
+		// 3. After all calls are re-processed, apply the newly accumulated changes.
+		// This will open the refactoring wizard with the new set of changes.
+		if (functionCallSession.hasPendingChanges()) {
+			functionCallSession.applyPendingChanges();
+		} else {
+			Log.logInfo("Re-execution finished, but no pending changes were generated.");
+			// Optionally, add a message to the chat informing the user.
+		}
+	}
+
+	private void clearAllPendingChanges() {
+		if (this.functionCallSession != null) {
+			this.functionCallSession.clearPendingChanges();
+			Log.logInfo("All pending changes cleared by user action.");
+			// Optionally, add a message to the chat informing the user.
 		}
 	}
 
@@ -1248,7 +1379,9 @@ public class ChatView extends ViewPart {
 					openAttachmentDialog(attachmentUuid);
 				} else if (str.startsWith("reexecute:")) {
 					String messageUuid = str.substring("reexecute:".length());
-					reexecuteToolCall(messageUuid); // Call a new method to handle re-execution
+					reexecute(messageUuid);
+				} else if (str.startsWith("clear_changes:")) { // Add this for the dismiss button
+					clearAllPendingChanges(); // You will need to implement this simple method
 				}
 			}
 			return null;

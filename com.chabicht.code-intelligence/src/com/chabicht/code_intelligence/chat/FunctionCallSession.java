@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.chat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
@@ -31,8 +32,18 @@ public class FunctionCallSession {
 	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess); // Added SearchTool instance
 	private final Gson gson = GsonUtil.createGson();
 
+	private final List<UUID> messagesWithPendingChanges = new ArrayList<>();
+
 	public FunctionCallSession() {
 		// Initialization if needed
+	}
+
+	public ApplyChangeTool getApplyChangeTool() {
+		return applyChangeTool;
+	}
+
+	public ApplyPatchTool getApplyPatchTool() {
+		return applyPatchTool;
 	}
 
 	/**
@@ -58,10 +69,10 @@ public class FunctionCallSession {
 
 			switch (functionName) {
 			case "apply_change":
-				handleApplyChange(call, result, argsJson);
+				handleApplyChange(message.getId(), call, result, argsJson);
 				break;
-			case "apply_patch": // Added case for apply_patch
-				handleApplyPatch(call, result, argsJson);
+			case "apply_patch":
+				handleApplyPatch(message.getId(), call, result, argsJson);
 				break;
 			case "perform_text_search":
 				handlePerformSearch(call, result, argsJson, false);
@@ -92,7 +103,7 @@ public class FunctionCallSession {
 	 * @param result           The FunctionResult object to populate
 	 * @param functionArgsJson JSON arguments for apply_change.
 	 */
-	private void handleApplyChange(FunctionCall call, FunctionResult result, String functionArgsJson) {
+	private void handleApplyChange(UUID messageId, FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
 			// Define the type for Gson parsing: Map<String, String>
 			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
@@ -141,6 +152,8 @@ public class FunctionCallSession {
 
 				jsonResult.addProperty("status", "Success");
 				jsonResult.addProperty("message", changeResult.getMessage());
+
+				messagesWithPendingChanges.add(messageId);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				result.addPrettyResult("message", changeResult.getMessage(), false);
@@ -184,7 +197,7 @@ public class FunctionCallSession {
 	 * @param functionArgsJson JSON arguments for apply_patch. Expected:
 	 *                         {"file_name": "...", "patch_content": "..."}
 	 */
-	private void handleApplyPatch(FunctionCall call, FunctionResult result, String functionArgsJson) {
+	private void handleApplyPatch(UUID messageId, FunctionCall call, FunctionResult result, String functionArgsJson) {
 		try {
 			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
 			String fileName = args.has("file_name") ? args.get("file_name").getAsString() : null;
@@ -214,6 +227,8 @@ public class FunctionCallSession {
 				result.addPrettyResult("message", patchResult.getMessage(), true);
 				jsonResult.addProperty("status", "Success");
 				jsonResult.addProperty("message", patchResult.getMessage());
+
+				messagesWithPendingChanges.add(messageId);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				result.addPrettyResult("message", patchResult.getMessage(), true);
@@ -514,22 +529,15 @@ public class FunctionCallSession {
 	 * typically shows a preview dialog to the user for each tool's changes.
 	 */
 	public void applyPendingChanges() {
-		boolean appliedAny = false;
-		if (applyChangeTool.getPendingChangeCount() > 0) {
-			Activator.logInfo(
-					"Applying " + applyChangeTool.getPendingChangeCount() + " pending changes from ApplyChangeTool.");
-			applyChangeTool.applyChanges();
-			appliedAny = true;
-		}
-		if (applyPatchTool.getPendingChangeCount() > 0) {
-			Activator.logInfo(
-					"Applying " + applyPatchTool.getPendingChangeCount() + " pending changes from ApplyPatchTool.");
-			applyPatchTool.applyPendingChanges();
-			appliedAny = true;
-		}
-
-		if (!appliedAny) {
-			Activator.logInfo("No pending changes to apply from any tool.");
+		try {
+			if (applyChangeTool.getPendingChangeCount() > 0) {
+				applyChangeTool.applyChanges();
+			}
+			if (applyPatchTool.getPendingChangeCount() > 0) {
+				applyPatchTool.applyPendingChanges();
+			}
+		} finally {
+			clearPendingChanges();
 		}
 	}
 
@@ -540,11 +548,14 @@ public class FunctionCallSession {
 	public void clearPendingChanges() {
 		if (applyChangeTool.getPendingChangeCount() > 0) {
 			applyChangeTool.clearChanges();
-			Activator.logInfo("Cleared pending changes from ApplyChangeTool.");
 		}
 		if (applyPatchTool.getPendingChangeCount() > 0) {
 			applyPatchTool.clearChanges();
-			Activator.logInfo("Cleared pending changes from ApplyPatchTool.");
 		}
+		messagesWithPendingChanges.clear();
+	}
+
+	public List<UUID> getMessagesWithPendingChanges() {
+		return messagesWithPendingChanges;
 	}
 }

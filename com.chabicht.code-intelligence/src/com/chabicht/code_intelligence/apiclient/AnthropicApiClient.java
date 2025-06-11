@@ -358,6 +358,10 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			if (Role.SYSTEM.equals(msg.getRole())) {
 				continue;
 			}
+            // Skip TOOL_SUMMARY messages, they are for internal use only
+            if (Role.TOOL_SUMMARY.equals(msg.getRole())) {
+                continue;
+            }
 
 			// Build message text with context
 			StringBuilder contentBuilder = new StringBuilder();

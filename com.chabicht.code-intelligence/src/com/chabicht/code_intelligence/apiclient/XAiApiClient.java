@@ -168,6 +168,10 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		// Build the JSON array of messages from the conversation
 		JsonArray messagesJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : chat.getMessages()) { // Iterate directly
+			// Skip TOOL_SUMMARY messages, they are for internal use only
+			if (ChatConversation.Role.TOOL_SUMMARY.equals(msg.getRole())) {
+				continue;
+			}
 			JsonObject jsonMsg = new JsonObject();
 			String roleName = msg.getRole().toString().toLowerCase();
 			jsonMsg.addProperty("role", roleName);

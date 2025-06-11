@@ -187,8 +187,12 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
 		JsonArray messagesJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : messagesToSend) {
-			JsonObject jsonMsg = new JsonObject();
+			// Skip TOOL_SUMMARY messages, they are for internal use only
+			if (Role.TOOL_SUMMARY.equals(msg.getRole())) {
+				continue;
+			}
 
+			JsonObject jsonMsg = new JsonObject();
 			// Convert the role enum to lowercase string (system, user, assistant).
 			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
 

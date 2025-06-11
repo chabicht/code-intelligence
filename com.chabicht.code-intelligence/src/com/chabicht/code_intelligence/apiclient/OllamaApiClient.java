@@ -163,6 +163,11 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
 		JsonArray messagesJson = new JsonArray();
 		for (ChatConversation.ChatMessage msg : messagesToSend) {
+			// Skip TOOL_SUMMARY messages, they are for internal use only
+			if (ChatConversation.Role.TOOL_SUMMARY.equals(msg.getRole())) {
+				continue;
+			}
+
 			JsonObject jsonMsg = new JsonObject();
 			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
 

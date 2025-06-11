@@ -473,7 +473,9 @@ function isScrolledToBottom() {
      div.className = "message from-them";
    } else if (role === "user") {
      div.className = "message from-me";
-   } else if (role === "system") {
+	 } else if (role === "system") {
+	   div.className = "message from-system";
+   } else if (role === "tool_summary") {
      div.className = "message from-system";
    } else {
      div.className = "message";
