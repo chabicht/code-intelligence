@@ -85,7 +85,7 @@ public class CreateFileTool {
 		try {
 			IPath path = new Path(filePath);
 			if (path.isAbsolute()) {
-				return CreateFilePreparationResult.failure("File path must be relative to the workspace root.");
+				path = path.makeRelative();
 			}
 			IFile file = ResourcesPlugin.getWorkspace().getRoot().getFile(path);
 			if (file.exists()) {

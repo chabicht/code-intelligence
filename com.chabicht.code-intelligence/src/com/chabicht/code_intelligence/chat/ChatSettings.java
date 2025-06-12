@@ -2,12 +2,15 @@ package com.chabicht.code_intelligence.chat;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 
 public class ChatSettings extends Bean {
+	private static final Pattern CLAUDE_4_PATTERN = Pattern.compile("claude-[^-]+-4");
+
 	private String model;
 	private PromptTemplate promptTemplate;
 	private boolean reasoningEnabled = true;
@@ -34,7 +37,7 @@ public class ChatSettings extends Bean {
 	}
 
 	public boolean isReasoningEnabled() {
-		return reasoningEnabled;
+		return supportsReasoning(model) && reasoningEnabled;
 	}
 
 	public void setReasoningEnabled(boolean reasoningEnabled) {
@@ -85,5 +88,10 @@ public class ChatSettings extends Bean {
 	public void setToolEnabled(String toolName, boolean enabled) {
 		boolean oldValue = toolEnabledStates.put(toolName, enabled);
 		propertyChangeSupport.firePropertyChange("toolEnabledStates." + toolName, oldValue, enabled);
+	}
+
+	public static boolean supportsReasoning(String modelId) {
+		return modelId != null && (modelId.contains("claude-3-7") || CLAUDE_4_PATTERN.matcher(modelId).find()
+				|| modelId.contains("gemini-2.5"));
 	}
 }

@@ -372,33 +372,7 @@ public class ChatView extends ViewPart {
 						Activator.logInfo(conversation.toString());
 					}
 
-					// Apply pending changes after all function calls are done.
-					if (functionCallSession.hasPendingChanges()) {
-						// 1. Identify the sequence of tool calls that just finished.
-						Set<UUID> messagesWithPendingChanges = new HashSet<>(
-								functionCallSession.getMessagesWithPendingChanges());
-						List<ChatMessage> toolCallSequence = new ArrayList<>();
-						conversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
-								.forEach(toolCallSequence::add);
-
-						// 2. Create the new TOOL_SUMMARY message
-						// Get the detailed summary from the session
-						String summaryContent = functionCallSession.getPendingChangesSummary();
-						ChatMessage summaryMessage = new ChatMessage(Role.TOOL_SUMMARY, summaryContent);
-
-						// 3. Populate the summary message with the IDs of the calls
-						for (ChatMessage msg : toolCallSequence) {
-							if (msg.getFunctionCall().isPresent()) {
-								summaryMessage.getSummarizedToolCallIds().add(msg.getId());
-							}
-						}
-
-						// 4. Add the summary message to the conversation
-						conversation.addMessage(summaryMessage, false); // false because it's a final message
-
-						// 5. Trigger the refactoring dialog as before
-						functionCallSession.applyPendingChanges();
-					}
+					applyPendingChanges();
 
 					addConversationToHistory();
 				} else {
@@ -1168,7 +1142,10 @@ public class ChatView extends ViewPart {
 		}
 		if (connection.isChatPending()) {
 			connection.abortChat();
-			clearAllPendingChanges();
+
+			// apply pending changes, if any were added so far.
+			// this will also add a message summarizing the changes.
+			applyPendingChanges();
 
 			chat.markAllMessagesFinished();
 
@@ -1643,6 +1620,36 @@ public class ChatView extends ViewPart {
 		imageLoader.save(baos, SWT.IMAGE_PNG);
 
 		paperclipBase64 = java.util.Base64.getEncoder().encodeToString(baos.toByteArray());
+	}
+
+	private void applyPendingChanges() {
+		// Apply pending changes after all function calls are done.
+		if (functionCallSession.hasPendingChanges()) {
+			// 1. Identify the sequence of tool calls that just finished.
+			Set<UUID> messagesWithPendingChanges = new HashSet<>(
+					functionCallSession.getMessagesWithPendingChanges());
+			List<ChatMessage> toolCallSequence = new ArrayList<>();
+			conversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
+					.forEach(toolCallSequence::add);
+
+			// 2. Create the new TOOL_SUMMARY message
+			// Get the detailed summary from the session
+			String summaryContent = functionCallSession.getPendingChangesSummary();
+			ChatMessage summaryMessage = new ChatMessage(Role.TOOL_SUMMARY, summaryContent);
+
+			// 3. Populate the summary message with the IDs of the calls
+			for (ChatMessage msg : toolCallSequence) {
+				if (msg.getFunctionCall().isPresent()) {
+					summaryMessage.getSummarizedToolCallIds().add(msg.getId());
+				}
+			}
+
+			// 4. Add the summary message to the conversation
+			conversation.addMessage(summaryMessage, false); // false because it's a final message
+
+			// 5. Trigger the refactoring dialog as before
+			functionCallSession.applyPendingChanges();
+		}
 	}
 
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "

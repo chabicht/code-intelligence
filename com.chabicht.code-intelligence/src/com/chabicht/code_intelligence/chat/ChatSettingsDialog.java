@@ -1,9 +1,10 @@
 package com.chabicht.code_intelligence.chat;
 
+import static com.chabicht.code_intelligence.chat.ChatSettings.supportsReasoning;
+
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 import org.apache.commons.beanutils.BeanUtils;
 import org.eclipse.core.databinding.DataBindingContext;
@@ -45,7 +46,6 @@ import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.ModelSelectionDialog;
 
 public class ChatSettingsDialog extends Dialog {
-	private static final Pattern CLAUDE_4_PATTERN = Pattern.compile("claude-[^-]+-4");
 	public static final PromptTemplate NONE = createNoTemplateSelection();
 
 	private DataBindingContext m_bindingContext;
@@ -211,11 +211,6 @@ public class ChatSettingsDialog extends Dialog {
 			btnReasoningEnabled.setEnabled(supportsReasoning);
 			txtReasoningBudgetTokens.setEnabled(supportsReasoning);
 		});
-	}
-
-	private boolean supportsReasoning(String modelId) {
-		return modelId != null && (modelId.contains("claude-3-7") || CLAUDE_4_PATTERN.matcher(modelId).find()
-				|| modelId.contains("gemini-2.5"));
 	}
 
 	private static PromptTemplate createNoTemplateSelection() {
