@@ -121,6 +121,24 @@ public class CreateFileTool {
 			}
 		}
 
+		/**
+		 * Gets the content that will be written to the file.
+		 * 
+		 * @return the file content
+		 */
+		public String getContent() {
+			return content;
+		}
+
+		/**
+		 * Gets the file path for this change.
+		 * 
+		 * @return the IPath
+		 */
+		public IPath getFilePath() {
+			return filePath;
+		}
+
 		@Override
 		public Object getModifiedElement() {
 			return ResourcesPlugin.getWorkspace().getRoot().getFile(filePath);

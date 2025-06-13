@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +22,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 
 import com.chabicht.code_intelligence.util.Log;
@@ -233,7 +235,49 @@ public class ResourceAccess implements IResourceAccess {
 				source.close();
 			} catch (java.io.IOException e) {
 				Log.logWarn("Error closing input stream for " + filePath, e);
+		}
+	}
+}
+
+	@Override
+	public IFileHandle findFileHandleByName(String fileName) {
+		// For now, only support real files - BufferedResourceAccess will add virtual support
+		IFile file = findFileByNameBestEffort(fileName);
+		return file != null ? new RealFileHandle(file) : null;
+	}
+
+	@Override
+	public IDocument getDocumentForHandle(IFileHandle handle, Map<IFileHandle, IDocument> documentMap) {
+		if (handle == null) {
+			throw new IllegalArgumentException("File handle cannot be null");
+		}
+
+		if (handle.isVirtual()) {
+			// Handle virtual files
+			VirtualFileHandle virtualHandle = (VirtualFileHandle) handle;
+			IDocument doc = new Document(virtualHandle.getContent());
+			documentMap.put(handle, doc);
+			return doc;
+		} else {
+			// Handle real files
+			RealFileHandle realHandle = (RealFileHandle) handle;
+			IFile file = realHandle.getFile();
+
+			// Need to convert the map type due to generics
+			Map<IFile, IDocument> fileDocumentMap = new HashMap<>();
+			IDocument doc = getDocumentAndConnect(file, fileDocumentMap);
+
+			// Transfer to the handle map
+			if (doc != null) {
+				documentMap.put(handle, doc);
+				// Also maintain the file mapping for disconnection later
+				for (Map.Entry<IFile, IDocument> entry : fileDocumentMap.entrySet()) {
+					// Store with the handle as key for consistency
+					documentMap.put(new RealFileHandle(entry.getKey()), entry.getValue());
+				}
 			}
+
+			return doc;
 		}
 	}
 

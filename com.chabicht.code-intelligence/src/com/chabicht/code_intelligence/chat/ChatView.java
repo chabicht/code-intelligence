@@ -403,7 +403,8 @@ public class ChatView extends ViewPart {
 				reexecuteToolCall(messageUuidString);
 			}
 
-			if (messageToReexecute.getSummarizedToolCallIds() != null) {
+			if (messageToReexecute.getSummarizedToolCallIds() != null
+					&& !messageToReexecute.getSummarizedToolCallIds().isEmpty()) {
 				reexecuteToolSummary(messageUuidString);
 			}
 		}
@@ -517,7 +518,7 @@ public class ChatView extends ViewPart {
 	}
 
 	private void sendFunctionResult(ChatMessage message) {
-		if (connection.isChatPending()) {
+		if (connection != null && connection.isChatPending()) {
 			connection.abortChat();
 		}
 

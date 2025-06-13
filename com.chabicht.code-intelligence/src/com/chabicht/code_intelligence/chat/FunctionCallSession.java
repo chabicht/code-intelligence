@@ -26,7 +26,9 @@ import org.eclipse.ui.PlatformUI;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
 import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool;
+import com.chabicht.code_intelligence.chat.tools.BufferedResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.CreateFileTool; // Added import
+import com.chabicht.code_intelligence.chat.tools.IResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.ReadFileContentTool;
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
@@ -42,12 +44,15 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 
 public class FunctionCallSession {
-	private final ResourceAccess resourceAccess = new ResourceAccess();
-	private final ApplyChangeTool applyChangeTool = new ApplyChangeTool(resourceAccess);
-	private final ApplyPatchTool applyPatchTool = new ApplyPatchTool(resourceAccess);
-	private final ReadFileContentTool readFileContentTool = new ReadFileContentTool(resourceAccess);
-	private final CreateFileTool createFileTool = new CreateFileTool();
-	private final TextSearchTool searchTool = new TextSearchTool(resourceAccess);
+	private final IResourceAccess realResourceAccess;
+	private final BufferedResourceAccess bufferedResourceAccess;
+	
+	// Tools use the buffered resource access to see pending changes
+	private final ApplyChangeTool applyChangeTool;
+	private final ApplyPatchTool applyPatchTool;
+	private final ReadFileContentTool readFileContentTool;
+	private final CreateFileTool createFileTool;
+	private final TextSearchTool searchTool;
 	private final Gson gson = GsonUtil.createGson();
 
 	private final Map<String, MultiStateTextFileChange> pendingTextFileChanges = new HashMap<>();
@@ -55,7 +60,20 @@ public class FunctionCallSession {
 	private final List<UUID> messagesWithPendingChanges = new ArrayList<>();
 
 	public FunctionCallSession() {
-		// Initialization if needed
+		// Create the real resource access
+		this.realResourceAccess = new ResourceAccess();
+		
+		// Create the buffered wrapper that applies pending changes transparently
+		this.bufferedResourceAccess = new BufferedResourceAccess(realResourceAccess, this);
+		
+		// Initialize all tools with the buffered resource access so they can see pending changes
+		this.applyChangeTool = new ApplyChangeTool(bufferedResourceAccess);
+		this.applyPatchTool = new ApplyPatchTool(bufferedResourceAccess);
+		this.readFileContentTool = new ReadFileContentTool(bufferedResourceAccess);
+		this.createFileTool = new CreateFileTool(); // Doesn't use resource access
+		this.searchTool = new TextSearchTool(bufferedResourceAccess);
+		
+		Activator.logInfo("FunctionCallSession: Initialized with BufferedResourceAccess");
 	}
 
 	private MultiStateTextFileChange getOrCreateMultiStateTextFileChange(IFile file) {
@@ -546,10 +564,36 @@ public class FunctionCallSession {
 		pendingTextFileChanges.clear();
 		pendingCreateFileChanges.clear();
 		messagesWithPendingChanges.clear();
+		
+		// Clear the buffer caches
+		if (bufferedResourceAccess != null) {
+			bufferedResourceAccess.clearCaches();
+			Activator.logInfo("FunctionCallSession: Cleared pending changes and buffer caches");
+		}
 	}
 
 	public List<UUID> getMessagesWithPendingChanges() {
 		return messagesWithPendingChanges;
+	}
+
+	/**
+	 * Gets the map of pending text file changes.
+	 * The key is the file path, the value is the MultiStateTextFileChange.
+	 * 
+	 * @return Unmodifiable view of pending text file changes
+	 */
+	public Map<String, MultiStateTextFileChange> getPendingTextFileChanges() {
+		return java.util.Collections.unmodifiableMap(pendingTextFileChanges);
+	}
+
+	/**
+	 * Gets the map of pending create file changes.
+	 * The key is the file path, the value is the Change object.
+	 * 
+	 * @return Unmodifiable view of pending create file changes
+	 */
+	public Map<String, Change> getPendingCreateFileChanges() {
+		return java.util.Collections.unmodifiableMap(pendingCreateFileChanges);
 	}
 
 	/**

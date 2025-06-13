@@ -29,9 +29,9 @@ import com.chabicht.code_intelligence.util.Log; // Assuming you have a Log utili
 
 public class TextSearchTool {
 
-	private final ResourceAccess resourceAccess;
+	private final IResourceAccess resourceAccess;
 
-	public TextSearchTool(ResourceAccess resourceAccess) {
+	public TextSearchTool(IResourceAccess resourceAccess) {
 		this.resourceAccess = resourceAccess;
 	}
 
@@ -273,3 +273,4 @@ public class TextSearchTool {
 		return res;
 	}
 }
+

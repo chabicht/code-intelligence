@@ -90,22 +90,29 @@ public class ReadFileContentTool {
 			return ReadFileContentResult.failure("File name cannot be null or empty.");
 		}
 
-		IFile file = resourceAccess.findFileByNameBestEffort(fileName);
-		if (file == null || !file.exists()) {
+		// Try to find as IFileHandle first (supports both virtual and real files)
+		IFileHandle fileHandle = resourceAccess.findFileHandleByName(fileName);
+		if (fileHandle == null) {
 			return ReadFileContentResult.failure("File not found or not accessible: " + fileName);
 		}
 
-		Map<IFile, IDocument> documentMap = new HashMap<>();
+		// Handle virtual files differently - they have content directly available
+		if (fileHandle.isVirtual()) {
+			return readVirtualFileContent(fileHandle, startLineParam, endLineParam);
+		}
+
+		// For real files, use existing logic adapted for IFileHandle
+		Map<IFileHandle, IDocument> documentMap = new HashMap<>();
 		IDocument document = null;
 		try {
-			document = resourceAccess.getDocumentAndConnect(file, documentMap);
+			document = resourceAccess.getDocumentForHandle(fileHandle, documentMap);
 			if (document == null) {
 				return ReadFileContentResult.failure("Could not get document for file: " + fileName);
 			}
 
 			int totalLines = document.getNumberOfLines();
 			if (totalLines == 0 && document.getLength() == 0) {
-				return new ReadFileContentResult(true, "File is empty.", file.getFullPath().toString(), "", 0, 0);
+				return new ReadFileContentResult(true, "File is empty.", fileHandle.getFullPath(), "", 0, 0);
 			}
 
 			int actualReadStartLine;
@@ -148,14 +155,14 @@ public class ReadFileContentTool {
 
 			String successMessage;
 			if (startLineParam != null || endLineParam != null) { // If any range was specified
-				successMessage = String.format("Successfully read lines %d to %d from %s.", actualReadStartLine, actualReadEndLine, file.getName());
-				if (totalLines == 0) successMessage = String.format("File %s is empty.", file.getName());
+				successMessage = String.format("Successfully read lines %d to %d from %s.", actualReadStartLine, actualReadEndLine, fileHandle.getName());
+				if (totalLines == 0) successMessage = String.format("File %s is empty.", fileHandle.getName());
 			} else {
-				successMessage = String.format("Successfully read the entire file %s (%d lines).", file.getName(), totalLines);
-				if (totalLines == 0) successMessage = String.format("File %s is empty.", file.getName());
+				successMessage = String.format("Successfully read the entire file %s (%d lines).", fileHandle.getName(), totalLines);
+				if (totalLines == 0) successMessage = String.format("File %s is empty.", fileHandle.getName());
 			}
 
-			return new ReadFileContentResult(true, successMessage, file.getFullPath().toString(), contentWithPrefixes, actualReadStartLine, actualReadEndLine);
+			return new ReadFileContentResult(true, successMessage, fileHandle.getFullPath(), contentWithPrefixes, actualReadStartLine, actualReadEndLine);
 
 		} catch (BadLocationException e) {
 			Log.logError("Failed to read file content for " + fileName + ": " + e.getMessage(), e);
@@ -164,8 +171,81 @@ public class ReadFileContentTool {
 			Log.logError("Unexpected error reading file " + fileName + ": " + e.getMessage(), e);
 			return ReadFileContentResult.failure("Unexpected error reading file: " + e.getMessage());
 		} finally {
-			resourceAccess.disconnectAllDocuments(documentMap);
+			// Convert Map<IFileHandle, IDocument> to Map<IFile, IDocument> for real files
+			Map<IFile, IDocument> fileDocumentMap = new HashMap<>();
+			for (Map.Entry<IFileHandle, IDocument> entry : documentMap.entrySet()) {
+				IFileHandle handle = entry.getKey();
+				if (!handle.isVirtual() && handle.getFile() != null) {
+					fileDocumentMap.put(handle.getFile(), entry.getValue());
+				}
+			}
+			resourceAccess.disconnectAllDocuments(fileDocumentMap);
 		}
+	}
+
+	/**
+	 * Reads content from a virtual file.
+	 * 
+	 * @param fileHandle The virtual file handle
+	 * @param startLineParam The start line (1-based), or null for entire file
+	 * @param endLineParam The end line (1-based), or null
+	 * @return The read result
+	 */
+	private ReadFileContentResult readVirtualFileContent(IFileHandle fileHandle, 
+			Integer startLineParam, Integer endLineParam) {
+		VirtualFileHandle virtualHandle = (VirtualFileHandle) fileHandle;
+		String content = virtualHandle.getContent();
+		String filePath = virtualHandle.getFullPath();
+		
+		// Split content into lines
+		String[] lines = content.split("\\r?\\n", -1);
+		int totalLines = lines.length;
+		
+		// Handle empty content
+		if (totalLines == 0 || (totalLines == 1 && lines[0].isEmpty())) {
+			return new ReadFileContentResult(true, 
+				"Virtual file is empty.", filePath, "", 0, 0);
+		}
+		
+		// Calculate actual line range
+		int actualReadStartLine;
+		int actualReadEndLine;
+		
+		if (startLineParam == null && endLineParam == null) {
+			actualReadStartLine = 1;
+			actualReadEndLine = totalLines;
+		} else {
+			actualReadStartLine = (startLineParam != null) ? startLineParam : 1;
+			actualReadEndLine = (endLineParam != null) ? endLineParam : 
+				(startLineParam != null ? startLineParam : totalLines);
+		}
+		
+		// Validate and adjust line numbers
+		if (actualReadStartLine < 1) actualReadStartLine = 1;
+		if (actualReadEndLine > totalLines) actualReadEndLine = totalLines;
+		if (actualReadStartLine > actualReadEndLine) {
+			return ReadFileContentResult.failure(
+				String.format("Invalid line range requested. Start: %d, End: %d. File has %d lines.",
+					actualReadStartLine, actualReadEndLine, totalLines));
+		}
+		
+		// Extract requested lines
+		List<String> selectedLines = new ArrayList<>();
+		for (int i = actualReadStartLine - 1; i < actualReadEndLine; i++) {
+			selectedLines.add(lines[i]);
+		}
+		String selectedContent = String.join("\n", selectedLines);
+		
+		// Add line number prefixes
+		String contentWithPrefixes = prefixLines(selectedContent, 
+			actualReadStartLine, actualReadEndLine);
+		
+		String successMessage = String.format(
+			"Successfully read lines %d to %d from virtual file %s.",
+			actualReadStartLine, actualReadEndLine, virtualHandle.getName());
+		
+		return new ReadFileContentResult(true, successMessage, filePath, 
+			contentWithPrefixes, actualReadStartLine, actualReadEndLine);
 	}
 }
 
