@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
@@ -306,5 +307,10 @@ public class BufferedResourceAccess implements IResourceAccess {
 		String pathFileName = path.substring(path.lastIndexOf('/') + 1);
 		String searchFileName = fileName.substring(fileName.lastIndexOf('/') + 1);
 		return pathFileName.equals(searchFileName);
+	}
+
+	@Override
+	public IProject[] getProjects() {
+		return delegate.getProjects();
 	}
 }

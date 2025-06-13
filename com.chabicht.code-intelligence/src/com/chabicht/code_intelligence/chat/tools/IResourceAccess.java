@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.chat.tools;
 import java.util.Map;
 
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.jface.text.IDocument;
 
 public interface IResourceAccess {
@@ -67,6 +68,12 @@ public interface IResourceAccess {
 	 * @throws IllegalArgumentException if handle is null
 	 */
 	IDocument getDocumentForHandle(IFileHandle handle, Map<IFileHandle, IDocument> documentMap);
+
+	/**
+	 * Returns all open projects in the workspace.
+	 * @return An array of IProject representing open projects.
+	 */
+	IProject[] getProjects();
 
 	class CreateFileResult {
 		private final boolean success;

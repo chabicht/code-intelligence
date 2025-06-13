@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.chat.tools;
 import java.util.Map;
 
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 
@@ -80,5 +81,11 @@ public class TestResourceAccess implements IResourceAccess {
 			}
 			return null;
 		}
+	}
+
+	@Override
+	public IProject[] getProjects() {
+		// Return an empty array for tests, as it's the simplest valid implementation.
+		return new IProject[0];
 	}
 }

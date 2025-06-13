@@ -28,7 +28,9 @@ import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
 import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool;
 import com.chabicht.code_intelligence.chat.tools.BufferedResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.CreateFileTool; // Added import
+import com.chabicht.code_intelligence.chat.tools.FindFilesTool; // Add this import
 import com.chabicht.code_intelligence.chat.tools.IResourceAccess;
+import com.chabicht.code_intelligence.chat.tools.ListProjectsTool;
 import com.chabicht.code_intelligence.chat.tools.ReadFileContentTool;
 import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
 import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
@@ -46,13 +48,15 @@ import com.google.gson.JsonSyntaxException;
 public class FunctionCallSession {
 	private final IResourceAccess realResourceAccess;
 	private final BufferedResourceAccess bufferedResourceAccess;
-	
+
 	// Tools use the buffered resource access to see pending changes
 	private final ApplyChangeTool applyChangeTool;
 	private final ApplyPatchTool applyPatchTool;
 	private final ReadFileContentTool readFileContentTool;
 	private final CreateFileTool createFileTool;
 	private final TextSearchTool searchTool;
+	private final FindFilesTool findFilesTool; // Add this field
+	private final ListProjectsTool listProjectsTool;
 	private final Gson gson = GsonUtil.createGson();
 
 	private final Map<String, MultiStateTextFileChange> pendingTextFileChanges = new HashMap<>();
@@ -62,17 +66,20 @@ public class FunctionCallSession {
 	public FunctionCallSession() {
 		// Create the real resource access
 		this.realResourceAccess = new ResourceAccess();
-		
+
 		// Create the buffered wrapper that applies pending changes transparently
 		this.bufferedResourceAccess = new BufferedResourceAccess(realResourceAccess, this);
-		
-		// Initialize all tools with the buffered resource access so they can see pending changes
+
+		// Initialize all tools with the buffered resource access so they can see
+		// pending changes
 		this.applyChangeTool = new ApplyChangeTool(bufferedResourceAccess);
 		this.applyPatchTool = new ApplyPatchTool(bufferedResourceAccess);
 		this.readFileContentTool = new ReadFileContentTool(bufferedResourceAccess);
 		this.createFileTool = new CreateFileTool(); // Doesn't use resource access
 		this.searchTool = new TextSearchTool(bufferedResourceAccess);
-		
+		this.findFilesTool = new FindFilesTool(bufferedResourceAccess); // Add this line
+		this.listProjectsTool = new ListProjectsTool(realResourceAccess);
+
 		Activator.logInfo("FunctionCallSession: Initialized with BufferedResourceAccess");
 	}
 
@@ -137,6 +144,12 @@ public class FunctionCallSession {
 				break;
 			case "create_file": // Added case for create_file
 				handleCreateFile(message.getId(), call, result, argsJson);
+				break;
+			case "find_files": // Add this new case
+				handleFindFiles(call, result, argsJson);
+				break;
+			case "list_projects":
+				handleListProjects(call, result, argsJson);
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
@@ -564,7 +577,7 @@ public class FunctionCallSession {
 		pendingTextFileChanges.clear();
 		pendingCreateFileChanges.clear();
 		messagesWithPendingChanges.clear();
-		
+
 		// Clear the buffer caches
 		if (bufferedResourceAccess != null) {
 			bufferedResourceAccess.clearCaches();
@@ -577,8 +590,8 @@ public class FunctionCallSession {
 	}
 
 	/**
-	 * Gets the map of pending text file changes.
-	 * The key is the file path, the value is the MultiStateTextFileChange.
+	 * Gets the map of pending text file changes. The key is the file path, the
+	 * value is the MultiStateTextFileChange.
 	 * 
 	 * @return Unmodifiable view of pending text file changes
 	 */
@@ -587,8 +600,8 @@ public class FunctionCallSession {
 	}
 
 	/**
-	 * Gets the map of pending create file changes.
-	 * The key is the file path, the value is the Change object.
+	 * Gets the map of pending create file changes. The key is the file path, the
+	 * value is the Change object.
 	 * 
 	 * @return Unmodifiable view of pending create file changes
 	 */
@@ -672,5 +685,132 @@ public class FunctionCallSession {
 				Activator.logError("Failed to open or run AI changes refactoring wizard: " + e.getMessage(), e);
 			}
 		});
+	}
+
+	private void handleFindFiles(FunctionCall call, FunctionResult result, String functionArgsJson) {
+		try {
+			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
+
+			String pattern = args.has("file_path_pattern") ? args.get("file_path_pattern").getAsString() : null;
+
+			List<String> projectNames = null;
+			if (args.has("project_names") && !args.get("project_names").isJsonNull()) {
+				JsonArray projectsArray = args.get("project_names").getAsJsonArray();
+				projectNames = new ArrayList<>();
+				for (JsonElement element : projectsArray) {
+					projectNames.add(element.getAsString());
+				}
+			}
+
+			boolean isCaseSensitive = args.has("is_case_sensitive") ? args.get("is_case_sensitive").getAsBoolean()
+					: false;
+
+			if (pattern == null) {
+				String errorMsg = "Missing required argument 'file_path_pattern' for find_files.";
+				Activator.logError(errorMsg);
+				result.addPrettyResult("error", errorMsg, false);
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
+				return;
+			}
+
+			// Add pretty params to the call for UI display
+			call.addPrettyParam("file_path_pattern", pattern, true); // True for code formatting
+			if (projectNames != null && !projectNames.isEmpty()) {
+				call.addPrettyParam("project_names", gson.toJson(projectNames), false);
+			} else {
+				call.addPrettyParam("project_names", "all projects", false);
+			}
+			call.addPrettyParam("is_case_sensitive", String.valueOf(isCaseSensitive), false);
+
+			FindFilesTool.FindFilesResult findResult = findFilesTool.findFiles(pattern, projectNames, isCaseSensitive);
+
+			JsonObject jsonResponse = new JsonObject();
+			if (findResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				jsonResponse.addProperty("status", "Success");
+
+				// Create a markdown list for the pretty result (for the user)
+				StringBuilder filesPreview = new StringBuilder();
+				filesPreview.append("Found ").append(findResult.getFilePaths().size()).append(" matching files:\n");
+				for (String path : findResult.getFilePaths()) {
+					filesPreview.append("- `").append(path).append("`\n");
+				}
+				result.addPrettyResult("found_files_summary", filesPreview.toString(), true);
+
+				// Create a structured JSON array for the model, similar to TextSearchTool
+				JsonArray resultsArray = new JsonArray();
+				for (String path : findResult.getFilePaths()) {
+					JsonObject fileObject = new JsonObject();
+					fileObject.addProperty("file_path", path);
+					resultsArray.add(fileObject);
+				}
+				jsonResponse.add("results", resultsArray);
+
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				jsonResponse.addProperty("status", "Error");
+			}
+			result.addPrettyResult("message", findResult.getMessage(), false);
+			jsonResponse.addProperty("message", findResult.getMessage());
+			result.setResultJson(gson.toJson(jsonResponse));
+
+		} catch (Exception e) {
+			String errorMsg = "Error processing find_files function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
+		}
+	}
+
+	private void handleListProjects(FunctionCall call, FunctionResult result, String functionArgsJson) {
+		try {
+			// This tool takes no arguments.
+			call.addPrettyParam("action", "list all projects", false);
+
+			ListProjectsTool.ListProjectsResult listResult = listProjectsTool.listProjects();
+
+			JsonObject jsonResponse = new JsonObject();
+			if (listResult.isSuccess()) {
+				result.addPrettyResult("status", "Success", false);
+				jsonResponse.addProperty("status", "Success");
+
+				// Create a markdown list for the pretty result (for the user)
+				StringBuilder projectsPreview = new StringBuilder();
+				projectsPreview.append("Found ").append(listResult.getProjects().size())
+						.append(" projects in the workspace:\n");
+				for (ListProjectsTool.ProjectInfo info : listResult.getProjects()) {
+					projectsPreview.append("- `").append(info.getProjectName()).append("` (")
+							.append(info.isOpen() ? "Open" : "Closed").append(")\n");
+				}
+				result.addPrettyResult("projects_summary", projectsPreview.toString(), true);
+
+				// Create a structured JSON array for the model
+				jsonResponse.add("projects", gson.toJsonTree(listResult.getProjects()));
+
+			} else {
+				result.addPrettyResult("status", "Error", false);
+				jsonResponse.addProperty("status", "Error");
+			}
+			result.addPrettyResult("message", listResult.getMessage(), false);
+			jsonResponse.addProperty("message", listResult.getMessage());
+			result.setResultJson(gson.toJson(jsonResponse));
+
+		} catch (Exception e) {
+			String errorMsg = "Error processing list_projects function call: " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			result.addPrettyResult("status", "Error", false);
+			result.addPrettyResult("message", errorMsg, false);
+			JsonObject jsonResult = new JsonObject();
+			jsonResult.addProperty("status", "Error");
+			jsonResult.addProperty("message", errorMsg);
+			result.setResultJson(gson.toJson(jsonResult));
+		}
 	}
 }

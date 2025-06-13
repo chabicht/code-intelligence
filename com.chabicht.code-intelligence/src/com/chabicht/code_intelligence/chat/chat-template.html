@@ -462,6 +462,8 @@ function isScrolledToBottom() {
  * @param {String} content - The HTML content of the message.
  */
  function addMessage(uuid, role, content, updating=false) {
+   const scrolledToBottom = isScrolledToBottom();
+   
    var container = document.getElementById("chat-container");
    if (!container) {
      return;
@@ -563,11 +565,14 @@ function isScrolledToBottom() {
 
    container.appendChild(div);
 
-   // Only scroll if auto-scroll is enabled
-    if (autoScrollEnabled) {
-      var bottom = document.getElementById("bottom");
-      bottom.scrollIntoView(true);
-    }
+   if (scrolledToBottom && !isScrolledToBottom()) {
+     const bottom = document.getElementById("bottom");
+     if (bottom) {
+       bottom.scrollIntoView({ block: 'start', behaviour: 'instant' });
+     }
+   }
+
+   updateScrollToBottomButtonVisibility();
  }
 
 /**

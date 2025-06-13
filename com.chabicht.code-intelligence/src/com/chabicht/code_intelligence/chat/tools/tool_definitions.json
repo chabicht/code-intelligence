@@ -1,163 +1,199 @@
 {
-  "tools": [
-    {
-      "functionDeclarations": [
-        {
-          "name": "apply_patch",
-          "description": "Applies a patch to a code file.",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "file_name": {
-                "type": "string",
-                "description": "The name of the file that is to be changed. If the path is present, the file is identified uniquely. If only a file name is present, a best effort algorithm is applied to guess the correct file. If possible, provide the complete path."
-              },
-              "patch_content": {
-                "type": "string",
-                "description": "A patch in unified diff format. Make sure to adhere to the correct format, here's an example:\n```diff\n--- /path/to/File.java\n+++ /path/to/File.java\n@@ -137,5 +137,9 @@\n         }\n     }\n \n     private static class UpperCaseNode extends CustomNode {\n+        @Override\n+        public void test() {\n+            // Implementation not needed for this test\n+        }\n     }\n \n     private static class UpperCaseNodeRendererFactory implements HtmlNodeRendererFactory {\n```\n"
-              }
-            },
-            "required": [
-              "file_name",
-              "patch_content"
-            ]
-          }
-        },
-        {
-          "name": "read_file_content",
-          "description": "Reads the content of a specified file, or a specific line range within the file. Returns the content with line numbers prefixed.",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "file_name": {
-                "type": "string",
-                "description": "The name or path of the file to read. If only a file name is present, a best effort algorithm is applied to guess the correct file. If possible, provide the complete path to the file."
-              },
-              "start_line": {
-                "type": "integer",
-                "description": "Optional. The 1-based starting line number of the range to read. If omitted or null, and end_line is also omitted or null, the entire file is read. If provided, end_line must also be provided or it defaults to start_line."
-              },
-              "end_line": {
-                "type": "integer",
-                "description": "Optional. The 1-based ending line number of the range to read. If omitted or null, and start_line is provided, it defaults to start_line (reads a single line). If both start_line and end_line are omitted or null, the entire file is read."
-              }
-            },
-            "required": [
-              "file_name"
-            ]
-          }
-        },
-        {
-          "name": "apply_change",
-          "description": "Applies a change to a code file.",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "file_name": {
-                "type": "string",
-                "description": "The name of the file that is to be changed."
-              },
-              "location_in_file": {
-                "type": "string",
-                "description": "The location of the part of the file the change refers to in the format `l[start line]:[end line]`. Line numbers are 1-based, Example: `l123:130` refers to line 123 to 130. Hint: If you're provided with code snippets, they usually come with a line range in this format. This information is evaluated by code, so a textual description or 80% adherence WILL NOT WORK! It is IMPORTANT to adhere to the EXACT FORMAT!"
-              },
-              "original_text": {
-                "type": "string",
-                "description": "The original text to replace, including all whitespaces etc. It is IMPORTANT that the original text is IDENTICAL to the text in the code file. It is also important that enough context information is provided that the tool can locate the change within the file."
-              },
-              "replacement_text": {
-                "type": "string",
-                "description": "The changed text replacing the original text."
-              }
-            },
-            "required": [
-              "file_name",
-              "location_in_file",
-              "original_text",
-              "replacement_text"
-            ]
-          }
-        },
-        {
-          "name": "perform_text_search",
-          "description": "Performs a text search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "search_text": {
-                "type": "string",
-                "description": "The text or pattern to search for. Note that this is NOT capable of regex patterns! Instead of `.*`, you must use `*`! Valid placeholders for a pattern are:\n- `*`: Any character sequence\n- `?`: Any character\n-`\\`: Escape for literals '*, ?, or \\'."
-              },
-              "file_name_patterns": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "List of file name patterns (e.g., \"*.java\", \"data*.xml\"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool."
-              },
-              "is_case_sensitive": {
-                "type": "boolean",
-                "description": "Optional. True for a case-sensitive search. Defaults to false if not provided."
-              },
-              "is_whole_word": {
-                "type": "boolean",
-                "description": "Optional. True to match whole words only. Defaults to false if not provided."
-              }
-            },
-            "required": [
-              "search_text"
-            ]
-          }
-        },
-        {
-          "name": "perform_regex_search",
-          "description": "Performs a RegEx search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "search_pattern": {
-                "type": "string",
-                "description": "The pattern in java.util.regex.Pattern syntax to search for."
-              },
-              "file_name_patterns": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Optional. List of file name patterns (e.g., \"*.java\", \"data*.xml\"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool."
-              },
-              "is_case_sensitive": {
-                "type": "boolean",
-                "description": "Optional. True for a case-sensitive search. Defaults to false if not provided."
-              }
-            },
-            "required": [
-					"search_pattern"
-				]
-			}
-		},
+	"tools": [
 		{
-			"name": "create_file",
-			"description": "Creates a new file with the specified content. Fails if the file already exists.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"file_path": {
-						"type": "string",
-						"description": "The complete path, including the file name, where the new file should be created (e.g., '/project/src/com/example/NewFile.java'). This path should be relative to the workspace or project root."
-					},
-					"content": {
-						"type": "string",
-						"description": "The content to be written into the new file. Can be an empty string if an empty file is desired."
+			"functionDeclarations": [
+				{
+					"name": "apply_patch",
+					"description": "Applies a patch to a code file.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"file_name": {
+								"type": "string",
+								"description": "The name of the file that is to be changed. If the path is present, the file is identified uniquely. If only a file name is present, a best effort algorithm is applied to guess the correct file. If possible, provide the complete path."
+							},
+							"patch_content": {
+								"type": "string",
+								"description": "A patch in unified diff format. Make sure to adhere to the correct format, here's an example:\n```diff\n--- /path/to/File.java\n+++ /path/to/File.java\n@@ -137,5 +137,9 @@\n         }\n     }\n \n     private static class UpperCaseNode extends CustomNode {\n+        @Override\n+        public void test() {\n+            // Implementation not needed for this test\n+        }\n     }\n \n     private static class UpperCaseNodeRendererFactory implements HtmlNodeRendererFactory {\n```\n"
+							}
+						},
+						"required": [
+							"file_name",
+							"patch_content"
+						]
 					}
 				},
-				"required": [
-					"file_path",
-					"content"
-				]
-			}
+				{
+					"name": "read_file_content",
+					"description": "Reads the content of a specified file, or a specific line range within the file. Returns the content with line numbers prefixed.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"file_name": {
+								"type": "string",
+								"description": "The name or path of the file to read. If only a file name is present, a best effort algorithm is applied to guess the correct file. If possible, provide the complete path to the file."
+							},
+							"start_line": {
+								"type": "integer",
+								"description": "Optional. The 1-based starting line number of the range to read. If omitted or null, and end_line is also omitted or null, the entire file is read. If provided, end_line must also be provided or it defaults to start_line."
+							},
+							"end_line": {
+								"type": "integer",
+								"description": "Optional. The 1-based ending line number of the range to read. If omitted or null, and start_line is provided, it defaults to start_line (reads a single line). If both start_line and end_line are omitted or null, the entire file is read."
+							}
+						},
+						"required": [
+							"file_name"
+						]
+					}
+				},
+				{
+					"name": "apply_change",
+					"description": "Applies a change to a code file.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"file_name": {
+								"type": "string",
+								"description": "The name of the file that is to be changed."
+							},
+							"location_in_file": {
+								"type": "string",
+								"description": "The location of the part of the file the change refers to in the format `l[start line]:[end line]`. Line numbers are 1-based, Example: `l123:130` refers to line 123 to 130. Hint: If you're provided with code snippets, they usually come with a line range in this format. This information is evaluated by code, so a textual description or 80% adherence WILL NOT WORK! It is IMPORTANT to adhere to the EXACT FORMAT!"
+							},
+							"original_text": {
+								"type": "string",
+								"description": "The original text to replace, including all whitespaces etc. It is IMPORTANT that the original text is IDENTICAL to the text in the code file. It is also important that enough context information is provided that the tool can locate the change within the file."
+							},
+							"replacement_text": {
+								"type": "string",
+								"description": "The changed text replacing the original text."
+							}
+						},
+						"required": [
+							"file_name",
+							"location_in_file",
+							"original_text",
+							"replacement_text"
+						]
+					}
+				},
+				{
+					"name": "perform_text_search",
+					"description": "Performs a text search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"search_text": {
+								"type": "string",
+								"description": "The text or pattern to search for. Note that this is NOT capable of regex patterns! Instead of `.*`, you must use `*`! Valid placeholders for a pattern are:\n- `*`: Any character sequence\n- `?`: Any character\n-`\\`: Escape for literals '*, ?, or \\'."
+							},
+							"file_name_patterns": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "List of file name patterns (e.g., \"*.java\", \"data*.xml\"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool."
+							},
+							"is_case_sensitive": {
+								"type": "boolean",
+								"description": "Optional. True for a case-sensitive search. Defaults to false if not provided."
+							},
+							"is_whole_word": {
+								"type": "boolean",
+								"description": "Optional. True to match whole words only. Defaults to false if not provided."
+							}
+						},
+						"required": [
+							"search_text"
+						]
+					}
+				},
+				{
+					"name": "perform_regex_search",
+					"description": "Performs a RegEx search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"search_pattern": {
+								"type": "string",
+								"description": "The pattern in java.util.regex.Pattern syntax to search for."
+							},
+							"file_name_patterns": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Optional. List of file name patterns (e.g., \"*.java\", \"data*.xml\"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool."
+							},
+							"is_case_sensitive": {
+								"type": "boolean",
+								"description": "Optional. True for a case-sensitive search. Defaults to false if not provided."
+							}
+						},
+						"required": [
+							"search_pattern"
+						]
+					}
+				},
+				{
+					"name": "create_file",
+					"description": "Creates a new file with the specified content. Fails if the file already exists.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"file_path": {
+								"type": "string",
+								"description": "The complete path, including the file name, where the new file should be created (e.g., '/project/src/com/example/NewFile.java'). This path should be relative to the workspace or project root."
+							},
+							"content": {
+								"type": "string",
+								"description": "The content to be written into the new file. Can be an empty string if an empty file is desired."
+							}
+						},
+						"required": [
+							"file_path",
+							"content"
+						]
+					}
+				},
+				{
+					"name": "find_files",
+					"description": "Finds files within the workspace by matching their full, workspace-relative path against a regular expression. This is useful for locating files when the exact name or path is unknown.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"file_path_pattern": {
+								"type": "string",
+								"description": "A regular expression (in java.util.regex.Pattern syntax) to match against the full workspace-relative path of each file (e.g., '\\.xml$', '[^/]*Service\\.java', '/MyProject/.*Service\\.java', '/MyProject/src/main/java/com/example/.*Service\\.java')."
+							},
+							"project_names": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Optional. A list of project names to search within. If omitted or empty, all projects in the workspace will be searched."
+							},
+							"is_case_sensitive": {
+								"type": "boolean",
+								"description": "Optional. True for a case-sensitive search. Defaults to false if not provided."
+							}
+						},
+						"required": [
+							"file_path_pattern"
+						]
+					}
+				},
+				{
+					"name": "list_projects",
+					"description": "Lists all projects in the current workspace, showing their name and whether they are open or closed.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+						}
+					}
+				}
+			]
 		}
 	]
-	}
-  ]
 }

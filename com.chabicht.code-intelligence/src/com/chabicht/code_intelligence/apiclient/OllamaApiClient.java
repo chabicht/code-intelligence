@@ -266,7 +266,6 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 											ChatConversation.FunctionCall functionCall = new ChatConversation.FunctionCall(
 													clientGeneratedCallId, functionName, argsJsonString);
 											assistantMessage.setFunctionCall(functionCall);
-											chat.notifyFunctionCalled(assistantMessage);
 										}
 									}
 
@@ -274,22 +273,17 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 									if (messageObj.has("content")) {
 										String chunk = messageObj.get("content").getAsString();
 										assistantMessage.setContent(assistantMessage.getContent() + chunk);
+
 										chat.notifyMessageUpdated(assistantMessage);
 									}
 								}
 								if (jsonChunk.has("done") && jsonChunk.get("done").getAsBoolean()) {
-									if (!responseFinished.get()) {
-										chat.notifyChatResponseFinished(assistantMessage);
-										responseFinished.set(true);
-									}
+									finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 									return; // End of stream for this line processor
 								}
 							} catch (JsonSyntaxException e) {
 								Activator.logError("Error parsing stream chunk: " + line, e);
-								if (!responseFinished.get()) {
-									chat.notifyChatResponseFinished(assistantMessage);
-									responseFinished.set(true);
-								}
+								finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 								asyncRequest = null;
 							}
 						}
@@ -297,27 +291,18 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 				} else {
 					Activator.logError("Streaming chat failed with status: " + response.statusCode()
 							+ "\nResponse body: " + response.body().collect(Collectors.joining("\n")), null);
-					if (!responseFinished.get()) {
-						chat.notifyChatResponseFinished(assistantMessage);
-						responseFinished.set(true);
-					}
+					finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 					asyncRequest = null;
 				}
 			} finally {
-				if (!responseFinished.get()) {
-					chat.notifyChatResponseFinished(assistantMessage);
-					responseFinished.set(true);
-				}
+				finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 				asyncRequest = null;
 			}
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat", e);
 			// Ensure assistant message is finalized in case of error before stream
 			// completion
-			if (assistantMessage != null && !responseFinished.get()) { // Check the flag
-				chat.notifyChatResponseFinished(assistantMessage);
-				responseFinished.set(true); // Set the flag
-			}
+			finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 			asyncRequest = null;
 			return null;
 
@@ -350,6 +335,18 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		if (asyncRequest != null) {
 			asyncRequest.cancel(true);
 			asyncRequest = null;
+		}
+	}
+
+	private void finalizeAssistantMessage(ChatConversation.ChatMessage assistantMessage, ChatConversation chat,
+			AtomicBoolean responseFinished) {
+		if (assistantMessage != null && !responseFinished.get()) {
+			if (assistantMessage.getFunctionCall().isPresent()) {
+				chat.notifyFunctionCalled(assistantMessage);
+			}
+
+			chat.notifyChatResponseFinished(assistantMessage);
+			responseFinished.set(true);
 		}
 	}
 }
