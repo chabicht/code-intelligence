@@ -4,12 +4,18 @@ import java.io.BufferedInputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.PropertyUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.core.filebuffers.FileBuffers;
+import org.eclipse.core.filebuffers.ITextFileBuffer;
+import org.eclipse.core.filebuffers.ITextFileBufferManager;
+import org.eclipse.core.filebuffers.LocationKind;
 import org.eclipse.core.internal.resources.File;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IMarker;
@@ -20,13 +26,17 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.ITextSelection;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.TreePath;
 import org.eclipse.jface.viewers.TreeSelection;
 import org.eclipse.search.internal.ui.text.LineElement;
+import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
+import org.eclipse.ui.IFileEditorInput;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
@@ -35,7 +45,6 @@ import org.eclipse.ui.texteditor.ITextEditor;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
-import com.chabicht.code_intelligence.util.CodeUtil;
 
 public class AddSelectionToContextUtil {
 	private AddSelectionToContextUtil() {
@@ -57,10 +66,15 @@ public class AddSelectionToContextUtil {
 				if (selection != null) {
 					String selectedText = selection.getText();
 					if (StringUtils.isNotBlank(selectedText)) {
-						String processedText = CodeUtil.removeCommonIndentation(selectedText);
-						String fileName = getTextEditor().getEditorInput().getName();
+						IEditorInput editorInput = getTextEditor().getEditorInput();
+						String fileName;
+						if (editorInput instanceof IFileEditorInput fi) {
+							fileName = fi.getFile().getFullPath().toString();
+						} else {
+							fileName = editorInput.getName();
+						}
 						ChatView.addContext(new MessageContext(fileName, selection.getStartLine() + 1,
-								selection.getEndLine() + 1, processedText));
+								selection.getEndLine() + 1, selectedText));
 					}
 				}
 			}
@@ -71,17 +85,16 @@ public class AddSelectionToContextUtil {
 		if (obj instanceof ISourceReference sre) {
 			try {
 				String ancestor = getFileOrTypeName(sre);
-				ISourceRange sourceRange = sre.getSourceRange();
+				Range range = getLineRangeInFile(sre);
 				String source = sre.getSource();
 				if (StringUtils.isNotBlank(source)) {
-					String processedText = CodeUtil.removeCommonIndentation(source);
-					ChatView.addContext(new MessageContext(ancestor, RangeType.OFFSET, sourceRange.getOffset(),
-							sourceRange.getOffset() + sourceRange.getLength(), processedText));
+					ChatView.addContext(
+							new MessageContext(ancestor, range.type, range.start(), range.end, source));
 				} else {
 					String stringRep = sre.toString();
 					String binaryLabel = "Binary " + stringRep.replaceAll(" \\[.*", "");
-					ChatView.addContext(new MessageContext(binaryLabel, RangeType.OFFSET, sourceRange.getOffset(),
-							sourceRange.getOffset() + sourceRange.getLength(), stringRep) {
+					ChatView.addContext(
+							new MessageContext(binaryLabel, RangeType.OFFSET, range.start, range.end, stringRep) {
 
 						@Override
 						public String getLabel() {
@@ -89,7 +102,7 @@ public class AddSelectionToContextUtil {
 						}
 
 						@Override
-						public String getDescriptor() {
+								public String getDescriptor(boolean prefixLineNumbers) {
 							return "";
 						}
 					});
@@ -101,9 +114,8 @@ public class AddSelectionToContextUtil {
 			int line = le.getLine();
 			String parent = le.getParent().getName();
 			ChatView.addContext(new MessageContext(parent, line, line, le.getContents()));
-
 		} else if (obj instanceof File f) {
-			String name = f.getName();
+			String name = f.getFullPath().toString();
 			try {
 				AtomicInteger lines = new AtomicInteger(0);
 				StringBuilder content = new StringBuilder(1025);
@@ -128,21 +140,18 @@ public class AddSelectionToContextUtil {
 					String message = (String) marker.getAttribute("message");
 					Integer severity = (Integer) marker.getAttribute("severity");
 
-					int startLine = Math.max(0, lineNumber - 5);
-					int endLine = Math.min(lineNumber + 5, content.size());
-					String context = content.subList(startLine, endLine).stream().collect(Collectors.joining("\n"));
+					int startLine = Math.max(0, lineNumber - 5) + 1;
+					int endLine = Math.min(lineNumber + 5, content.size()) + 1;
+					String context = content.subList(startLine - 1, endLine - 1).stream()
+							.collect(Collectors.joining("\n"));
 					StringBuilder sb = new StringBuilder();
 					sb.append(severity == 2 ? "Error" : "Warning").append(" on line ").append(lineNumber)
 							.append(" in document ").append(file.getName()).append(": ").append(message).append("\n");
-					sb.append("Lines ").append(startLine).append(" to ").append(endLine).append(" of the document:\n")
-							.append(context).append("\n");
 
-					ChatView.addContext(new MessageContext(file.getName(), startLine, endLine, sb.toString()) {
-						@Override
-						public String getDescriptor() {
-							return ""; // No comment above this.
-						}
-					});
+					ChatView.addContext(
+							new MessageContext(UUID.randomUUID(), file.getFullPath().toString(), RangeType.LINE,
+									startLine, endLine,
+									sb.toString(), context, null));
 				} catch (CoreException e) {
 					Activator.logError("Could not add IMarker to context: " + marker.toString(), e);
 				}
@@ -150,12 +159,40 @@ public class AddSelectionToContextUtil {
 		}
 	}
 
+	private static Range getLineRangeInFile(ISourceReference sre) throws JavaModelException {
+		ISourceRange sourceRange = sre.getSourceRange();
+		Optional<IFile> fOpt = getFile(sre);
+		if (fOpt.isPresent()) {
+			IFile file = fOpt.get();
+			try {
+				ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
+				bufferManager.connect(file.getFullPath(), LocationKind.IFILE, null);
+				ITextFileBuffer buffer = bufferManager.getTextFileBuffer(file.getFullPath(), LocationKind.IFILE);
+				IDocument doc = buffer.getDocument();
+				int start = doc.getLineOfOffset(sourceRange.getOffset()) + 1;
+				int end = doc.getLineOfOffset(sourceRange.getOffset() + sourceRange.getLength()) + 1;
+				return new Range(RangeType.LINE, start, end);
+			} catch (CoreException | BadLocationException e) {
+				Activator.logError("Failed to obtain source range in file " + file.getFullPath().toString(), e);
+			}
+		}
+		return new Range(RangeType.OFFSET, sourceRange.getOffset(), sourceRange.getOffset()+sourceRange.getLength());
+	}
+
+	private static Optional<IFile> getFile(ISourceReference sr) {
+		if (sr instanceof IJavaElement je) {
+			return Optional.ofNullable((IFile) je.getResource());
+		}
+
+		return Optional.empty();
+	}
+
 	private static String getFileOrTypeName(ISourceReference sr) {
 		if (sr instanceof IJavaElement je) {
 			for (int type : new int[] { IJavaElement.COMPILATION_UNIT, IJavaElement.TYPE }) {
 				IJavaElement ancestor = je.getAncestor(type);
 				if (ancestor != null) {
-					return ancestor.getElementName();
+					return ancestor.getPath().toString();
 				}
 			}
 		}
@@ -194,4 +231,6 @@ public class AddSelectionToContextUtil {
 		return textEditor;
 	}
 
+	private final record Range(RangeType type, int start, int end) {
+	}
 }

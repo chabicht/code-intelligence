@@ -2,13 +2,17 @@ package com.chabicht.code_intelligence.chat;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,6 +22,7 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.text.StringEscapeUtils;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.eclipse.core.databinding.observable.list.IListChangeListener;
@@ -81,7 +86,9 @@ import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.TextEdit;
 import org.eclipse.text.undo.DocumentUndoManagerRegistry;
 import org.eclipse.text.undo.IDocumentUndoManager;
+import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
+import org.eclipse.ui.IFileEditorInput;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
@@ -95,16 +102,24 @@ import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionParamValue;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
+import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
-import com.chabicht.code_intelligence.util.CodeUtil;
+import com.chabicht.code_intelligence.util.Log;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 
 public class ChatView extends ViewPart {
 	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>|<\\|begin_of_thought\\|>|<thought>");
@@ -146,6 +161,8 @@ public class ChatView extends ViewPart {
 	private Button btnSettings;
 	private Button btnHistory;
 
+	private FunctionCallSession functionCallSession = new FunctionCallSession();
+
 	private ChatListener chatListener = new ChatListener() {
 
 		@Override
@@ -184,12 +201,26 @@ public class ChatView extends ViewPart {
 			});
 		}
 
+		@Override
+		public void onFunctionCall(ChatMessage message) {
+			functionCallSession.handleFunctionCall(message);
+			onMessageUpdated(message);
+		}
+
+		private String getReexecuteIconBase64() {
+			// Material Design "replay" icon, fill #333333
+			return "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAwIDI0IDI0IiB3aWR0aD0iMjRweCIgZmlsbD0iIzMzMzMzMyI+PHBhdGggZD0iTTAgMGgyNHYyNEgweiIgZmlsbD0ibm9uZSIvPjxwYXRoIGQ9Ik0xMiA1VjFMNyA2bDUgNVY3YzMuMzEgMCA2IDIuNjkgNiA2cy0yLjY5IDYtNiA2LTYtMi42OS02LTZINGMwIDQuNDIgMy41OCA4IDggOHM4LTMuNTggOC04LTMuNTgtOC04LTh6Ii8+PC9zdmc+";
+		}
+
 		private String getAttachmentIconHtml() {
 			String dataUrl = "data:image/png;base64," + paperclipBase64;
 			return String.format("<img src=\"%s\" style=\"width: 15px; height: 25px;\"/>", dataUrl);
 		}
 
 		private String messageContentToHtml(ChatMessage message) {
+			if (message.getRole() == Role.TOOL_SUMMARY) { // Add this new block
+				return toolSummaryToHtml(message);
+			}
 			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
 
 			String thinkHtml = "";
@@ -199,31 +230,313 @@ public class ChatView extends ViewPart {
 						thoughtsAndMessage.isEndOfReasoningReached() ? "Thoughts" : "Thinking...",
 						markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getThoughts())));
 			}
+
+			String functionCallHtml = messageToolUseToHtml(message);
+
 			String messageHtml = markdownRenderer.render(markdownParser.parse(thoughtsAndMessage.getMessage()));
-			String combinedHtml = thinkHtml + messageHtml;
+			String combinedHtml = thinkHtml + messageHtml + functionCallHtml;
 			return combinedHtml;
+		}
+
+		private String messageToolUseToHtml(ChatMessage message) {
+			String functionCallHtml = "";
+			if (message.getFunctionCall().isPresent()) {
+				FunctionCall call = message.getFunctionCall().get();
+				FunctionResult result = message.getFunctionResult()
+						.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
+
+				// Build parameter divs
+				StringBuilder paramsTable = new StringBuilder("<div class=\"function-params-container\">");
+				paramsTable.append("<div class=\"params-header\">Parameters</div>");
+
+				for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
+					String paramName = entry.getKey();
+					FunctionParamValue paramValue = entry.getValue();
+					String displayValue;
+
+					if (paramValue.isMarkdown()) {
+						displayValue = markdownRenderer
+								.render(markdownParser.parse("```\n" + paramValue.getValue() + "\n```"));
+					} else {
+						displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
+					}
+
+					paramsTable.append(
+							String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
+									StringEscapeUtils.escapeHtml4(paramName), displayValue));
+				}
+				paramsTable.append("</div>");
+
+				// Build result divs if we have results
+				StringBuilder resultTable = new StringBuilder();
+				if (!result.getPrettyResults().isEmpty()) {
+					resultTable.append("<div class=\"function-results-container\">");
+					resultTable.append("<div class=\"results-header\">Results</div>");
+
+					for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
+						String resultName = entry.getKey();
+						FunctionParamValue resultValue = entry.getValue();
+						String displayValue;
+
+						if (resultValue.isMarkdown()) {
+							displayValue = markdownRenderer.render(markdownParser.parse(resultValue.getValue()));
+						} else {
+							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
+						}
+
+						resultTable.append(
+								String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
+										StringEscapeUtils.escapeHtml4(resultName), displayValue));
+					}
+					resultTable.append("</div>");
+				}
+
+				// Build raw JSON section
+				String rawArgsJson = "";
+				if (StringUtils.isNotBlank(call.getArgsJson())) {
+					rawArgsJson = markdownRenderer
+							.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```"));
+				}
+
+				String rawResultJson = "";
+				if (StringUtils.isNotBlank(result.getResultJson())) {
+					rawResultJson = markdownRenderer.render(
+							markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```"));
+				}
+
+				// Build combined raw JSON section
+				String rawJsonSection = "";
+				if (StringUtils.isNotBlank(rawArgsJson) || StringUtils.isNotBlank(rawResultJson)) {
+					rawJsonSection = "<details><summary>Raw JSON</summary>";
+					if (StringUtils.isNotBlank(rawArgsJson)) {
+						rawJsonSection += "<blockquote><p>Args:</p>" + rawArgsJson + "</blockquote>";
+					}
+					if (StringUtils.isNotBlank(rawResultJson)) {
+						rawJsonSection += "<blockquote><p>Result:</p>" + rawResultJson + "</blockquote>";
+					}
+					rawJsonSection += "</details>";
+				}
+
+				// Combine everything into the final structure
+				// Build re-execute button HTML
+				String reexecuteButtonHtml = String.format(
+						"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+								+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute"
+								+ "</button>",
+						message.getId(), // Pass the message UUID
+						getReexecuteIconBase64() // Assuming this method is added to the class
+				);
+
+				functionCallHtml = String
+						.format("<details class=\"function-call-details\"><summary>Function call: %s</summary>"
+								+ "<blockquote>" + "%s" + // Params table
+								"%s" + // Result table
+								"%s" + // Raw JSON section
+								"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
+								"</blockquote>" + "</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
+								paramsTable.toString(), resultTable.toString(), rawJsonSection, reexecuteButtonHtml); // Add
+																														// the
+																														// re-execute
+																														// button
+																														// HTML
+			}
+			return functionCallHtml;
+		}
+
+		private String toolSummaryToHtml(ChatMessage message) {
+			String contentHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
+
+			// Create a "Re-execute All" button
+			String reexecuteAllButtonHtml = String.format(
+					"<button class=\"tool-action-button\" title=\"Re-execute all previous tool calls\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+							+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute All\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute All"
+							+ "</button>",
+					message.getId(), // Pass the summary message's UUID
+					getReexecuteIconBase64());
+
+			String actions = String.format("<div class=\"tool-actions\">%s</div>", reexecuteAllButtonHtml);
+
+			return String.format("<div class=\"tool-summary\">%s%s</div>", contentHtml, actions);
 		}
 
 		@Override
 		public void onChatResponseFinished(ChatMessage message) {
 			Display.getDefault().asyncExec(() -> {
-				// Set text to "▶️"
-				btnSend.setText("\u25B6");
+				if (message.getFunctionResult().isEmpty()) {
+					// Set text to "▶️"
+					btnSend.setText("\u25B6");
 
-				connection = null;
+					connection = null;
+
+					if (isDebugPromptLoggingEnabled()) {
+						Activator.logInfo(conversation.toString());
+					}
+
+					applyPendingChanges();
+
+					addConversationToHistory();
+				} else {
+					sendFunctionResult(message);
+				}
 
 				Display.getDefault().asyncExec(() -> {
 					chat.markMessageFinished(message.getId());
 				});
-
-				addConversationToHistory();
-
-				if (isDebugPromptLoggingEnabled()) {
-					Activator.logInfo(conversation.toString());
-				}
 			});
 		}
 	};
+
+	public void reexecute(String messageUuidString) {
+		if (conversation == null || this.functionCallSession == null || this.chat == null) {
+			System.err.println(
+					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
+			return;
+		}
+
+		UUID messageUuid = UUID.fromString(messageUuidString);
+
+		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
+				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+
+		if (messageToReexecute != null) {
+			if (messageToReexecute.getFunctionCall().isPresent()) {
+				reexecuteToolCall(messageUuidString);
+			}
+
+			if (messageToReexecute.getSummarizedToolCallIds() != null
+					&& !messageToReexecute.getSummarizedToolCallIds().isEmpty()) {
+				reexecuteToolSummary(messageUuidString);
+			}
+		}
+	}
+
+	private void reexecuteToolCall(String messageUuidString) {
+		// Ensure conversation, functionCallSession, and chat (ChatComponent) are
+		// initialized and available
+		if (conversation == null || this.functionCallSession == null || this.chat == null) {
+			System.err.println(
+					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
+			return;
+		}
+
+		UUID messageUuid = UUID.fromString(messageUuidString);
+
+		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
+				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+
+		if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
+			FunctionCall call = messageToReexecute.getFunctionCall().get();
+			System.out.println("ChatView: Re-executing tool call: " + call.getFunctionName() + " for message UUID: "
+					+ messageUuidString);
+
+			// Prepare the message for re-execution:
+			// Create a new, empty FunctionResult shell associated with the original call's
+			// ID and name.
+			// This ensures that handleFunctionCall populates this new shell.
+			FunctionResult newResultShell = new FunctionResult(call.getId(), call.getFunctionName());
+			messageToReexecute.setFunctionResult(newResultShell);
+
+			// Execute the function call again.
+			// This is expected to populate the 'newResultShell' within
+			// 'messageToReexecute'.
+			this.functionCallSession.handleFunctionCall(messageToReexecute);
+
+			// Update this specific message in the UI to display the new result,
+			// using the listener's method to ensure correct HTML generation.
+			if (chatListener != null) {
+				chatListener.onMessageUpdated(messageToReexecute);
+			} else {
+				System.err.println("ChatView: chatListener is null, cannot update message view for re-execute.");
+			}
+
+			this.functionCallSession.applyPendingChanges();
+		} else {
+			Log.logError(
+					"ChatView: Cannot re-execute. Message not found, not a function call, or function call details missing for UUID: "
+							+ messageUuidString);
+		}
+	}
+
+	private void reexecuteToolSummary(String summaryMessageUuidString) {
+		if (conversation == null || this.functionCallSession == null) {
+			Log.logError("Cannot re-execute summary: conversation or session is null.");
+			return;
+		}
+
+		UUID summaryMessageUuid = UUID.fromString(summaryMessageUuidString);
+		ChatMessage summaryMessage = conversation.getMessages().stream()
+				.filter(m -> m.getId().equals(summaryMessageUuid) && m.getRole() == Role.TOOL_SUMMARY).findFirst()
+				.orElse(null);
+
+		if (summaryMessage == null) {
+			Log.logError("Could not find TOOL_SUMMARY message with UUID: " + summaryMessageUuidString);
+			return;
+		}
+
+		// 1. IMPORTANT: Clear any changes from the previous run.
+		functionCallSession.clearPendingChanges();
+
+		List<UUID> idsToReexecute = summaryMessage.getSummarizedToolCallIds();
+		Log.logInfo("Re-executing tool summary for " + idsToReexecute.size() + " tool calls.");
+
+		// 2. Re-process each tool call in the sequence
+		for (UUID messageId : idsToReexecute) {
+			ChatMessage messageToReexecute = conversation.getMessages().stream()
+					.filter(m -> m.getId().equals(messageId)).findFirst().orElse(null);
+
+			if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
+				// Reset the result from the previous run
+				messageToReexecute
+						.setFunctionResult(new FunctionResult(messageToReexecute.getFunctionCall().get().getId(),
+								messageToReexecute.getFunctionCall().get().getFunctionName()));
+
+				// Re-handle the call. This will populate the new result and queue changes.
+				functionCallSession.handleFunctionCall(messageToReexecute);
+
+				// Update the UI for this specific message to show it's processing again
+				if (chatListener != null) {
+					chatListener.onMessageUpdated(messageToReexecute);
+				}
+			}
+		}
+
+		// 3. After all calls are re-processed, apply the newly accumulated changes.
+		// This will open the refactoring wizard with the new set of changes.
+		if (functionCallSession.hasPendingChanges()) {
+			functionCallSession.applyPendingChanges();
+		} else {
+			Log.logInfo("Re-execution finished, but no pending changes were generated.");
+			// Optionally, add a message to the chat informing the user.
+		}
+	}
+
+	private void clearAllPendingChanges() {
+		if (this.functionCallSession != null) {
+			this.functionCallSession.clearPendingChanges();
+			Log.logInfo("All pending changes cleared by user action.");
+		}
+	}
+
+	private void sendFunctionResult(ChatMessage message) {
+		if (connection != null && connection.isChatPending()) {
+			connection.abortChat();
+		}
+
+		Display.getDefault().asyncExec(() -> {
+			chat.markMessageFinished(message.getId());
+		});
+
+		connection.chat(conversation, settings.getMaxResponseTokens());
+	}
+
+	protected String prettyPrintJson(String jsonString) {
+		JsonElement json = JsonParser.parseString(jsonString);
+
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		String prettyJson = gson.toJson(json);
+
+		return prettyJson;
+	}
 
 	private static class MessageContentWithReasoning {
 		private final String thoughts;
@@ -350,6 +663,7 @@ public class ChatView extends ViewPart {
 							c.setConversationId(null);
 							c.setCaption(null);
 						}
+						updateSystemPrompt(c);
 						replaceChat(c);
 					}
 				}
@@ -684,6 +998,11 @@ public class ChatView extends ViewPart {
 			// Reset settings, e.g. the chat model.
 			init();
 		});
+
+		settings.addPropertyChangeListener("promptTemplate", e -> {
+			updateSystemPrompt();
+		});
+
 		IListChangeListener<? super MessageContext> listChangeListener = e -> {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
@@ -728,6 +1047,23 @@ public class ChatView extends ViewPart {
 		};
 		externallyAddedContext.addListChangeListener(listChangeListener);
 
+		// Add context menu listener to the attachment composite itself
+		cmpAttachments.addMenuDetectListener(event -> {
+			Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
+			MenuItem clearAllItem = new MenuItem(contextMenu, SWT.NONE);
+			clearAllItem.setText("Clear All");
+			clearAllItem.addListener(SWT.Selection, evt -> {
+				if (!externallyAddedContext.isEmpty()) {
+					externallyAddedContext.clear();
+				}
+			});
+			// Disable if list is already empty
+			clearAllItem.setEnabled(!externallyAddedContext.isEmpty());
+
+			contextMenu.setLocation(event.x, event.y);
+			contextMenu.setVisible(true);
+		});
+
 		chat.addProgressListener(ProgressListener.completedAdapter(event -> {
 			final Browser bChat = chat.getBrowser();
 			final BrowserFunction function = new OnClickFunction(bChat, "elementClicked");
@@ -760,6 +1096,28 @@ public class ChatView extends ViewPart {
 		});
 	}
 
+	private void updateSystemPrompt() {
+		ChatConversation chatToUpdate = conversation;
+		boolean changed = updateSystemPrompt(chatToUpdate);
+		if (changed) {
+			replaceChat(conversation);
+		}
+	}
+
+	private boolean updateSystemPrompt(ChatConversation chatToUpdate) {
+		PromptTemplate promptTemplate = settings.getPromptTemplate();
+		String templateString = promptTemplate == null ? null : promptTemplate.getPrompt();
+
+		// Replace system prompt if neccessary.
+		boolean changed;
+		if (StringUtils.isBlank(templateString)) {
+			changed = chatToUpdate.removeSystemMessage();
+		} else {
+			changed = chatToUpdate.addOrReplaceSystemMessage(templateString);
+		}
+		return changed;
+	}
+
 	private void removeAttachmentLabel(MessageContext ctx) {
 		if (cmpAttachments != null && !cmpAttachments.isDisposed() && cmpAttachments.getChildren() != null) {
 			Control[] children = cmpAttachments.getChildren();
@@ -786,6 +1144,10 @@ public class ChatView extends ViewPart {
 		if (connection.isChatPending()) {
 			connection.abortChat();
 
+			// apply pending changes, if any were added so far.
+			// this will also add a message summarizing the changes.
+			applyPendingChanges();
+
 			chat.markAllMessagesFinished();
 
 			// Set text to "▶️"
@@ -806,13 +1168,13 @@ public class ChatView extends ViewPart {
 						selectionRange.x + selectionRange.y, consoleSelection));
 			}
 
-			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx.getFileName(),
-					ctx.getRangeType(), ctx.getStart(), ctx.getEnd(), ctx.getContent()));
+			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx));
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
-			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
+			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 
 			conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
@@ -876,28 +1238,36 @@ public class ChatView extends ViewPart {
 				return;
 			}
 
-			String fileName = textEditor.getEditorInput().getName();
+			IEditorInput editorInput = textEditor.getEditorInput();
+			String fileName;
+			if (editorInput instanceof IFileEditorInput fi) {
+				fileName = fi.getFile().getFullPath().toString();
+			} else {
+				fileName = editorInput.getName();
+			}
+
 			int startLine = textSelection.getStartLine();
 			int endLine = textSelection.getEndLine();
-			String processedText = CodeUtil.removeCommonIndentation(selectedText);
 			addContextToMessageIfNotDuplicate(chatMessage, fileName, RangeType.LINE, startLine + 1, endLine + 1,
-					processedText);
+					selectedText);
 		}
 	}
 
 	public void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, String fileName, RangeType rangeType,
 			int start, int end, String selectedText) {
+		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, selectedText);
+		addContextToMessageIfNotDuplicate(chatMessage, newCtx);
+	}
+
+	private void addContextToMessageIfNotDuplicate(ChatMessage chatMessage, MessageContext newCtx) {
 		boolean duplicate = false;
-		// Process the selected text to remove common indentation
-		String processedText = CodeUtil.removeCommonIndentation(selectedText);
-		MessageContext newCtx = new MessageContext(fileName, rangeType, start, end, processedText);
 		for (MessageContext ctx : chatMessage.getContext()) {
 			if (newCtx.isDuplicate(ctx)) {
 				duplicate = true;
 			}
 		}
 		if (!duplicate) {
-			chatMessage.getContext().add(new MessageContext(fileName, start, end, processedText));
+			chatMessage.getContext().add(newCtx);
 		}
 	}
 
@@ -910,6 +1280,7 @@ public class ChatView extends ViewPart {
 		conversation = replacement;
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
+		clearAllPendingChanges();
 		chat.reset();
 		userInput.set("");
 
@@ -942,7 +1313,7 @@ public class ChatView extends ViewPart {
 		ChatConversation res = new ChatConversation();
 
 		if (settings.getPromptTemplate() != null) {
-			res.addMessage(new ChatMessage(Role.SYSTEM, settings.getPromptTemplate().getPrompt()), false);
+			res.addOrReplaceSystemMessage(settings.getPromptTemplate().getPrompt());
 		}
 
 		return res;
@@ -983,6 +1354,9 @@ public class ChatView extends ViewPart {
 				} else if (str.startsWith("attachment:")) { // Add this case
 					String attachmentUuid = str.substring("attachment:".length());
 					openAttachmentDialog(attachmentUuid);
+				} else if (str.startsWith("reexecute:")) {
+					String messageUuid = str.substring("reexecute:".length());
+					reexecute(messageUuid);
 				}
 			}
 			return null;
@@ -1028,15 +1402,15 @@ public class ChatView extends ViewPart {
 			TextTransfer textTransfer = TextTransfer.getInstance();
 
 			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
-			String messageMarkdown = thoughtsAndMessage.getMessage();
-			if (!message.getContext().isEmpty()) {
-				StringBuilder sb = new StringBuilder();
-				sb.append("\n\n#Context:\n");
-				sb.append(message.getContext().stream().map(c -> c.compile()).collect(Collectors.joining("\n")));
-				messageMarkdown += sb.toString();
-			}
+			StringBuilder sb = new StringBuilder(thoughtsAndMessage.getMessage());
 
-			clipboard.setContents(new Object[] { messageMarkdown }, new Transfer[] { textTransfer });
+			if (!message.getContext().isEmpty()) {
+				sb.append("\n\n# Context:\n");
+				sb.append(message.getContext().stream().map(c -> c.compile(true)).collect(Collectors.joining("\n")));
+			}
+			sb.append(message.getToolCallDetailsAsMarkdown());
+
+			clipboard.setContents(new Object[] { sb.toString() }, new Transfer[] { textTransfer });
 			clipboard.dispose();
 		}
 	}
@@ -1247,6 +1621,36 @@ public class ChatView extends ViewPart {
 		imageLoader.save(baos, SWT.IMAGE_PNG);
 
 		paperclipBase64 = java.util.Base64.getEncoder().encodeToString(baos.toByteArray());
+	}
+
+	private void applyPendingChanges() {
+		// Apply pending changes after all function calls are done.
+		if (functionCallSession.hasPendingChanges()) {
+			// 1. Identify the sequence of tool calls that just finished.
+			Set<UUID> messagesWithPendingChanges = new HashSet<>(
+					functionCallSession.getMessagesWithPendingChanges());
+			List<ChatMessage> toolCallSequence = new ArrayList<>();
+			conversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
+					.forEach(toolCallSequence::add);
+
+			// 2. Create the new TOOL_SUMMARY message
+			// Get the detailed summary from the session
+			String summaryContent = functionCallSession.getPendingChangesSummary();
+			ChatMessage summaryMessage = new ChatMessage(Role.TOOL_SUMMARY, summaryContent);
+
+			// 3. Populate the summary message with the IDs of the calls
+			for (ChatMessage msg : toolCallSequence) {
+				if (msg.getFunctionCall().isPresent()) {
+					summaryMessage.getSummarizedToolCallIds().add(msg.getId());
+				}
+			}
+
+			// 4. Add the summary message to the conversation
+			conversation.addMessage(summaryMessage, false); // false because it's a final message
+
+			// 5. Trigger the refactoring dialog as before
+			functionCallSession.applyPendingChanges();
+		}
 	}
 
 	private String ONCLICK_LISTENER = "document.onmousedown = function(e) {" + "if (!e) {e = window.event;} "

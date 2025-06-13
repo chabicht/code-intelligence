@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence.chat;
 
+import static com.chabicht.code_intelligence.chat.ChatSettings.supportsReasoning;
+
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,22 +48,16 @@ import com.chabicht.codeintelligence.preferences.ModelSelectionDialog;
 public class ChatSettingsDialog extends Dialog {
 	public static final PromptTemplate NONE = createNoTemplateSelection();
 
-	public ChatSettings getSettings() {
-		return settings;
-	}
-
 	private DataBindingContext m_bindingContext;
-
 	private final ChatSettings settings;
 
 	private final WritableList<PromptTemplate> systemPrompts = new WritableList<>();
 	private ComboViewer cvSystemPrompt;
 	private Text txtModel;
 	private Text txtReasoningBudgetTokens;
-
-	private Button btnEnabled;
-
+	private Button btnReasoningEnabled;
 	private Text txtChatCompletionMaxTokens;
+	private Button btnToolsEnabled;
 
 	protected ChatSettingsDialog(Shell parentShell, ChatSettings settings) {
 		super(parentShell);
@@ -116,10 +112,9 @@ public class ChatSettingsDialog extends Dialog {
 					}
 				}
 				ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
-				String res = null;
 				if (dialog.open() == ModelSelectionDialog.OK) {
 					AiModel model = dialog.getSelectedModel();
-					res = model.getApiConnection().getName() + "/" + model.getId();
+					String res = model.getApiConnection().getName() + "/" + model.getId();
 					settings.setModel(res);
 				}
 			}
@@ -140,24 +135,36 @@ public class ChatSettingsDialog extends Dialog {
 		cvSystemPrompt = new ComboViewer(composite, SWT.NONE);
 		Combo cbSystemPrompt = cvSystemPrompt.getCombo();
 		cbSystemPrompt.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
-		
+
 		Group grpReasoning = new Group(composite, SWT.NONE);
 		grpReasoning.setLayout(new GridLayout(2, false));
 		GridData gd_grpReasoning = new GridData(SWT.FILL, SWT.CENTER, false, false, 3, 1);
 		gd_grpReasoning.widthHint = 75;
 		grpReasoning.setLayoutData(gd_grpReasoning);
 		grpReasoning.setText("Reasoning");
-		
-		btnEnabled = new Button(grpReasoning, SWT.CHECK);
-		btnEnabled.setText("enabled");
+
+		btnReasoningEnabled = new Button(grpReasoning, SWT.CHECK);
+		btnReasoningEnabled.setText("enabled");
 		new Label(grpReasoning, SWT.NONE);
-		
+
 		Label lblBudgetTokens = new Label(grpReasoning, SWT.NONE);
 		lblBudgetTokens.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
 		lblBudgetTokens.setText("Budget tokens:");
-		
+
 		txtReasoningBudgetTokens = new Text(grpReasoning, SWT.BORDER);
 		txtReasoningBudgetTokens.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+
+		// Tool Configuration Group
+		Group grpTools = new Group(composite, SWT.NONE);
+		grpTools.setLayout(new GridLayout(1, false)); // Changed to 1 column
+		GridData gd_grpTools = new GridData(SWT.FILL, SWT.FILL, true, true, 3, 1);
+		grpTools.setLayoutData(gd_grpTools);
+		grpTools.setText("Tools");
+
+		btnToolsEnabled = new Button(grpTools, SWT.CHECK);
+		btnToolsEnabled.setText("Enable Tools Globally");
+		btnToolsEnabled.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+
 		cvSystemPrompt.setLabelProvider(new LabelProvider() {
 			@Override
 			public String getText(Object element) {
@@ -191,15 +198,17 @@ public class ChatSettingsDialog extends Dialog {
 			}
 		});
 		updateReasoningEnablement(settings.getModel());
+
+		btnToolsEnabled.setSelection(settings.isToolsEnabled());
 	}
 
 	private void updateReasoningEnablement(String modelId) {
 		Display.getDefault().syncExec(() -> {
-			boolean supportsReasoning = modelId.contains("claude-3-7");
-			if (!supportsReasoning) {
-				btnEnabled.setSelection(false);
-			}
-			btnEnabled.setEnabled(supportsReasoning);
+			boolean supportsReasoning = supportsReasoning(modelId);
+//			if (!supportsReasoning) {
+//				btnReasoningEnabled.setSelection(false);
+//			}
+			btnReasoningEnabled.setEnabled(supportsReasoning);
 			txtReasoningBudgetTokens.setEnabled(supportsReasoning);
 		});
 	}
@@ -239,10 +248,11 @@ public class ChatSettingsDialog extends Dialog {
 		IObservableValue modelSettingsObserveValue = BeanProperties.value("model").observe(settings);
 		bindingContext.bindValue(observeTextTxtModelObserveWidget, modelSettingsObserveValue, null, null);
 		//
-		IObservableValue observeButtonEnabledWidget = WidgetProperties.buttonSelection().observe(btnEnabled);
+		IObservableValue observeButtonReasoningEnabledWidget = WidgetProperties.buttonSelection()
+				.observe(btnReasoningEnabled);
 		IObservableValue reasoningEnabledSettingsObserveValue = BeanProperties.value("reasoningEnabled")
 				.observe(settings);
-		bindingContext.bindValue(observeButtonEnabledWidget, reasoningEnabledSettingsObserveValue, null, null);
+		bindingContext.bindValue(observeButtonReasoningEnabledWidget, reasoningEnabledSettingsObserveValue, null, null);
 		//
 		IObservableValue observeTextTxtReasoningBudgetTokensObserveWidget = org.eclipse.jface.databinding.swt.typed.WidgetProperties
 				.text(org.eclipse.swt.SWT.Modify).observe(txtReasoningBudgetTokens);
@@ -262,6 +272,11 @@ public class ChatSettingsDialog extends Dialog {
 				new UpdateValueStrategy().setConverter(StringToNumberConverter.toInteger(true)),
 				new UpdateValueStrategy().setConverter(NumberToStringConverter.fromInteger(true)));
 
+		// Bind btnToolsEnabled to settings.toolsEnabled
+		IObservableValue observeToolsEnabledCheckbox = WidgetProperties.buttonSelection().observe(btnToolsEnabled);
+		IObservableValue toolsEnabledSettingsObserveValue = BeanProperties.value("toolsEnabled").observe(settings);
+		bindingContext.bindValue(observeToolsEnabledCheckbox, toolsEnabledSettingsObserveValue, null, null);
+
 		return bindingContext;
 	}
 
@@ -270,5 +285,14 @@ public class ChatSettingsDialog extends Dialog {
 		Point res = super.getInitialSize();
 		res.x = 720;
 		return res;
+	}
+
+	@Override
+	protected void okPressed() {
+		super.okPressed();
+	}
+
+	public ChatSettings getSettings() {
+		return settings;
 	}
 }

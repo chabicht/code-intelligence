@@ -9,7 +9,6 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Type;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -30,9 +29,9 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.ProviderDefaults;
+import com.chabicht.code_intelligence.util.GsonUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
@@ -97,8 +96,22 @@ public class Activator extends AbstractUIPlugin {
 	/**
 	 * Log an error to the Eclipse Error Log.
 	 */
+	public static void logError(String message) {
+		getDefault().getLog().log(new Status(IStatus.ERROR, PLUGIN_ID, message));
+	}
+
+	/**
+	 * Log a message to the Eclipse Error Log.
+	 */
 	public static void logInfo(String message) {
 		getDefault().getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
+	}
+
+	/**
+	 * Log a warning to the Eclipse Error Log.
+	 */
+	public static void logWarn(String message) {
+		getDefault().getLog().log(new Status(IStatus.WARNING, PLUGIN_ID, message));
 	}
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
@@ -217,7 +230,7 @@ public class Activator extends AbstractUIPlugin {
 			if (!file.exists()) {
 				return Collections.emptyList();
 			} else {
-				try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+				try (BufferedReader reader = new BufferedReader(new FileReader(file), 1 << 18)) {
 					Type listType = token.getType();
 					List<T> res = createGson().fromJson(reader, listType);
 
@@ -236,7 +249,7 @@ public class Activator extends AbstractUIPlugin {
 			File parentDirectory = getConfigLocationAsFile();
 			File file = new File(parentDirectory, filename);
 
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file), 1 << 18)) {
 				createGson().toJson(items, writer);
 			}
 		} catch (IOException | JsonIOException e) {
@@ -245,7 +258,7 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	public Gson createGson() {
-		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter()).create();
+		return GsonUtil.createGson();
 	}
 
 	private File getConfigLocationAsFile() throws IOException {

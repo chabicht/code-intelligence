@@ -166,7 +166,7 @@
 	.floating-header {
 	  position: fixed !important;
 	  top: 10px !important;
-	  right: 10px !important;
+	  right: 27px !important;
 	  z-index: 1000 !important;
 	}
 
@@ -276,11 +276,82 @@
 	  td:last-child {
 	    border-bottom: 0;
 	  }
-	    /* Remove vertical lines in responsive mode */
-	    td, th {
-	        border-right: none;
-	    }
-	}
+      /* Remove vertical lines in responsive mode */
+      td, th {
+          border-right: none;
+      }
+    }
+
+    /* Function call parameter and result styles */
+    .function-params-container,
+    .function-results-container {
+      width: 100%;
+      margin: 15px 0;
+      border: 1px solid #bfbfbf;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      background-color: #ffffff;
+    }
+
+    .params-header,
+    .results-header {
+      padding: 10px 12px;
+      background-color: #f5f5f5;
+      font-weight: bold;
+      color: #333333;
+      border-bottom: 2px solid #bfbfbf;
+    }
+
+    .param-name,
+    .result-name {
+      padding: 10px 12px;
+      font-weight: bold;
+      background-color: #f9f9f9;
+      border-bottom: 1px solid #bfbfbf;
+    }
+
+    .param-value,
+    .result-value {
+      padding: 10px 12px;
+      border-bottom: 1px solid #bfbfbf;
+      background-color: #ffffff;
+      white-space: pre-wrap;
+    }
+
+    /* Remove bottom border from the last value in a container */
+    .function-params-container > .param-value:last-child,
+    .function-results-container > .result-value:last-child {
+      border-bottom: none;
+    }
+
+	.tool-actions {
+      margin-top: 10px;
+      text-align: right; /* Adjust alignment as needed */
+    }
+
+    .tool-action-button {
+      background-color: #FFFFFF;
+      border: 1px solid #CCCCCC;
+      color: #333333;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      margin-left: 5px;
+      display: inline-flex; /* Helps align icon and text */
+      align-items: center;
+      gap: 5px; /* Space between icon (if any) and text */
+    }
+
+    .tool-action-button:hover {
+      background-color: #F0F0F0; /* Or your theme's hover color */
+    }
+
+    /* Ensure img within button is aligned if not handled by inline styles */
+    .tool-action-button img {
+      vertical-align: middle;
+    }
   </style>
 
   <style>
@@ -391,6 +462,8 @@ function isScrolledToBottom() {
  * @param {String} content - The HTML content of the message.
  */
  function addMessage(uuid, role, content, updating=false) {
+   const scrolledToBottom = isScrolledToBottom();
+   
    var container = document.getElementById("chat-container");
    if (!container) {
      return;
@@ -402,7 +475,9 @@ function isScrolledToBottom() {
      div.className = "message from-them";
    } else if (role === "user") {
      div.className = "message from-me";
-   } else if (role === "system") {
+	 } else if (role === "system") {
+	   div.className = "message from-system";
+   } else if (role === "tool_summary") {
      div.className = "message from-system";
    } else {
      div.className = "message";
@@ -490,11 +565,14 @@ function isScrolledToBottom() {
 
    container.appendChild(div);
 
-   // Only scroll if auto-scroll is enabled
-    if (autoScrollEnabled) {
-      var bottom = document.getElementById("bottom");
-      bottom.scrollIntoView(true);
-    }
+   if (scrolledToBottom && !isScrolledToBottom()) {
+     const bottom = document.getElementById("bottom");
+     if (bottom) {
+       bottom.scrollIntoView({ block: 'start', behaviour: 'instant' });
+     }
+   }
+
+   updateScrollToBottomButtonVisibility();
  }
 
 /**
@@ -656,8 +734,10 @@ function processCodeBlocks(container) {
           }
           
           // Show header when code block is visible and either hovered or floating
-          if (block.matches(':hover') || header.classList.contains('floating-header')) {
+          if (block.matches(':hover')) {
             header.style.opacity = '1';
+          } else {
+            header.style.opacity = '';
           }
         } else {
           // Hide header when code block is not visible
@@ -675,9 +755,7 @@ function processCodeBlocks(container) {
       });
       
       block.addEventListener('mouseleave', function() {
-        if (!header.classList.contains('floating-header')) {
-          header.style.opacity = '';
-        }
+		updateHeaderPosition();
       });
       
       // Initial positioning check
@@ -1045,6 +1123,22 @@ function updateScrollToBottomButtonVisibility() {
     scrollToBottomButton.style.display = "block";
   } else {
     scrollToBottomButton.style.display = "none";
+  }
+}
+
+function reexecuteFunctionCallJs(uuid, buttonElement) {
+  // Show visual feedback on the button
+  if (typeof showCheckIconFeedback === 'function') {
+    showCheckIconFeedback(buttonElement);
+  } else {
+    console.warn("JavaScript Warning: showCheckIconFeedback function is not defined.");
+  }
+
+  // Call the Java backend
+  if (window.elementClicked) {
+    window.elementClicked("reexecute:" + uuid);
+  } else {
+    console.error("JavaScript Error: elementClicked function is not defined on window.");
   }
 }
 

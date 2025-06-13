@@ -138,6 +138,26 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT, "Max. &history items:",
 				getFieldEditorParent()));
 
+		// Add BooleanFieldEditor for enabling/disabling tools globally in Chat
+		addField(new BooleanFieldEditor(PreferenceConstants.CHAT_TOOLS_ENABLED, "Enable &Tools globally in Chat",
+				getFieldEditorParent()));
+
+		// Add button to open dialog for managing specific tools
+		Composite cmpToolManagementButtons = new Composite(getFieldEditorParent(), SWT.NONE);
+		cmpToolManagementButtons.setLayoutData(new GridData(SWT.FILL, SWT.BEGINNING, true, false, 3, 1));
+		GridLayout cmpToolManagementButtonsLayout = new GridLayout(1, false);
+		cmpToolManagementButtonsLayout.marginWidth = 0;
+		cmpToolManagementButtonsLayout.marginHeight = 0;
+		cmpToolManagementButtons.setLayout(cmpToolManagementButtonsLayout);
+
+		Button btnManageTools = new Button(cmpToolManagementButtons, SWT.NONE);
+		btnManageTools.setText("Manage Specific Tools...");
+		btnManageTools.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+		btnManageTools.addSelectionListener(SelectionListener.widgetSelectedAdapter(e -> {
+			ManageToolsDialog dlg = new ManageToolsDialog(getShell());
+			dlg.open();
+		}));
+
 		ruler = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
 

@@ -42,6 +42,7 @@ public class AiApiConnection extends Bean {
 	private String baseUri;
 	private String apiKey;
 	private boolean enabled;
+	private boolean legacyFormat;
 
 	private transient IAiApiClient apiClient;
 
@@ -87,6 +88,15 @@ public class AiApiConnection extends Bean {
 
 	public void setEnabled(boolean enabled) {
 		propertyChangeSupport.firePropertyChange("enabled", this.enabled, this.enabled = enabled);
+	}
+
+	public boolean isLegacyFormat() {
+		return legacyFormat;
+	}
+
+	public void setLegacyFormat(boolean openAiLegacyApi) {
+		propertyChangeSupport.firePropertyChange("legacyFormat", this.legacyFormat,
+				this.legacyFormat = openAiLegacyApi);
 	}
 
 	public IAiApiClient getApiClient() {
