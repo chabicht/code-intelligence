@@ -60,11 +60,11 @@ public class ToolDefinitions {
 	}
 
 	public JsonObject getToolDefinitionsOllama() {
-		return toOpenAiToolFormat();
+		return toOpenAiToolFormat(false);
 	}
 
 	public JsonObject getToolDefinitionsOpenAi() {
-		return toOpenAiToolFormat();
+		return toOpenAiToolFormat(true);
 	}
 
 	public JsonObject getToolDefinitionsOpenAiLegacy() {
@@ -72,7 +72,7 @@ public class ToolDefinitions {
 	}
 
 	public JsonObject getToolDefinitionsXAi() {
-		return toOpenAiToolFormat();
+		return toOpenAiToolFormat(false);
 	}
 
 	public JsonObject getToolDefinitionsAnthropic() {
@@ -109,7 +109,7 @@ public class ToolDefinitions {
 		return finalAnthropicJson;
 	}
 
-	private JsonObject toOpenAiToolFormat() {
+	private JsonObject toOpenAiToolFormat(boolean allParamsMandatory) {
 		com.google.gson.Gson gson = GsonUtil.createGson();
 		JsonObject toolDefinitionGemini = getEnabledTools();
 
@@ -133,7 +133,10 @@ public class ToolDefinitions {
 
 				JsonObject parameters = geminiFuncDecl.getAsJsonObject("parameters").deepCopy();
 
-				parameters = patchOpenAiRequiredFields(parameters);
+				if (allParamsMandatory) {
+					parameters = patchOpenAiRequiredFields(parameters);
+				}
+
 				parameters.addProperty("additionalProperties", false);
 				openAiFunctionDetails.add("parameters", parameters);
 				openAiFunctionDetails.addProperty("strict", true);

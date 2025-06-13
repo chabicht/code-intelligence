@@ -229,6 +229,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsXAi());
+			req.addProperty("parallel_tool_calls", false);
 		}
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
