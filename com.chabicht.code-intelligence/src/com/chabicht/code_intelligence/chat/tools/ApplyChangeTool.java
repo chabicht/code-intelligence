@@ -204,14 +204,44 @@ public class ApplyChangeTool {
 	private DiffPreviewResult generateDiffPreview(IFile file, IDocument document, int[] matchOffsets,
 			String replacementText) {
 		try {
-			String original = document.get(matchOffsets[0], matchOffsets[1] - matchOffsets[0]);
+			// Calculate expanded offsets with up to 10 lines of context
+			int expandedStart = matchOffsets[0];
+			int expandedEnd = matchOffsets[1];
+			
+			// Add up to 10 lines before the match
+			int currentLine = document.getLineOfOffset(matchOffsets[0]);
+			int contextStartLine = Math.max(0, currentLine - 10);
+			if (contextStartLine < currentLine) {
+				expandedStart = document.getLineOffset(contextStartLine);
+			}
+			
+			// Add up to 10 lines after the match
+			int matchEndLine = document.getLineOfOffset(matchOffsets[1]);
+			int totalLines = document.getNumberOfLines();
+			int contextEndLine = Math.min(totalLines - 1, matchEndLine + 10);
+			if (contextEndLine > matchEndLine) {
+				expandedEnd = document.getLineOffset(contextEndLine) + document.getLineLength(contextEndLine);
+			}
+			
+			// Ensure we don't exceed document bounds
+			expandedStart = Math.max(0, expandedStart);
+			expandedEnd = Math.min(document.getLength(), expandedEnd);
+			
+			String original = document.get(expandedStart, expandedEnd - expandedStart);
 
-			int startLine = document.getLineOfOffset(matchOffsets[0]);
-			int endLine = document.getLineOfOffset(matchOffsets[1]);
-
-			// Use the enhanced diff generator with file path and real line numbers
-			// startLine + 1 because line numbers are 0-based in IDocument
-			String diffText = generateDiffPreview(original, replacementText, file, startLine + 1);
+			// Create replacement text with the same context
+			// Find where the original match starts and ends within the expanded context
+			int matchStartInExpanded = matchOffsets[0] - expandedStart;
+			int matchEndInExpanded = matchOffsets[1] - expandedStart;
+			
+			// Build replacement with context: context_before + replacement + context_after
+			String replacementWithContext = original.substring(0, matchStartInExpanded) + 
+											replacementText + 
+											original.substring(matchEndInExpanded);
+			
+			int startLine = document.getLineOfOffset(expandedStart);
+			int endLine = document.getLineOfOffset(expandedEnd);
+			String diffText = generateDiffPreview(original, replacementWithContext, file, startLine + 1);
 
 			// Return both the diff preview and the line range information
 			return new DiffPreviewResult(diffText, startLine + 1, endLine + 1);
@@ -519,7 +549,7 @@ public class ApplyChangeTool {
 
 			// Convert the patch to unified diff format with real file path
 			List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(filePath, filePath, originalLines, patch,
-					3); // Context size of 3 lines
+					5);
 
 			// Adjust line numbers in the unified diff headers to match actual file
 			unifiedDiff = adjustLineNumbers(unifiedDiff, startLineNumber);

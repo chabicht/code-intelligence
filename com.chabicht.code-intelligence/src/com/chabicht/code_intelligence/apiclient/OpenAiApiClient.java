@@ -299,6 +299,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 								// End of stream.
 								return;
 							}
+
 							try {
 								JsonObject jsonChunk = JsonParser.parseString(data).getAsJsonObject();
 								JsonArray choices = jsonChunk.getAsJsonArray("choices");
@@ -473,13 +474,6 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 					if (function.has("arguments") && !function.get("arguments").isJsonNull()) {
 						String argumentChunk = function.get("arguments").getAsString();
 						activeToolCalls.get(index).appendArguments(argumentChunk);
-
-						// Check if this tool call is now complete
-						if (activeToolCalls.get(index).isComplete()) {
-							ToolCallInfo toolCall = activeToolCalls.get(index);
-							assistantMessage.setFunctionCall(toolCall.toFunctionCall());
-							chat.notifyFunctionCalled(assistantMessage);
-						}
 					}
 				}
 			} catch (Exception e) {
@@ -555,15 +549,6 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 				
 				String argumentChunk = functionCallDelta.get("arguments").getAsString();
 				activeToolCalls.get(index).appendArguments(argumentChunk);
-				
-				// Check if this function call is now complete
-				if (activeToolCalls.get(index).isComplete()) {
-					ToolCallInfo toolCall = activeToolCalls.get(index);
-					
-					// Convert to the standard FunctionCall format used by both tools and functions
-					assistantMessage.setFunctionCall(toolCall.toFunctionCall());
-					chat.notifyFunctionCalled(assistantMessage);
-				}
 			}
 		} catch (Exception e) {
 			Activator.logError("Error processing function call delta: " + functionCallDelta, e);
@@ -590,49 +575,10 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 		public void appendArguments(String argumentChunk) {
 			argumentsJson.append(argumentChunk);
-
-			// Validate if the JSON might be complete
-			try {
-				String jsonStr = argumentsJson.toString().trim();
-				if (jsonStr.startsWith("{") && jsonStr.endsWith("}")) {
-					// Try to parse it as JSON to verify it's valid
-					JsonParser.parseString(jsonStr);
-					// If we get here, the JSON is valid
-					isComplete = true;
-				}
-			} catch (JsonSyntaxException e) {
-				// JSON is not yet valid/complete - this is normal during streaming
-			}
 		}
 
 		public boolean isComplete() {
-			if (isComplete) {
-				return true;
-			}
-
-			String args = argumentsJson.toString().trim();
-
-			// Basic JSON structure validation
-			if (args.startsWith("{") && args.endsWith("}")) {
-				// Count braces to handle nested objects
-				int openBraces = 0;
-				int closeBraces = 0;
-
-				for (char c : args.toCharArray()) {
-					if (c == '{')
-						openBraces++;
-					if (c == '}')
-						closeBraces++;
-				}
-
-				// If balanced braces, assume JSON is complete
-				if (openBraces == closeBraces) {
-					isComplete = true;
-					return true;
-				}
-			}
-
-			return false;
+			return isComplete;
 		}
 
 		public void markComplete() {
