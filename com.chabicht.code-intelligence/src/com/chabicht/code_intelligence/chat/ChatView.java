@@ -1172,7 +1172,7 @@ public class ChatView extends ViewPart {
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
-			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningEnabled());
+			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
 			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 

@@ -19,17 +19,17 @@ The following tools are currently supported:
       --- /path/to/File.java
       +++ /path/to/File.java
       @@ -137,5 +137,9 @@
-              }
-          }
+               }
+           }
 
-          private static class UpperCaseNode extends CustomNode {
+           private static class UpperCaseNode extends CustomNode {
       +        @Override
       +        public void test() {
       +            // Implementation not needed for this test
       +        }
-          }
+           }
 
-          private static class UpperCaseNodeRendererFactory implements HtmlNodeRendererFactory {
+           private static class UpperCaseNodeRendererFactory implements HtmlNodeRendererFactory {
       ```
 
 ### 2. `read_file_content`
@@ -55,7 +55,7 @@ The `apply_change` tool allows the model to propose and apply modifications to c
     - `search_text` (string, required): The text or pattern to search for. Note that this is NOT capable of regex patterns! Instead of `.*`, you must use `*`! Valid placeholders for a pattern are:
         - `*`: Any character sequence
         - `?`: Any character
-        - `\\`: Escape for literals '\*, ?, or \\'.
+        - `\`: Escape for literals '\*, ?, or \'.
     - `file_name_patterns` (array of strings, optional): List of file name patterns (e.g., "*.java", "data*.xml"). If omitted or empty, searches all files in the workspace. Make sure to use this parameter for your calls if at all possible since it can greatly reduce execution time of the tool.
     - `is_case_sensitive` (boolean, optional): True for a case-sensitive search. Defaults to false.
     - `is_whole_word` (boolean, optional): True to match whole words only. Defaults to false.
@@ -72,6 +72,17 @@ The `apply_change` tool allows the model to propose and apply modifications to c
 - **Parameters**:
     - `file_path` (string, required): The complete path, including the file name, where the new file should be created (e.g., '/project/src/com/example/NewFile.java'). This path should be relative to the workspace or project root.
     - `content` (string, required): The content to be written into the new file. Can be an empty string if an empty file is desired.
+
+### 7. `find_files`
+- **Description**: Finds files within the workspace by matching their full, workspace-relative path against a regular expression. This is useful for locating files when the exact name or path is unknown.
+- **Parameters**:
+    - `file_path_pattern` (string, required): A regular expression (in `java.util.regex.Pattern` syntax) to match against the full workspace-relative path of each file (e.g., `\.xml$`, `[^/]*Service\.java`, `/MyProject/.*Service\.java`, `/MyProject/src/main/java/com/example/.*Service\.java`).
+    - `project_names` (array of strings, optional): A list of project names to search within. If omitted or empty, all projects in the workspace will be searched.
+    - `is_case_sensitive` (boolean, optional): True for a case-sensitive search. Defaults to false if not provided.
+
+### 8. `list_projects`
+- **Description**: Lists all projects in the current workspace, showing their name and whether they are open or closed.
+- **Parameters**: None.
 
 ---
 
@@ -92,4 +103,3 @@ To use these tools with your AI model:
     *   Click **OK** to save your tool preferences.
 
 Once enabled, the plugin will declare the selected tools to the AI model, allowing it to request their execution when appropriate. There is no need to manually add JSON snippets for these standard tools to your model's custom parameters, as the plugin handles their registration.
-

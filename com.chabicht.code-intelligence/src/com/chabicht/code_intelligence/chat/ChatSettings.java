@@ -37,7 +37,7 @@ public class ChatSettings extends Bean {
 	}
 
 	public boolean isReasoningEnabled() {
-		return supportsReasoning(model) && reasoningEnabled;
+		return reasoningEnabled;
 	}
 
 	public void setReasoningEnabled(boolean reasoningEnabled) {
@@ -93,5 +93,9 @@ public class ChatSettings extends Bean {
 	public static boolean supportsReasoning(String modelId) {
 		return modelId != null && (modelId.contains("claude-3-7") || CLAUDE_4_PATTERN.matcher(modelId).find()
 				|| modelId.contains("gemini-2.5"));
+	}
+
+	public boolean isReasoningSupportedAndEnabled() {
+		return supportsReasoning(model) && isReasoningEnabled();
 	}
 }
