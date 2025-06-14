@@ -1,14 +1,19 @@
-package com.chabicht.code_intelligence.chat;
+package com.chabicht.code_intelligence.chat.tools;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
 import org.eclipse.ltk.core.refactoring.MultiStateTextFileChange;
@@ -19,22 +24,12 @@ import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizardOpenOperation;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.text.edits.MultiTextEdit;
+import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.text.edits.TextEdit;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 
 import com.chabicht.code_intelligence.Activator;
-import com.chabicht.code_intelligence.chat.tools.ApplyChangeTool;
-import com.chabicht.code_intelligence.chat.tools.ApplyPatchTool;
-import com.chabicht.code_intelligence.chat.tools.BufferedResourceAccess;
-import com.chabicht.code_intelligence.chat.tools.CreateFileTool; // Added import
-import com.chabicht.code_intelligence.chat.tools.FindFilesTool; // Add this import
-import com.chabicht.code_intelligence.chat.tools.IResourceAccess;
-import com.chabicht.code_intelligence.chat.tools.ListProjectsTool;
-import com.chabicht.code_intelligence.chat.tools.ReadFileContentTool;
-import com.chabicht.code_intelligence.chat.tools.ResourceAccess;
-import com.chabicht.code_intelligence.chat.tools.TextSearchTool;
-import com.chabicht.code_intelligence.chat.tools.ToolChangePreparationResult;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
@@ -59,7 +54,7 @@ public class FunctionCallSession {
 	private final ListProjectsTool listProjectsTool;
 	private final Gson gson = GsonUtil.createGson();
 
-	private final Map<String, MultiStateTextFileChange> pendingTextFileChanges = new HashMap<>();
+	private final Map<IFile, List<TextFileChange>> pendingTextFileChanges = new HashMap<>();
 	private final Map<String, Change> pendingCreateFileChanges = new HashMap<>();
 	private final List<UUID> messagesWithPendingChanges = new ArrayList<>();
 
@@ -83,17 +78,11 @@ public class FunctionCallSession {
 		Activator.logInfo("FunctionCallSession: Initialized with BufferedResourceAccess");
 	}
 
-	private MultiStateTextFileChange getOrCreateMultiStateTextFileChange(IFile file) {
+	private List<TextFileChange> getOrCreateTextFileChanges(IFile file) {
 		String fullPath = file.getFullPath().toString();
-		return pendingTextFileChanges.computeIfAbsent(fullPath, k -> {
-			MultiStateTextFileChange mstfc = new MultiStateTextFileChange("Changes for " + file.getName(), file);
-			if (file.getFileExtension() != null) {
-				mstfc.setTextType(file.getFileExtension());
-			} else {
-				mstfc.setTextType("txt");
-			}
-			Activator.logInfo("Created new MultiStateTextFileChange for: " + fullPath);
-			return mstfc;
+		return pendingTextFileChanges.computeIfAbsent(file, k -> {
+			Activator.logInfo("Created new List<TextFileChange> for: " + fullPath);
+			return new ArrayList<>();
 		});
 	}
 
@@ -198,12 +187,12 @@ public class FunctionCallSession {
 
 			JsonObject jsonResult = new JsonObject();
 			if (prepResult.isSuccess()) {
-				MultiStateTextFileChange mstfc = getOrCreateMultiStateTextFileChange(prepResult.getFile());
+				List<TextFileChange> tfcs = getOrCreateTextFileChanges(prepResult.getFile());
 				TextFileChange tfc = new TextFileChange("Apply Change", prepResult.getFile());
 				MultiTextEdit multiEdit = new MultiTextEdit();
 				multiEdit.addChildren(prepResult.getEdits().toArray(new TextEdit[0]));
 				tfc.setEdit(multiEdit);
-				mstfc.addChange(tfc);
+				tfcs.add(tfc);
 
 				result.addPrettyResult("preview", "```diff\n" + prepResult.getDiffPreview() + "\n```", true);
 				result.addPrettyResult("status", "Change Queued", false);
@@ -262,10 +251,10 @@ public class FunctionCallSession {
 
 			JsonObject jsonResult = new JsonObject();
 			if (prepResult.isSuccess()) {
-				MultiStateTextFileChange mstfc = getOrCreateMultiStateTextFileChange(prepResult.getFile());
+				List<TextFileChange> tfcs = getOrCreateTextFileChanges(prepResult.getFile());
 				TextFileChange tfc = new TextFileChange("Apply Patch", prepResult.getFile());
 				tfc.setEdit(prepResult.getEdits().get(0)); // Patch tool returns one big ReplaceEdit
-				mstfc.addChange(tfc);
+				tfcs.add(tfc);
 
 				result.addPrettyResult("status", "Patch Queued", false);
 				jsonResult.addProperty("status", "Queued");
@@ -553,7 +542,7 @@ public class FunctionCallSession {
 	public void applyPendingChanges() {
 		CompositeChange rootChange = new CompositeChange("Apply AI Suggested Code Changes");
 
-		rootChange.addAll(pendingTextFileChanges.values().toArray(new Change[0]));
+		rootChange.addAll(combineTextFileChangesPerFile());
 		rootChange.addAll(pendingCreateFileChanges.values().toArray(new Change[0]));
 
 		try {
@@ -567,6 +556,33 @@ public class FunctionCallSession {
 		} finally {
 			clearPendingChanges();
 		}
+	}
+
+	private Change[] combineTextFileChangesPerFile() {
+		Collection<Entry<IFile, List<TextFileChange>>> changesPerFile = pendingTextFileChanges.entrySet();
+		Change[] res = new Change[changesPerFile.size()];
+
+		Map<IFile, IDocument> tempDocMap = new HashMap<>();
+		try {
+			int i = 0;
+			for (Entry<IFile, List<TextFileChange>> changeSet : changesPerFile) {
+				IFile file = changeSet.getKey();
+				IDocument doc = realResourceAccess.getDocumentAndConnect(file, tempDocMap);
+				IDocument resDoc = BufferedResourceAccess.applyChangesToDocument(doc, changeSet.getValue());
+				TextFileChange combinedChange = new TextFileChange("Changes for " + file.getName(), file);
+				combinedChange.setEdit(new ReplaceEdit(0, doc.getLength(), resDoc.get()));
+				MultiStateTextFileChange mstfc = new MultiStateTextFileChange("Changes for " + file.getName(), file);
+				mstfc.addChange(combinedChange);
+				res[i++] = mstfc;
+			}
+		} catch (BadLocationException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} finally {
+			realResourceAccess.disconnectAllDocuments(tempDocMap);
+		}
+
+		return res;
 	}
 
 	/**
@@ -595,7 +611,7 @@ public class FunctionCallSession {
 	 * 
 	 * @return Unmodifiable view of pending text file changes
 	 */
-	public Map<String, MultiStateTextFileChange> getPendingTextFileChanges() {
+	public Map<IFile, List<TextFileChange>> getPendingTextFileChanges() {
 		return java.util.Collections.unmodifiableMap(pendingTextFileChanges);
 	}
 
@@ -617,10 +633,14 @@ public class FunctionCallSession {
 	 *         the chat.
 	 */
 	public String getPendingChangesSummary() {
-		List<String> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
+		List<IFile> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
 		List<String> createdFiles = new ArrayList<>(pendingCreateFileChanges.keySet());
 
-		java.util.Collections.sort(modifiedFiles);
+		java.util.Collections.sort(modifiedFiles, (o1, o2) -> {
+			String s1 = o1 == null ? "" : o1.getFullPath().toString();
+			String s2 = o2 == null ? "" : o2.getFullPath().toString();
+			return StringUtils.compare(s1, s2);
+		});
 		java.util.Collections.sort(createdFiles);
 
 		if (modifiedFiles.isEmpty() && createdFiles.isEmpty()) {
@@ -632,8 +652,8 @@ public class FunctionCallSession {
 		for (String path : createdFiles) {
 			summary.append("\n- **Create:** `").append(path).append("`");
 		}
-		for (String path : modifiedFiles) {
-			summary.append("\n- **Modify:** `").append(path).append("`");
+		for (IFile path : modifiedFiles) {
+			summary.append("\n- **Modify:** `").append(path.getFullPath().toString()).append("`");
 		}
 
 		return summary.toString();

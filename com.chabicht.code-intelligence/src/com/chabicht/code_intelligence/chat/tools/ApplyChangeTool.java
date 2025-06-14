@@ -238,13 +238,16 @@ public class ApplyChangeTool {
 			String replacementWithContext = original.substring(0, matchStartInExpanded) + 
 											replacementText + 
 											original.substring(matchEndInExpanded);
-			
-			int startLine = document.getLineOfOffset(expandedStart);
-			int endLine = document.getLineOfOffset(expandedEnd);
-			String diffText = generateDiffPreview(original, replacementWithContext, file, startLine + 1);
+
+			int diffStartLine = document.getLineOfOffset(expandedStart);
+			int diffEndLine = document.getLineOfOffset(expandedEnd);
+			String diffText = generateDiffPreview(original, replacementWithContext, file, diffStartLine + 1);
+
+			int resultStartLine = document.getLineOfOffset(matchOffsets[0]);
+			int resultEndLine = document.getLineOfOffset(matchOffsets[1]);
 
 			// Return both the diff preview and the line range information
-			return new DiffPreviewResult(diffText, startLine + 1, endLine + 1);
+			return new DiffPreviewResult(diffText, resultStartLine + 1, resultEndLine + 1);
 		} catch (BadLocationException e) {
 			Log.logError("Error generating diff preview with context", e);
 			String errorDiff = "```\nError generating diff preview: " + e.getMessage() + "\n```";

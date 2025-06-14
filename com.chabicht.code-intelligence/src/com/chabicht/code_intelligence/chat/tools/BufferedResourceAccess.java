@@ -1,16 +1,18 @@
 package com.chabicht.code_intelligence.chat.tools;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
-import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.ltk.core.refactoring.Change;
+import org.eclipse.ltk.core.refactoring.TextFileChange;
 
-import com.chabicht.code_intelligence.chat.FunctionCallSession;
 import com.chabicht.code_intelligence.util.Log;
 
 /**
@@ -259,19 +261,31 @@ public class BufferedResourceAccess implements IResourceAccess {
 	 * @return A new document with changes applied, or the original if no changes
 	 */
 	private IDocument applyPendingChanges(String filePath, IDocument originalDoc) {
-		org.eclipse.ltk.core.refactoring.MultiStateTextFileChange changes = session.getPendingTextFileChanges()
+		List<TextFileChange> changes = session.getPendingTextFileChanges()
 				.get(filePath);
-		if (changes == null) {
+		if (changes == null || changes.isEmpty()) {
 			return originalDoc;
 		}
 
 		try {
-			Document workingDoc = new Document(changes.getPreviewContent(new NullProgressMonitor()));
-			return workingDoc;
+			return applyChangesToDocument(originalDoc, changes);
 		} catch (Exception e) {
 			Log.logError("BufferedResourceAccess: Failed to apply pending changes to '" + filePath + "'", e);
 			return originalDoc;
 		}
+	}
+
+	static IDocument applyChangesToDocument(IDocument originalDoc, List<TextFileChange> changes)
+			throws BadLocationException {
+		// Sort by position descending
+		changes = new ArrayList<>(changes);
+		changes.sort((o1, o2) -> Integer.compare(o2.getEdit().getOffset(), o1.getEdit().getOffset()));
+
+		Document workingDoc = new Document(originalDoc.get());
+		for (TextFileChange change : changes) {
+			change.getEdit().apply(workingDoc);
+		}
+		return workingDoc;
 	}
 
 	/**

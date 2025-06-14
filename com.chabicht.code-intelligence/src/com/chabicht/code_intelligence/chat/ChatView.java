@@ -99,6 +99,7 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
+import com.chabicht.code_intelligence.chat.tools.FunctionCallSession;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;

@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
@@ -12,10 +13,11 @@ import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.TextUtilities;
 import org.eclipse.text.edits.ReplaceEdit;
 
+import com.chabicht.code_intelligence.chat.tools.fuzzydiff.FuzzyDiffUtils;
+import com.chabicht.code_intelligence.chat.tools.fuzzydiff.FuzzyLine;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.util.Log;
 import com.github.difflib.DiffUtils;
-import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
@@ -86,7 +88,7 @@ public class ApplyPatchTool {
 			List<String> originalDocLines = Arrays.asList(document.get().split("\\R", -1));
 			List<String> patchLines = Arrays.asList(patchString.split("\\R", -1));
 
-			Patch<String> patch = UnifiedDiffUtils.parseUnifiedDiff(patchLines);
+			Patch<FuzzyLine> patch = FuzzyDiffUtils.parseUnifiedDiff(patchLines);
 			if (patch.getDeltas().isEmpty()) {
 				return ToolChangePreparationResult.failure(
 						"The parser returned an empty patch. This is probably due to the patch_content not being a valid unified diff.");
@@ -200,17 +202,27 @@ public class ApplyPatchTool {
 		return prefix + changes;
 	}
 
-	private ApplyPatchResult attemptApplyPatch(List<String> originalDocLines, Patch<String> patch,
+	private ApplyPatchResult attemptApplyPatch(List<String> originalDocLines, Patch<FuzzyLine> patch,
 			List<String> patchedDocLines) {
-		PatchMethod[] patchMethods = new PatchMethod[] { () -> patch.applyTo(originalDocLines),
-				() -> patch.applyFuzzy(originalDocLines, 1), () -> patch.applyFuzzy(originalDocLines, 3),
-				() -> patch.applyFuzzy(originalDocLines, 10), () -> patch.applyFuzzy(originalDocLines, 50),
-				() -> patch.applyFuzzy(originalDocLines, 100) };
+		List<FuzzyLine> fuzzyDocLines = originalDocLines.stream().map(FuzzyLine::new).collect(Collectors.toList());
+		PatchMethod[] patchMethods = new PatchMethod[] { () -> patch.applyTo(fuzzyDocLines),
+				() -> patch.applyFuzzy(fuzzyDocLines, 1), () -> patch.applyFuzzy(fuzzyDocLines, 3),
+				() -> patch.applyFuzzy(fuzzyDocLines, 10), () -> patch.applyFuzzy(fuzzyDocLines, 50),
+				() -> patch.applyFuzzy(fuzzyDocLines, 100) };
 		for (int i = 0; i < patchMethods.length; i++) {
 			PatchMethod patchMethod = patchMethods[i];
 			try {
-				patchedDocLines.addAll(patchMethod.apply());
+				List<FuzzyLine> fuzzyResultLines = patchMethod.apply();
+				patchedDocLines.addAll(fuzzyResultLines.stream().map(FuzzyLine::toString).collect(Collectors.toList()));
 				return ApplyPatchResult.success("dummy");
+			} catch (IllegalArgumentException e) {
+				if (i < patchMethods.length - 1) {
+					continue;
+				} else {
+					Log.logError("Patch validation failed: diff is invalid.", e);
+					return ApplyPatchResult.failure("Patch validation failed: diff is invalid.  \n"
+							+ "This usually happens if the `@@` line contains wrong positions or range sizes.");
+				}
 			} catch (IndexOutOfBoundsException e) {
 				if (i < patchMethods.length - 1) {
 					continue;
@@ -232,6 +244,6 @@ public class ApplyPatchTool {
 	}
 
 	private static interface PatchMethod {
-		List<String> apply() throws PatchFailedException;
+		List<FuzzyLine> apply() throws PatchFailedException;
 	}
 }
