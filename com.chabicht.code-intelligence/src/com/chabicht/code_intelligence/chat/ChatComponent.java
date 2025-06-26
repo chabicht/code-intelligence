@@ -132,7 +132,7 @@ public class ChatComponent extends Composite {
 	}
 
 	private String toCss(Color color) {
-		return String.format("#%x%x%x", color.getRed(), color.getGreen(), color.getBlue());
+		return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
 	}
 
 	public boolean isReady() {
