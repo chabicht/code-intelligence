@@ -30,6 +30,9 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 
 public class ChatComponent extends Composite {
+	private static final RGB BLACK = new RGB(0, 0, 0);
+	private static final RGB WHITE = new RGB(255, 255, 255);
+	
 	private Browser bChat;
 	private final Set<UUID> knownMessages = new HashSet<>();
 	private boolean ready = false;
@@ -65,7 +68,7 @@ public class ChatComponent extends Composite {
 		Color bgColor = getTextBackgroundColor();
 		String bgColorString = toCss(bgColor);
 		Color fgColor = rm.create(ColorDescriptor
-				.createFrom(new RGB(255 - bgColor.getRed(), 255 - bgColor.getGreen(), 255 - bgColor.getBlue())));
+				.createFrom(interpolate(isDark ? WHITE : BLACK, new RGB(255 - bgColor.getRed(), 255 - bgColor.getGreen(), 255 - bgColor.getBlue()), 90)));
 		String fgColorString = toCss(fgColor);
 
 		Color bubbleColor = rm.create(interpolate(bgColor, fgColor, 95));
@@ -129,6 +132,12 @@ public class ChatComponent extends Composite {
 				.createFrom(new RGB(bgColor.getRed() * weight / 100 + fgColor.getRed() * (100 - weight) / 100,
 						bgColor.getGreen() * weight / 100 + fgColor.getGreen() * (100 - weight) / 100,
 						bgColor.getBlue() * weight / 100 + fgColor.getBlue() * (100 - weight) / 100));
+	}
+
+	private RGB interpolate(RGB bgColor, RGB fgColor, int weight) {
+		return new RGB(bgColor.red * weight / 100 + fgColor.red * (100 - weight) / 100,
+				bgColor.green * weight / 100 + fgColor.green * (100 - weight) / 100,
+				bgColor.blue * weight / 100 + fgColor.blue * (100 - weight) / 100);
 	}
 
 	private String toCss(Color color) {
