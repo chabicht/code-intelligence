@@ -204,6 +204,7 @@ public class ChatView extends ViewPart {
 
 		@Override
 		public void onFunctionCall(ChatMessage message) {
+			onMessageUpdated(message);
 			functionCallSession.handleFunctionCall(message);
 			onMessageUpdated(message);
 		}

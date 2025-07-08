@@ -377,7 +377,8 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			String messageContent = contentBuilder.toString();
 
 			// Skip if both message content and thinking content are blank
-			if (StringUtils.isBlank(messageContent) && StringUtils.isBlank(msg.getThinkingContent())) {
+			if (StringUtils.isBlank(messageContent) && StringUtils.isBlank(msg.getThinkingContent())
+					&& msg.getFunctionCall().isEmpty()) {
 				continue;
 			}
 
