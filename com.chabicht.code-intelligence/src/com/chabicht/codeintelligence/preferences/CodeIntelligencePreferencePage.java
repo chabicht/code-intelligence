@@ -141,6 +141,8 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		// Add BooleanFieldEditor for enabling/disabling tools globally in Chat
 		addField(new BooleanFieldEditor(PreferenceConstants.CHAT_TOOLS_ENABLED, "Enable &Tools globally in Chat",
 				getFieldEditorParent()));
+		addField(new BooleanFieldEditor(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED,
+				"C&ollect tool calls and execute together at the end of a streak", getFieldEditorParent()));
 
 		// Add button to open dialog for managing specific tools
 		Composite cmpToolManagementButtons = new Composite(getFieldEditorParent(), SWT.NONE);

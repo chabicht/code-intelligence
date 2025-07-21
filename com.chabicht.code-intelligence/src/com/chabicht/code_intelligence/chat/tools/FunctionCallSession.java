@@ -8,10 +8,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.ltk.core.refactoring.Change;
@@ -41,6 +43,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 
 public class FunctionCallSession {
+	public static enum ChangeApplicationResult {
+		SUCCESS, ERROR, CANCEL;
+	}
+
 	private final IResourceAccess realResourceAccess;
 	private final BufferedResourceAccess bufferedResourceAccess;
 
@@ -538,8 +544,10 @@ public class FunctionCallSession {
 	/**
 	 * Triggers the application of all accumulated changes from all tools. This
 	 * typically shows a preview dialog to the user for each tool's changes.
+	 * 
+	 * @return
 	 */
-	public void applyPendingChanges() {
+	public ChangeApplicationResult applyPendingChanges() {
 		CompositeChange rootChange = new CompositeChange("Apply AI Suggested Code Changes");
 
 		rootChange.addAll(combineTextFileChangesPerFile());
@@ -547,12 +555,14 @@ public class FunctionCallSession {
 
 		try {
 			if (rootChange.getChildren().length > 0) {
-				launchRefactoringWizard(rootChange);
+				return launchRefactoringWizard(rootChange);
 			} else {
 				Activator.logInfo("No pending changes from any tool to apply.");
+				return ChangeApplicationResult.SUCCESS;
 			}
 		} catch (Exception e) {
 			Activator.logError("Failed to initiate refactoring process: " + e.getMessage(), e);
+			return ChangeApplicationResult.ERROR;
 		} finally {
 			clearPendingChanges();
 		}
@@ -659,7 +669,7 @@ public class FunctionCallSession {
 		return summary.toString();
 	}
 
-	private void launchRefactoringWizard(CompositeChange rootChange) {
+	private ChangeApplicationResult launchRefactoringWizard(CompositeChange rootChange) {
 		Refactoring refactoring = new Refactoring() {
 			@Override
 			public String getName() {
@@ -682,7 +692,9 @@ public class FunctionCallSession {
 			}
 		};
 
-		Display.getDefault().asyncExec(() -> {
+		AtomicReference<ChangeApplicationResult> res = new AtomicReference<FunctionCallSession.ChangeApplicationResult>(
+				ChangeApplicationResult.ERROR);
+		Display.getDefault().syncExec(() -> {
 			try {
 				IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
 				if (window == null) {
@@ -697,7 +709,12 @@ public class FunctionCallSession {
 					}
 				};
 				RefactoringWizardOpenOperation operation = new RefactoringWizardOpenOperation(wizard);
-				operation.run(window.getShell(), "Preview AI Suggested Changes"); // Dialog title
+				int buttonId = operation.run(window.getShell(), "Preview AI Suggested Changes"); // Dialog title
+				if (IDialogConstants.OK_ID == buttonId) {
+					res.set(ChangeApplicationResult.SUCCESS);
+				} else if (IDialogConstants.CANCEL_ID == buttonId) {
+					res.set(ChangeApplicationResult.CANCEL);
+				}
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 				Activator.logError("AI changes refactoring wizard interrupted: " + e.getMessage(), e);
@@ -705,6 +722,8 @@ public class FunctionCallSession {
 				Activator.logError("Failed to open or run AI changes refactoring wizard: " + e.getMessage(), e);
 			}
 		});
+
+		return res.get();
 	}
 
 	private void handleFindFiles(FunctionCall call, FunctionResult result, String functionArgsJson) {

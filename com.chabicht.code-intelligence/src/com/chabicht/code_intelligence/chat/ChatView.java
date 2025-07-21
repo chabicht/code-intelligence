@@ -100,6 +100,7 @@ import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.chat.tools.FunctionCallSession;
+import com.chabicht.code_intelligence.chat.tools.FunctionCallSession.ChangeApplicationResult;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
@@ -207,6 +208,15 @@ public class ChatView extends ViewPart {
 			onMessageUpdated(message);
 			functionCallSession.handleFunctionCall(message);
 			onMessageUpdated(message);
+
+			boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
+					.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
+			if (applyChangesImmediately && functionCallSession.hasPendingChanges()) {
+				ChangeApplicationResult res = functionCallSession.applyPendingChanges();
+				if (res != ChangeApplicationResult.SUCCESS) {
+					abortChat();
+				}
+			}
 		}
 
 		private String getReexecuteIconBase64() {
@@ -1144,20 +1154,11 @@ public class ChatView extends ViewPart {
 			connection = ConnectionFactory.forChat(settings.getModel());
 		}
 		if (connection.isChatPending()) {
-			connection.abortChat();
+			abortChat();
 
 			// apply pending changes, if any were added so far.
 			// this will also add a message summarizing the changes.
 			applyPendingChanges();
-
-			chat.markAllMessagesFinished();
-
-			// Set text to "▶️"
-			btnSend.setText("\u25B6");
-
-			addConversationToHistory();
-
-			connection = null;
 		} else {
 			ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
 
@@ -1185,6 +1186,23 @@ public class ChatView extends ViewPart {
 			// Set text to "⏹️"
 			btnSend.setText("\u23F9");
 		}
+	}
+
+	private void abortChat() {
+		if (connection != null) {
+			connection.abortChat();
+		}
+
+		Display.getDefault().syncExec(() -> {
+			chat.markAllMessagesFinished();
+
+			// Set text to "▶️"
+			btnSend.setText("\u25B6");
+		});
+
+		addConversationToHistory();
+
+		connection = null;
 	}
 
 	public void editChat(String messageUuidString) {

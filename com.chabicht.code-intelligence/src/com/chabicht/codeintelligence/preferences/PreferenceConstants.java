@@ -19,6 +19,7 @@ public class PreferenceConstants {
 	public static final String CHAT_TOOLS_ENABLED = "chatToolsEnabled";
 	public static final String CHAT_TOOL_ENABLED_PREFIX = "chatToolEnabled";
 	public static final String CHAT_TOOL_ENABLED_SUFFIX = "enabled";
+	public static final String CHAT_TOOLS_APPLY_DEFERRED_ENABLED = "chatToolsApplyDeferredEnabled";
 
 	public static final String CONNECTION_SETUP_WIZARD_PROPOSED = "connectionSetupWizardProposed";
 }

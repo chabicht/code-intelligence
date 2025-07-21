@@ -71,7 +71,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
-			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10))
 					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath)).GET();
 			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
 				requestBuilder = requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
@@ -104,7 +104,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			requestBodyString = gson.toJson(requestBody);
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
-			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10))
 					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath))
 					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString));
 			requestBuilder.header("Content-Type", "application/json");
@@ -274,7 +274,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 
-		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10))
 				.uri(URI.create(apiConnection.getBaseUri() + "/").resolve("chat/completions"))
 				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("Content-Type", "application/json");
 		if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
