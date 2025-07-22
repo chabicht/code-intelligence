@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -148,6 +149,7 @@ public class ChatView extends ViewPart {
 	private IDocument userInput;
 
 	private Font buttonSymbolFont;
+	private Font smallButtonSymbolFont;
 	private Image paperclipImage;
 	private String paperclipBase64;
 
@@ -615,6 +617,7 @@ public class ChatView extends ViewPart {
 
 	public ChatView() {
 		buttonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(18));
+		smallButtonSymbolFont = resources.create(JFaceResources.getDefaultFontDescriptor().setHeight(8));
 
 		paperclipImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
 				String.format("/icons/paperclip_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
@@ -643,8 +646,7 @@ public class ChatView extends ViewPart {
 		upperComposite.setLayout(gl_upperComposite);
 
 		chat = new ChatComponent(upperComposite, SWT.BORDER);
-		GridData gd_chat = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2);
-		chat.setLayoutData(gd_chat);
+		chat.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 3));
 
 		Button btnClear = new Button(upperComposite, SWT.NONE);
 		btnClear.addSelectionListener(new SelectionAdapter() {
@@ -689,6 +691,22 @@ public class ChatView extends ViewPart {
 		btnHistory.setToolTipText("Recent Conversations");
 		btnHistory.setFont(buttonSymbolFont);
 
+		// Copy All button
+		Button btnCopyAll = new Button(upperComposite, SWT.NONE);
+		btnCopyAll.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				copyEntireChatToClipboard();
+			}
+		});
+		GridData gd_btnCopyAll = new GridData(SWT.FILL, SWT.TOP, false, false, 1, 1);
+		gd_btnCopyAll.heightHint = BUTTON_SIZE;
+		gd_btnCopyAll.widthHint = BUTTON_SIZE;
+		btnCopyAll.setLayoutData(gd_btnCopyAll);
+		btnCopyAll.setToolTipText("Copy entire conversation to clipboard");
+		btnCopyAll.setText("📄➡️📋"); // Clipboard emoji
+		btnCopyAll.setFont(smallButtonSymbolFont);
+
 		// --- Sash ---
 		final Sash sash = new Sash(outer, SWT.HORIZONTAL);
 
@@ -712,9 +730,8 @@ public class ChatView extends ViewPart {
 		cmpAttachments.setLayout(layoutCmpAttachments);
 		new Label(lowerComposite, SWT.NONE); // empty label for the second column
 
-		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI | SWT.WRAP); // Added
-		GridData gridDataTvUserInput = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2); // Span 1 column, 2 rows
-		tvUserInput.getTextWidget().setLayoutData(gridDataTvUserInput);
+		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI | SWT.WRAP);
+		tvUserInput.getTextWidget().setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2));
 
 		btnSettings = new Button(lowerComposite, SWT.NONE);
 		btnSettings.addSelectionListener(new SelectionAdapter() {
@@ -1432,6 +1449,96 @@ public class ChatView extends ViewPart {
 
 			clipboard.setContents(new Object[] { sb.toString() }, new Transfer[] { textTransfer });
 			clipboard.dispose();
+		}
+	}
+
+	/**
+	 * Copies the entire chat conversation to clipboard in markdown format.
+	 * Includes all messages with their roles, content, context, and tool calls.
+	 */
+	public void copyEntireChatToClipboard() {
+		List<ChatMessage> messages = conversation.getMessages();
+		
+		if (messages.isEmpty()) {
+			// Optionally show a message that there's nothing to copy
+			return;
+		}
+		
+		StringBuilder markdown = new StringBuilder();
+		markdown.append("# Chat Conversation\n\n");
+		
+		// Add conversation metadata if available
+		if (conversation.getCaption() != null && !conversation.getCaption().isEmpty()) {
+			markdown.append("**Title:** ").append(conversation.getCaption()).append("\n\n");
+		}
+		
+		// Add timestamp
+		markdown.append("**Exported:** ").append(new Date()).append("\n\n");
+		markdown.append("---\n\n");
+		
+		// Process each message
+		for (int i = 0; i < messages.size(); i++) {
+			ChatMessage message = messages.get(i);
+			
+			// Format message based on role
+			String roleHeader = formatRoleHeader(message.getRole());
+			markdown.append("## ").append(roleHeader).append("\n\n");
+			
+			// Add message content
+			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
+			String content = thoughtsAndMessage.getMessage();
+			
+			if (content != null && !content.trim().isEmpty()) {
+				markdown.append(content).append("\n\n");
+			}
+			
+			// Add context if present
+			if (!message.getContext().isEmpty()) {
+				markdown.append("### Context\n\n");
+				for (MessageContext ctx : message.getContext()) {
+					markdown.append("```\n");
+					markdown.append(ctx.compile(true));
+					markdown.append("\n```\n\n");
+				}
+			}
+			
+			// Add tool call details
+			String toolCallDetails = message.getToolCallDetailsAsMarkdown();
+			if (toolCallDetails != null && !toolCallDetails.trim().isEmpty()) {
+				markdown.append(toolCallDetails).append("\n");
+			}
+			
+			// Add separator between messages (except for the last one)
+			if (i < messages.size() - 1) {
+				markdown.append("---\n\n");
+			}
+		}
+		
+		// Copy to clipboard
+		Clipboard clipboard = new Clipboard(Display.getDefault());
+		TextTransfer textTransfer = TextTransfer.getInstance();
+		clipboard.setContents(new Object[] { markdown.toString() }, new Transfer[] { textTransfer });
+		clipboard.dispose();
+		
+		// Optional: Show confirmation message
+		// You could add a status bar message or toast notification here
+	}
+
+	/**
+	 * Formats the role enum to a user-friendly string for markdown headers.
+	 */
+	private String formatRoleHeader(Role role) {
+		switch (role) {
+			case USER:
+				return "User";
+			case ASSISTANT:
+				return "Assistant";
+			case SYSTEM:
+				return "System";
+			case TOOL_SUMMARY:
+				return "Tool Summary";
+			default:
+				return role.toString();
 		}
 	}
 

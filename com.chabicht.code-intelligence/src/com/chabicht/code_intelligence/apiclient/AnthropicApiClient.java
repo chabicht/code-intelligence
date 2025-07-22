@@ -316,7 +316,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 										break;
 
 									default:
-										Activator.logError("Unknown event type in stream: " + eventType, null);
+										Activator.logError("Unknown event type in stream: " + eventType
+												+ "\nOriginal line: " + line,
+												null);
 									}
 								}
 							} catch (JsonSyntaxException e) {
