@@ -153,12 +153,16 @@ public class TextSearchTool {
 			return new SearchExecutionResult(false, "No preferred TextSearchQueryProvider found.", null);
 		}
 
+		if (fileNamePatterns == null) {
+			fileNamePatterns = List.of("*");
+		}
+
 		// Hack: Sometimes patterns are supplied that are not supported by Eclipse, e.g.
 		// glob patterns.
 		List<String> filteredFileNamePatterns = filter(fileNamePatterns);
 
 		String[] patternsArray = (filteredFileNamePatterns == null || filteredFileNamePatterns.isEmpty())
-				? new String[] { "*.*" }
+				? new String[] { "*" }
 				: filteredFileNamePatterns.toArray(new String[0]);
 
 		TextSearchQueryProvider.TextSearchInput searchInput = new TextSearchQueryProvider.TextSearchInput() {

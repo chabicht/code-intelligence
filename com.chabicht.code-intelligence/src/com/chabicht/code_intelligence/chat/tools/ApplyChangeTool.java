@@ -5,12 +5,17 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.content.IContentDescription;
+import org.eclipse.core.runtime.content.IContentType;
 import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.text.TextUtilities;
@@ -19,6 +24,7 @@ import org.eclipse.text.edits.InsertEdit;
 import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.text.edits.TextEdit;
 
+import com.chabicht.code_intelligence.chat.tools.TokenizedSearcher.Language;
 import com.chabicht.code_intelligence.util.Log;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
@@ -138,6 +144,17 @@ public class ApplyChangeTool {
 			return ToolChangePreparationResult.failure("File not found: " + fileName);
 		}
 
+		String contentType = null;
+		try {
+			IContentDescription contentDescription = file.getContentDescription();
+			if (contentDescription != null) {
+				contentType = Optional.ofNullable(contentDescription.getContentType()).map(IContentType::getId)
+						.orElse(null);
+			}
+		} catch (CoreException e) {
+			contentType = null;
+		}
+
 		Map<IFile, IDocument> tempDocMap = new HashMap<>();
 		try {
 			IDocument document = resourceAccess.getDocumentAndConnect(file, tempDocMap);
@@ -164,22 +181,27 @@ public class ApplyChangeTool {
 				matchOffsets = new int[] { searchBounds[0], searchBounds[0] };
 			} else {
 				// For replace/delete, find the actual start and end offsets of the matched text
-				matchOffsets = findOffsetsByPattern(originalText, document, searchBounds);
+				matchOffsets = findOffsetsByPattern(originalText, document, searchBounds, contentType);
 			}
 
-			// Generate diff preview for this specific change
-			DiffPreviewResult diffResult = generateDiffPreview(file, document, matchOffsets, replacement);
+			int startLine1Based = document.getLineOfOffset(matchOffsets[0]) + 1;
+			int endLine1Based = document.getLineOfOffset(matchOffsets[1]) + 1;
 
 			// Create the TextEdit
-			TextEdit edit = createActualTextEdit(document, diffResult.getStartLine(), diffResult.getEndLine(),
-					replacement, isInsertion, matchOffsets[0], location);
+			TextEdit edit = createActualTextEdit(document, startLine1Based, endLine1Based, replacement, isInsertion,
+					matchOffsets[0], location);
 
-			Log.logInfo("Prepared TextEdit for file: " + fileName + " at lines " + diffResult.getStartLine() + "-"
-					+ diffResult.getEndLine());
+			Document previewDoc = new Document(document.get());
+			TextEdit previewEdit = edit.copy();
+			previewEdit.apply(previewDoc, TextEdit.NONE);
+
+			String diff = generateDiffPreview(document.get(), previewDoc.get(), file, 1);
+
+			Log.logInfo("Prepared TextEdit for file: " + fileName);
 
 			return ToolChangePreparationResult.success("Change validated and prepared for preview.", file,
 					java.util.Collections.singletonList(edit), // Return as a list
-					diffResult.getDiffPreview());
+					diff);
 		} catch (IllegalArgumentException | BadLocationException e) {
 			return ToolChangePreparationResult.failure("Failed to locate or prepare change: " + e.getMessage());
 		} catch (Exception e) {
@@ -187,71 +209,6 @@ public class ApplyChangeTool {
 			return ToolChangePreparationResult.failure("Unexpected error preparing change: " + e.getMessage());
 		} finally {
 			resourceAccess.disconnectAllDocuments(tempDocMap);
-		}
-	}
-
-	/**
-	 * Generates a diff preview with context from the document.
-	 * 
-	 * @param file            The file being modified
-	 * @param document        The document containing the file content
-	 * @param matchOffsets    The actual start and end offsets of the matched text
-	 *                        [start, end]
-	 * @param replacementText The text that will replace the matched content
-	 * @return A DiffPreviewResult containing the markdown-formatted diff preview
-	 *         and line information
-	 */
-	private DiffPreviewResult generateDiffPreview(IFile file, IDocument document, int[] matchOffsets,
-			String replacementText) {
-		try {
-			// Calculate expanded offsets with up to 10 lines of context
-			int expandedStart = matchOffsets[0];
-			int expandedEnd = matchOffsets[1];
-			
-			// Add up to 10 lines before the match
-			int currentLine = document.getLineOfOffset(matchOffsets[0]);
-			int contextStartLine = Math.max(0, currentLine - 10);
-			if (contextStartLine < currentLine) {
-				expandedStart = document.getLineOffset(contextStartLine);
-			}
-			
-			// Add up to 10 lines after the match
-			int matchEndLine = document.getLineOfOffset(matchOffsets[1]);
-			int totalLines = document.getNumberOfLines();
-			int contextEndLine = Math.min(totalLines - 1, matchEndLine + 10);
-			if (contextEndLine > matchEndLine) {
-				expandedEnd = document.getLineOffset(contextEndLine) + document.getLineLength(contextEndLine);
-			}
-			
-			// Ensure we don't exceed document bounds
-			expandedStart = Math.max(0, expandedStart);
-			expandedEnd = Math.min(document.getLength(), expandedEnd);
-			
-			String original = document.get(expandedStart, expandedEnd - expandedStart);
-
-			// Create replacement text with the same context
-			// Find where the original match starts and ends within the expanded context
-			int matchStartInExpanded = matchOffsets[0] - expandedStart;
-			int matchEndInExpanded = matchOffsets[1] - expandedStart;
-			
-			// Build replacement with context: context_before + replacement + context_after
-			String replacementWithContext = original.substring(0, matchStartInExpanded) + 
-											replacementText + 
-											original.substring(matchEndInExpanded);
-
-			int diffStartLine = document.getLineOfOffset(expandedStart);
-			int diffEndLine = document.getLineOfOffset(expandedEnd);
-			String diffText = generateDiffPreview(original, replacementWithContext, file, diffStartLine + 1);
-
-			int resultStartLine = document.getLineOfOffset(matchOffsets[0]);
-			int resultEndLine = document.getLineOfOffset(matchOffsets[1]);
-
-			// Return both the diff preview and the line range information
-			return new DiffPreviewResult(diffText, resultStartLine + 1, resultEndLine + 1);
-		} catch (BadLocationException e) {
-			Log.logError("Error generating diff preview with context", e);
-			String errorDiff = "```\nError generating diff preview: " + e.getMessage() + "\n```";
-			return new DiffPreviewResult(errorDiff, 0, 0);
 		}
 	}
 
@@ -335,6 +292,7 @@ public class ApplyChangeTool {
 	 * @param document     The document to search within.
 	 * @param searchBounds An array [startOffset, endOffset] defining the region to
 	 *                     search.
+	 * @param contentType  The content type of the file.
 	 * @return An array [matchStartOffset, matchEndOffset] of the found pattern
 	 *         match relative to the beginning of the document.
 	 * @throws IllegalArgumentException If the pattern cannot be found within the
@@ -343,7 +301,7 @@ public class ApplyChangeTool {
 	 * @throws BadLocationException     If searchBounds are invalid for the
 	 *                                  document.
 	 */
-	private int[] findOffsetsByPattern(String originalText, IDocument document, int[] searchBounds)
+	private int[] findOffsetsByPattern(String originalText, IDocument document, int[] searchBounds, String contentType)
 			throws IllegalArgumentException, BadLocationException {
 
 		if (originalText == null || originalText.trim().isEmpty()) {
@@ -359,43 +317,77 @@ public class ApplyChangeTool {
 					+ "] for document length " + document.getLength());
 		}
 
-		// Extract the search region text
-		String searchRegionText = document.get(searchStart, searchLength);
-
 		// Shortcut for identical match.
+		String searchRegionText = document.get(searchStart, searchLength);
 		if (StringUtils.stripToEmpty(originalText).equals(StringUtils.stripToEmpty(searchRegionText))) {
 			return searchBounds;
 		}
 
-		int[] extendedRegion = extendRegion(document, searchStart, searchLength);
-		searchRegionText = document.get(extendedRegion[0], extendedRegion[1] - extendedRegion[0]);
+		int[] matchingRegion = null;
+		// String searchRegionText = null; // Will be reassigned in the loop
+		int maxRetries = 4; // To prevent an infinite loop
 
-		// Use a "searcher" to find matching region
-		// ChunkSearcher searcher = new ChunkSearcher();
-		SmithWatermanSearcher searcher = new SmithWatermanSearcher();
-		int[] matchingRegion = searcher.findMatchingRegion(originalText, searchRegionText);
+		// Calculate initial line count once
+		int searchStartLine = document.getLineOfOffset(searchStart);
+		int searchEndLine = document.getLineOfOffset(Math.min(searchStart + searchLength, document.getLength() - 1));
+		int searchLineCount = searchEndLine - searchStartLine + 1;
 
-		if (matchingRegion != null) {
-			// Adjust offsets relative to the document start
-			return new int[] { extendedRegion[0] + matchingRegion[0], extendedRegion[0] + matchingRegion[1] };
+		// Strategy 2: Dynamic Sizing based on the size of the change
+		int linesToAdd;
+		if (searchLineCount <= 3) {
+			// Small change, needs more context
+			linesToAdd = 10;
+		} else if (searchLineCount > 20) {
+			// Large change, likely unique, needs less context
+			linesToAdd = 5;
+		} else {
+			// Medium change, the original heuristic is good
+			linesToAdd = Math.max(5, (int) Math.ceil(0.5 * searchLineCount));
 		}
 
-		// If we get here, no match was found
-		throw new IllegalArgumentException(
-				"Could not find the specified pattern derived from original text within the location bounds ["
-						+ searchBounds[0] + "," + searchBounds[1] + "].");
+		TokenizedSearcher.Config config = new TokenizedSearcher.Config();
+		if (contentType != null) {
+			Language lang = Language.of(contentType);
+			config.setLanguage(lang);
+		}
+		TokenizedSearcher searcher = new TokenizedSearcher(config);
+
+		// Strategy 1: Iterative Deepening to find the match
+		int[] extendedRegion = null;
+		for (int i = 0; i < maxRetries; i++) {
+			extendedRegion = extendRegion(document, searchStart, searchLength, linesToAdd);
+			searchRegionText = document.get(extendedRegion[0], extendedRegion[1] - extendedRegion[0]);
+
+			matchingRegion = searcher.findMatchingRegion(originalText, searchRegionText);
+
+			if (matchingRegion != null) { // Assuming null means "not found"
+				// Found a match, break the loop
+				break;
+			}
+
+			// If no match, double the context for the next try
+			linesToAdd *= 2;
+
+			// Safety break: if we're about to extend past the whole document, stop.
+			if (linesToAdd > document.getNumberOfLines()) {
+				break;
+			}
+		}
+
+		// If after all retries, matchingRegion is still null, handle the failure.
+		if (matchingRegion == null) {
+			throw new IllegalArgumentException(
+					"Could not find a unique region to apply the change after multiple attempts. Re-reading the relevant part of the file could help.");
+		}
+
+		// Adjust offsets relative to the document start
+		return new int[] { extendedRegion[0] + matchingRegion[0], extendedRegion[0] + matchingRegion[1] };
 	}
 
-	private int[] extendRegion(IDocument document, int searchStart, int searchLength) throws BadLocationException {
+	private int[] extendRegion(IDocument document, int searchStart, int searchLength, int linesToAdd) throws BadLocationException {
 		// Get the line numbers for the search region
 		int searchStartLine = document.getLineOfOffset(searchStart);
 		int searchEndLine = document.getLineOfOffset(Math.min(searchStart + searchLength, document.getLength() - 1));
-
-		// Count the total number of lines in the search region
-		int searchLineCount = searchEndLine - searchStartLine + 1;
-
-		// Add 50% of the line count above and below, but at least 5 lines
-		int linesToAdd = Math.max(5, (int) Math.ceil(0.5 * searchLineCount));
 
 		// Calculate the extended start and end lines
 		int extendedStartLine = Math.max(0, searchStartLine - linesToAdd);
