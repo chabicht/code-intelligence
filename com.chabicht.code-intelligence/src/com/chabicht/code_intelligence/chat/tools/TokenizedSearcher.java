@@ -113,7 +113,7 @@ public class TokenizedSearcher {
 			String punctuationPattern = "[{}\\[\\]();,.]";
 			String identifierPattern = "[a-zA-Z_$][a-zA-Z0-9_$]*";
 			String singleOpPattern = "[+\\-*/%&|^~!<>=?:]";
-			String whitespacePattern = "\\s+";
+			String whitespacePattern = "\\s++";
 
 			this.tokenPattern = Pattern.compile("(?<comment>" + commentPattern + ")" + "|" + "(?<string>"
 					+ stringPattern + ")" + "|" + "(?<number>" + numberPattern + ")" + "|" + "(?<operator>"
@@ -247,7 +247,7 @@ public class TokenizedSearcher {
 	 */
 	private List<Token> tokenizeGeneralText(String text) {
 		List<Token> tokens = new ArrayList<>();
-		Pattern pattern = Pattern.compile("\\S+|\\s+");
+		Pattern pattern = Pattern.compile("\\S++|\\s++");
 		Matcher matcher = pattern.matcher(text);
 
 		while (matcher.find()) {
