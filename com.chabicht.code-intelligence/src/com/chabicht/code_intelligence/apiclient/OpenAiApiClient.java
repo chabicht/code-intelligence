@@ -320,7 +320,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 												&& !delta.get("reasoning_content").isJsonNull()) {
 											chunk = delta.get("reasoning_content").getAsString();
 											if (!reasoningStarted.get()) {
-												chunk = chunk + "<think>\n";
+												chunk = "<think>\n" + chunk;
 												reasoningStarted.set(true);
 											}
 										} else {
@@ -341,7 +341,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
                                                     assistantMessage, chat);
                                         }
 
-										if (StringUtils.isNotBlank(chunk)) {
+										if (StringUtils.isNotEmpty(chunk)) {
 											// Append the received chunk to the assistant message.
 											assistantMessage.setContent(assistantMessage.getContent() + chunk);
 											// Notify the conversation listeners that the assistant message was updated.
