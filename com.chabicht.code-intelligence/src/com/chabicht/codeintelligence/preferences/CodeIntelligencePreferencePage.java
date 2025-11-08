@@ -3,6 +3,7 @@ package com.chabicht.codeintelligence.preferences;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.FieldEditor;
@@ -114,6 +115,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		CompletionModelFieldEditor completionModelIdFieldEditor = new CompletionModelFieldEditor(
 				PreferenceConstants.COMPLETION_MODEL_NAME, "&Model:", getFieldEditorParent());
 		addField(completionModelIdFieldEditor);
+		completionModelIdFieldEditor.doCheckState();
 		addField(new IntegerFieldEditor(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS, "Max. &response tokens:",
 				getFieldEditorParent()));
 		// Add fields for context lines before and after cursor
@@ -132,6 +134,7 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 		ChatModelFieldEditor chatModelIdFieldEditor = new ChatModelFieldEditor(PreferenceConstants.CHAT_MODEL_NAME,
 				"M&odel:", getFieldEditorParent());
 		addField(chatModelIdFieldEditor);
+		chatModelIdFieldEditor.doCheckState();
 		addField(new IntegerFieldEditor(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS, "Max. r&esponse tokens:",
 				getFieldEditorParent()));
 
@@ -177,65 +180,124 @@ public class CodeIntelligencePreferencePage extends FieldEditorPreferencePage im
 	 * @see org.eclipse.ui.IWorkbenchPreferencePage#init(org.eclipse.ui.IWorkbench)
 	 */
 	public void init(IWorkbench workbench) {
+
 	}
 
-	private final class CompletionModelFieldEditor extends StringButtonFieldEditor {
+	/**
+	 * Base class for model field editors that provides common functionality
+	 * for model selection and validation.
+	 */
+	private abstract class BaseModelFieldEditor extends StringButtonFieldEditor {
+		protected BaseModelFieldEditor(String name, String labelText, Composite parent) {
+			super(name, labelText, parent);
+		}
+
+		@Override
+		protected String changePressed() {
+			List<AiModel> models = loadAvailableModels();
+			ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
+			String res = null;
+			if (dialog.open() == ModelSelectionDialog.OK) {
+				AiModel model = dialog.getSelectedModel();
+				res = model.getApiConnection().getName() + "/" + model.getId();
+			}
+			return res;
+		}
+
+		@Override
+		protected boolean doCheckState() {
+			String value = getStringValue();
+			if (value == null || value.trim().isEmpty()) {
+				setErrorMessage("Model must be specified");
+				return false;
+			}
+
+			// Parse the value format: "connectionName/modelId"
+			String[] parts = value.split("/", 2);
+			if (parts.length != 2) {
+				setErrorMessage("Invalid model format. Expected: connectionName/modelId");
+				return false;
+			}
+
+			String connectionName = StringUtils.trim(parts[0]);
+			String modelId = StringUtils.trim(parts[1]);
+
+			// Check if the connection exists and is enabled
+			AiApiConnection targetConnection = findConnectionByName(connectionName);
+
+			if (targetConnection == null) {
+				setErrorMessage("Connection '" + connectionName + "' not found");
+				return false;
+			}
+
+			if (!targetConnection.isEnabled()) {
+				setErrorMessage("Connection '" + connectionName + "' is disabled");
+				return false;
+			}
+
+			// Check if the model exists in the connection
+			try {
+				List<AiModel> models = targetConnection.getApiClient().getModels();
+				boolean modelExists = models.stream()
+						.anyMatch(m -> m.getId().equals(modelId));
+				
+				if (!modelExists) {
+					setErrorMessage("Model '" + modelId + "' not found in connection '" + connectionName + "'");
+					return false;
+				}
+			} catch (RuntimeException e) {
+				setErrorMessage("Error validating model: " + e.getMessage());
+				Activator.logError("Error validating model for connection " + connectionName + ": " + e.getMessage(), e);
+				return false;
+			}
+
+			// Validation passed
+			return true;
+		}
+
+		/**
+		 * Loads all available models from enabled connections.
+		 */
+		private List<AiModel> loadAvailableModels() {
+			List<AiModel> models = new ArrayList<>();
+			for (AiApiConnection conn : connections) {
+				if (conn.isEnabled()) {
+					try {
+						List<AiModel> modelsFromConn = conn.getApiClient().getModels();
+						modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
+						models.addAll(modelsFromConn);
+					} catch (RuntimeException e) {
+						Activator.logError(
+								"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
+					}
+				}
+			}
+			return models;
+		}
+
+		/**
+		 * Finds a connection by its name.
+		 */
+		private AiApiConnection findConnectionByName(String connectionName) {
+			for (AiApiConnection conn : connections) {
+				if (StringUtils.equals(StringUtils.stripToEmpty(conn.getName()),
+						StringUtils.stripToEmpty(connectionName))) {
+					return conn;
+				}
+			}
+			return null;
+		}
+	}
+
+	private final class CompletionModelFieldEditor extends BaseModelFieldEditor {
 		private CompletionModelFieldEditor(String name, String labelText, Composite parent) {
 			super(name, labelText, parent);
 		}
-
-		@Override
-		protected String changePressed() {
-			List<AiModel> models = new ArrayList<>();
-			for (AiApiConnection conn : connections) {
-				if (conn.isEnabled()) {
-					try {
-						List<AiModel> modelsFromConn = conn.getApiClient().getModels();
-						modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
-						models.addAll(modelsFromConn);
-					} catch (RuntimeException e) {
-						Activator.logError(
-								"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
-					}
-				}
-			}
-			ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
-			String res = null;
-			if (dialog.open() == ModelSelectionDialog.OK) {
-				AiModel model = dialog.getSelectedModel();
-				res = model.getApiConnection().getName() + "/" + model.getId();
-			}
-			return res;
-		}
 	}
 
-	private final class ChatModelFieldEditor extends StringButtonFieldEditor {
+	private final class ChatModelFieldEditor extends BaseModelFieldEditor {
 		private ChatModelFieldEditor(String name, String labelText, Composite parent) {
 			super(name, labelText, parent);
-		}
-
-		@Override
-		protected String changePressed() {
-			List<AiModel> models = new ArrayList<>();
-			for (AiApiConnection conn : connections) {
-				if (conn.isEnabled()) {
-					try {
-						List<AiModel> modelsFromConn = conn.getApiClient().getModels();
-						modelsFromConn.sort((m1, m2) -> m1.getName().compareTo(m2.getName()));
-						models.addAll(modelsFromConn);
-					} catch (RuntimeException e) {
-						Activator.logError(
-								"Error loading models for connection " + conn.getName() + ": " + e.getMessage(), e);
-					}
-				}
-			}
-			ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
-			String res = null;
-			if (dialog.open() == ModelSelectionDialog.OK) {
-				AiModel model = dialog.getSelectedModel();
-				res = model.getApiConnection().getName() + "/" + model.getId();
-			}
-			return res;
 		}
 	}
 

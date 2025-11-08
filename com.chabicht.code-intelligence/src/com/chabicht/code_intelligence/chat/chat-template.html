@@ -988,22 +988,6 @@ function updateThemeSetting() {
 }
 
 /**
- * Returns an HTML img tag with the appropriate copy icon based on the current theme
- * @returns {string} An HTML img tag with the appropriate copy icon
- */
-function getCopyIconHtml() {
-  // Base64 encoded SVGs for light and dark themes
-  const lightThemeSVG = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjMzMzMzMzIj48cGF0aCBkPSJNMzYwLTI0MHEtMzMgMC01Ni41LTIzLjVUMjgwLTMyMHYtNDgwcTAtMzMgMjMuNS01Ni41VDM2MC04ODBoMzYwcTMzIDAgNTYuNSAyMy41VDgwMC04MDB2NDgwcTAgMzMtMjMuNSA1Ni41VDcyMC0yNDBIMzYwWm0wLTgwaDM2MHYtNDgwSDM2MHY0ODBaTTIwMC04MHEtMzMgMC01Ni41LTIzLjVUMTIwLTE2MHYtNTIwcTAtMTcgMTEuNS0yOC41VDE2MC03MjBxMTcgMCAyOC41IDExLjVUMjAwLTY4MHY1MjBoNDAwcTE3IDAgMjguNSAxMS41VDY0MC0xMjBxMCAxNy0xMS41IDI4LjVUNjAwLTgwSDIwMFptMTYwLTI0MHYtNDgwIDQ4MFoiLz48L3N2Zz4=";
-  const darkThemeSVG = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGhlaWdodD0iMjRweCIgdmlld0JveD0iMCAtOTYwIDk2MCA5NjAiIHdpZHRoPSIyNHB4IiBmaWxsPSIjY2NjY2NjIj48cGF0aCBkPSJNMzYwLTI0MHEtMzMgMC01Ni41LTIzLjVUMjgwLTMyMHYtNDgwcTAtMzMgMjMuNS01Ni41VDM2MC04ODBoMzYwcTMzIDAgNTYuNSAyMy41VDgwMC04MDB2NDgwcTAgMzMtMjMuNSA1Ni41VDcyMC0yNDBIMzYwWm0wLTgwaDM2MHYtNDgwSDM2MHY0ODBaTTIwMC04MHEtMzMgMC01Ni41LTIzLjVUMTIwLTE2MHYtNTIwcTAtMTcgMTEuNS0yOC41VDE2MC03MjBxMTcgMCAyOC41IDExLjVUMjAwLTY4MHY1MjBoNDAwcTE3IDAgMjguNSAxMS41VDY0MC0xMjBxMCAxNy0xMS41IDI4LjVUNjAwLTgwSDIwMFptMTYwLTI0MHYtNDgwIDQ4MFoiLz48L3N2Zz4=";
-  
-  // Select the appropriate SVG based on the theme
-  const svgBase64 = darkTheme ? darkThemeSVG : lightThemeSVG;
-  
-  // Return the HTML img tag with the data URL
-  return `<img src="data:image/svg+xml;base64,${svgBase64}" alt="Copy" width="16" height="16" style="vertical-align: middle;">`;
-}
-
-/**
  * Sets the appropriate copy icon SVG based on the current theme
  * @param {HTMLElement} button - The button element to update
  */

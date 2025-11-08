@@ -237,6 +237,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpRequest request = requestBuilder.build();
 
 		final AtomicBoolean responseFinished = new AtomicBoolean(false);
+		final AtomicBoolean thinkingStarted = new AtomicBoolean(false);
 
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
@@ -269,13 +270,35 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 										}
 									}
 
-									// Handle content
-									if (messageObj.has("content")) {
-										String chunk = messageObj.get("content").getAsString();
-										assistantMessage.setContent(assistantMessage.getContent() + chunk);
-
-										chat.notifyMessageUpdated(assistantMessage);
+								// Handle thinking content
+									if (messageObj.has("thinking")
+											&& !StringUtils.isEmpty(messageObj.get("thinking").getAsString())) {
+									if (!thinkingStarted.get()) {
+										assistantMessage
+												.setContent(assistantMessage.getContent() + "\n<think>\n");
+										thinkingStarted.set(true);
 									}
+									String thinking = messageObj.get("thinking").getAsString();
+									assistantMessage.setContent(assistantMessage.getContent() + thinking);
+									assistantMessage.setThinkingContent(
+											(assistantMessage.getThinkingContent() == null ? ""
+													: assistantMessage.getThinkingContent()) + thinking);
+									chat.notifyMessageUpdated(assistantMessage);
+								}
+
+								// Handle content
+									if (messageObj.has("content")
+											&& !StringUtils.isEmpty(messageObj.get("content").getAsString())) {
+									if (thinkingStarted.get()) {
+										assistantMessage
+												.setContent(assistantMessage.getContent() + "\n</think>\n");
+										thinkingStarted.set(false);
+									}
+									String chunk = messageObj.get("content").getAsString();
+									assistantMessage.setContent(assistantMessage.getContent() + chunk);
+
+									chat.notifyMessageUpdated(assistantMessage);
+								}
 								}
 								if (jsonChunk.has("done") && jsonChunk.get("done").getAsBoolean()) {
 									finalizeAssistantMessage(assistantMessage, chat, responseFinished);

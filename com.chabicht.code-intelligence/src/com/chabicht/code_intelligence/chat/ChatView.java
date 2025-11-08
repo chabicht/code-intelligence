@@ -151,6 +151,9 @@ public class ChatView extends ViewPart {
 	private Font buttonSymbolFont;
 	private Font smallButtonSymbolFont;
 	private Image paperclipImage;
+	private Image broomImage;
+	private Image scrollImage;
+	private Image copyImage;
 	private String paperclipBase64;
 
 	private ChatConversation conversation;
@@ -348,11 +351,7 @@ public class ChatView extends ViewPart {
 								"%s" + // Raw JSON section
 								"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
 								"</blockquote>" + "</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
-								paramsTable.toString(), resultTable.toString(), rawJsonSection, reexecuteButtonHtml); // Add
-																														// the
-																														// re-execute
-																														// button
-																														// HTML
+								paramsTable.toString(), resultTable.toString(), rawJsonSection, reexecuteButtonHtml);
 			}
 			return functionCallHtml;
 		}
@@ -622,6 +621,15 @@ public class ChatView extends ViewPart {
 		paperclipImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
 				String.format("/icons/paperclip_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
 		createPaperclipBase64();
+
+		broomImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
+				String.format("/icons/broom_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
+
+		scrollImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
+				String.format("/icons/scroll_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
+
+		copyImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
+				String.format("/icons/copy_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
 	}
 
 	@Override
@@ -660,7 +668,7 @@ public class ChatView extends ViewPart {
 		gd_btnClear.widthHint = BUTTON_SIZE;
 		btnClear.setLayoutData(gd_btnClear);
 		btnClear.setToolTipText("Clear conversation");
-		btnClear.setText("\uD83E\uDDF9"); // Broom 🧹
+		btnClear.setImage(broomImage);
 		btnClear.setFont(buttonSymbolFont);
 
 		btnHistory = new Button(upperComposite, SWT.NONE);
@@ -687,7 +695,7 @@ public class ChatView extends ViewPart {
 		gd_btnHistory.widthHint = BUTTON_SIZE;
 		gd_btnHistory.heightHint = BUTTON_SIZE;
 		btnHistory.setLayoutData(gd_btnHistory);
-		btnHistory.setText("\uD83D\uDCDC"); // Scroll 📜
+		btnHistory.setImage(scrollImage);
 		btnHistory.setToolTipText("Recent Conversations");
 		btnHistory.setFont(buttonSymbolFont);
 
@@ -704,7 +712,7 @@ public class ChatView extends ViewPart {
 		gd_btnCopyAll.widthHint = BUTTON_SIZE;
 		btnCopyAll.setLayoutData(gd_btnCopyAll);
 		btnCopyAll.setToolTipText("Copy entire conversation to clipboard");
-		btnCopyAll.setText("📄➡️📋"); // Clipboard emoji
+		btnCopyAll.setImage(copyImage);
 		btnCopyAll.setFont(smallButtonSymbolFont);
 
 		// --- Sash ---
