@@ -120,7 +120,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("suffix", (String) completionPrompt.getPromptArgs().get("suffix"));
 		JsonObject options = getOrAddJsonObject(req, "options");
 		setPropertyIfNotPresent(options, "temperature", completionPrompt.getTemperature());
-		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
+//		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
 		setPropertyIfNotPresent(options, "num_predict", Activator.getDefault().getMaxCompletionTokens());
 		req.addProperty("stream", false);
 
@@ -216,7 +216,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 
 		JsonObject options = getOrAddJsonObject(req, "options");
-		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
+		// setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
 		setPropertyIfNotPresent(options, "num_predict", maxResponseTokens);
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
@@ -339,7 +339,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("prompt", content);
 		JsonObject options = getOrAddJsonObject(req, "options");
 		setPropertyIfNotPresent(options, "temperature", 1);
-		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
+//		setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
 		setPropertyIfNotPresent(options, "num_predict", Activator.getDefault().getMaxCompletionTokens());
 		req.addProperty("stream", false);
 

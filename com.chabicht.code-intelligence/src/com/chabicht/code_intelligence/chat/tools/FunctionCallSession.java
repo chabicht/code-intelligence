@@ -148,6 +148,13 @@ public class FunctionCallSession {
 				break;
 			default:
 				Activator.logError("Unsupported function call: " + functionName);
+				String errorMsg = "Unsupported function call: " + functionName;
+				result.addPrettyResult("status", "Error", false);
+				result.addPrettyResult("message", errorMsg, false);
+				JsonObject jsonResult = new JsonObject();
+				jsonResult.addProperty("status", "Error");
+				jsonResult.addProperty("message", errorMsg);
+				result.setResultJson(gson.toJson(jsonResult));
 				break;
 			}
 
