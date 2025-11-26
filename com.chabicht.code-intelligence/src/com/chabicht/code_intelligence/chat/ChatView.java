@@ -53,6 +53,7 @@ import org.eclipse.swt.browser.LocationEvent;
 import org.eclipse.swt.browser.ProgressAdapter;
 import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.browser.ProgressListener;
+import org.eclipse.swt.custom.StyledText;
 import org.eclipse.swt.dnd.Clipboard;
 import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
@@ -79,7 +80,9 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
 import org.eclipse.swt.widgets.Sash;
@@ -738,7 +741,41 @@ public class ChatView extends ViewPart {
 		cmpAttachments.setLayout(layoutCmpAttachments);
 		new Label(lowerComposite, SWT.NONE); // empty label for the second column
 
-		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI | SWT.WRAP);
+		tvUserInput = new TextViewer(lowerComposite, SWT.BORDER | SWT.V_SCROLL | SWT.MULTI | SWT.WRAP) {
+			@Override
+			protected StyledText createTextWidget(Composite parent, int styles) {
+				StyledText textWidget = super.createTextWidget(parent, styles);
+
+				// Hack: Make sure we capture the CTRL+Enter hotkey before the text widget.
+				textWidget.getDisplay().addFilter(SWT.KeyDown, new Listener() {
+					@Override
+					public void handleEvent(Event event) {
+						// Only act if the event happened on our specific text widget
+						if (event.widget == textWidget) {
+							if ((event.stateMask & SWT.CTRL) != 0
+									&& (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR)) {
+								sendMessageOrAbortChat();
+								event.doit = false;
+							}
+						}
+					}
+				});
+				textWidget.getDisplay().addFilter(SWT.KeyUp, new Listener() {
+					@Override
+					public void handleEvent(Event event) {
+						// Only act if the event happened on our specific text widget
+						if (event.widget == textWidget) {
+							if ((event.stateMask & SWT.CTRL) != 0
+									&& (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR)) {
+								event.doit = false;
+							}
+						}
+					}
+				});
+
+				return textWidget;
+			}
+		};
 		tvUserInput.getTextWidget().setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2));
 
 		btnSettings = new Button(lowerComposite, SWT.NONE);
@@ -987,11 +1024,6 @@ public class ChatView extends ViewPart {
 			public void keyReleased(KeyEvent e) {
 				if ((e.stateMask & SWT.CTRL) != 0) {
 					switch (e.keyCode) {
-					case SWT.CR:
-					case SWT.KEYPAD_CR:
-						sendMessageOrAbortChat();
-						e.doit = false;
-						break;
 					case 'z':
 					case 'Z':
 						if (undoManager.undoable()) {
