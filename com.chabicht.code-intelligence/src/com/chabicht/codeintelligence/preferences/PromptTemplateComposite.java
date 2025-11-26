@@ -10,8 +10,7 @@ import org.eclipse.core.databinding.observable.list.WritableList;
 import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
-import org.eclipse.jface.preference.FieldEditor;
-import org.eclipse.jface.resource.JFaceResources;
+import org.eclipse.jface.layout.PixelConverter;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ISelectionChangedListener;
 import org.eclipse.jface.viewers.IStructuredSelection;
@@ -20,25 +19,22 @@ import org.eclipse.jface.viewers.StructuredSelection;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Table;
 
-import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.model.DefaultPrompts;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.code_intelligence.util.ModelUtil;
 
-/**
- * A field editor for managing PromptTemplates.
- */
-public class PromptTemplateFieldEditor extends FieldEditor {
+public class PromptTemplateComposite extends Composite {
 
 	private WritableList<PromptTemplate> templates;
 	private TableViewer tableViewer;
@@ -52,55 +48,33 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 	private Supplier<String> instructModelIdGetter;
 	private Supplier<String> chatModelIdGetter;
 
-	/**
-	 * ◦Constructs a PromptTemplateFieldEditor. ◦ ◦@param name the property name
-	 * ◦@param labelText the label to display ◦@param parent the parent composite
-	 * ◦@param templates the list of PromptTemplate objects to manage
-	 * 
-	 * @wbp.parser.entryPoint
-	 */
-	public PromptTemplateFieldEditor(String name, String labelText, Composite parent,
+	public PromptTemplateComposite(Composite parent, int style, WritableList<PromptTemplate> templates,
 			List<AiApiConnection> apiConnections, Supplier<String> instructModelIdGetter,
 			Supplier<String> chatModelIdGetter) {
-		super(name, labelText, parent);
+		super(parent, style);
+		this.templates = templates;
 		this.apiConnections = apiConnections;
 		this.instructModelIdGetter = instructModelIdGetter;
 		this.chatModelIdGetter = chatModelIdGetter;
+		
+		setLayout(new GridLayout(2, false));
+		createContent();
 	}
 
-	@Override
-	protected void adjustForNumColumns(int numColumns) {
-		Control control = getLabelControl();
-		if (control != null) {
-			((GridData) control.getLayoutData()).horizontalSpan = numColumns;
-		}
-		((GridData) tableViewer.getTable().getLayoutData()).horizontalSpan = numColumns - 1;
-	}
+	private void createContent() {
+		Label label = new Label(this, SWT.NONE);
+		label.setText("Prompt Templates:");
+		GridData gdLabel = new GridData(SWT.FILL, SWT.TOP, true, false, 2, 1);
+		label.setLayoutData(gdLabel);
 
-	@Override
-	protected void doFillIntoGrid(Composite parent, int numColumns) {
-		// Align Label control.
-		Control control = getLabelControl(parent);
-		GridData gd = new GridData();
-		gd.horizontalSpan = numColumns;
-		gd.verticalAlignment = SWT.TOP;
-		control.setLayoutData(gd);
-
-		// Create the table viewer control
-		tableViewer = createTableViewer(parent);
-		GridData tableData = new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL);
-		tableData.verticalAlignment = GridData.FILL;
-		tableData.horizontalSpan = numColumns - 1;
-		tableData.grabExcessHorizontalSpace = true;
+		tableViewer = createTableViewer(this);
+		GridData tableData = new GridData(SWT.FILL, SWT.FILL, true, true);
 		tableData.heightHint = 150;
 		tableViewer.getTable().setLayoutData(tableData);
 
-		// Create the button box control
-		buttonBox = createButtonBox(parent);
-		GridData buttonData = new GridData();
-		buttonData.verticalAlignment = GridData.BEGINNING;
+		buttonBox = createButtonBox(this);
+		GridData buttonData = new GridData(SWT.BEGINNING, SWT.BEGINNING, false, false);
 		buttonBox.setLayoutData(buttonData);
-
 	}
 
 	private TableViewer createTableViewer(Composite parent) {
@@ -109,7 +83,6 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		table.setHeaderVisible(true);
 		table.setLinesVisible(true);
 		viewer.setContentProvider(new ObservableListContentProvider<>());
-		// Create columns
 
 		// Column: Name
 		TableViewerColumn colName = new TableViewerColumn(viewer, SWT.NONE);
@@ -122,7 +95,7 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 			}
 		});
 
-		// Column: Type (based on PromptType)
+		// Column: Type
 		TableViewerColumn colType = new TableViewerColumn(viewer, SWT.NONE);
 		colType.getColumn().setText("Type");
 		colType.getColumn().setWidth(75);
@@ -158,7 +131,7 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 			}
 		});
 
-		// Column: Enabled (using check-mark or cross)
+		// Column: Enabled
 		TableViewerColumn colEnabled = new TableViewerColumn(viewer, SWT.NONE);
 		colEnabled.getColumn().setText("Enabled");
 		colEnabled.getColumn().setWidth(75);
@@ -169,48 +142,42 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 			}
 		});
 
-		// Double-click to edit the template.
 		viewer.addDoubleClickListener(event -> editTemplate());
 
-		// Update button enablement when selection changes.
 		viewer.addSelectionChangedListener(new ISelectionChangedListener() {
 			public void selectionChanged(SelectionChangedEvent event) {
 				updateButtonEnablement();
 			}
 		});
 
-		// Set the input list.
 		viewer.setInput(templates);
 		return viewer;
-
 	}
 
 	private Composite createButtonBox(Composite parent) {
 		Composite box = new Composite(parent, SWT.NONE);
-		GridLayout layout = new GridLayout();
+		GridLayout layout = new GridLayout(1, false);
 		layout.marginWidth = 0;
-		layout.numColumns = 1;
+		layout.marginHeight = 0;
 		box.setLayout(layout);
-		// Create the buttons.
+
 		addButton = createPushButton(box, "Add...", e -> addNewTemplate());
 		editButton = createPushButton(box, "Edit...", e -> editTemplate());
 		removeButton = createPushButton(box, "Remove", e -> removeSelectedTemplates());
 
-		// Create reordering buttons.
 		upButton = createPushButton(box, "Up", e -> moveTemplateUp());
 		downButton = createPushButton(box, "Down", e -> moveTemplateDown());
 
 		updateButtonEnablement();
 		return box;
-
 	}
 
-	private Button createPushButton(Composite parent, String text, Consumer listener) {
+	private Button createPushButton(Composite parent, String text, Consumer<SelectionEvent> listener) {
 		Button button = new Button(parent, SWT.PUSH);
-		button.setText(JFaceResources.getString(text));
-		button.setFont(parent.getFont());
+		button.setText(text);
 		GridData data = new GridData(GridData.FILL_HORIZONTAL);
-		int widthHint = convertHorizontalDLUsToPixels(button, IDialogConstants.BUTTON_WIDTH);
+		PixelConverter converter = new PixelConverter(button);
+		int widthHint = converter.convertHorizontalDLUsToPixels(IDialogConstants.BUTTON_WIDTH);
 		data.widthHint = Math.max(widthHint, button.computeSize(SWT.DEFAULT, SWT.DEFAULT, true).x);
 		button.setLayoutData(data);
 		button.addSelectionListener(SelectionListener.widgetSelectedAdapter(listener));
@@ -228,8 +195,8 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		}
 		if (upButton != null || downButton != null) {
 			int index = getSelectedIndex();
-			upButton.setEnabled(hasSelection && index > 0);
-			downButton.setEnabled(hasSelection && index < templates.size() - 1);
+			if (upButton != null) upButton.setEnabled(hasSelection && index > 0);
+			if (downButton != null) downButton.setEnabled(hasSelection && index < templates.size() - 1);
 		}
 	}
 
@@ -251,11 +218,9 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 			template.setConnectionName(t.getFirst());
 			template.setModelId(t.getSecond());
 		});
-		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(), apiConnections,
-				template);
+		PromptManagementDialog dialog = new PromptManagementDialog(getShell(), apiConnections, template);
 		if (dialog.open() == Dialog.OK) {
 			templates.add(template);
-			tableViewer.setInput(templates);
 			tableViewer.refresh();
 		}
 	}
@@ -266,8 +231,7 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 			return;
 		}
 		PromptTemplate template = (PromptTemplate) selection.getFirstElement();
-		PromptManagementDialog dialog = new PromptManagementDialog(tableViewer.getTable().getShell(), apiConnections,
-				template);
+		PromptManagementDialog dialog = new PromptManagementDialog(getShell(), apiConnections, template);
 		if (dialog.open() == Dialog.OK) {
 			tableViewer.refresh();
 		}
@@ -285,7 +249,7 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		int index = getSelectedIndex();
 		if (index > 0) {
 			Collections.swap(templates, index, index - 1);
-			tableViewer.refresh(); // Preserve selection on the moved element.
+			tableViewer.refresh();
 			tableViewer.setSelection(new StructuredSelection(templates.get(index - 1)));
 		}
 	}
@@ -294,30 +258,8 @@ public class PromptTemplateFieldEditor extends FieldEditor {
 		int index = getSelectedIndex();
 		if (index >= 0 && index < templates.size() - 1) {
 			Collections.swap(templates, index, index + 1);
-			tableViewer.refresh(); // Preserve selection on the moved element.
+			tableViewer.refresh();
 			tableViewer.setSelection(new StructuredSelection(templates.get(index + 1)));
 		}
-	}
-
-	@Override
-	protected void doLoad() { // Retrieve the stored JSON value from the preference store.
-		this.templates = new WritableList<PromptTemplate>(Activator.getDefault().loadPromptTemplates(),
-				PromptTemplate.class);
-		tableViewer.setInput(templates);
-	}
-
-	@Override
-	protected void doLoadDefault() {
-		// Do nothing so that no templates are reset inadvertently.
-	}
-
-	@Override
-	protected void doStore() {
-		Activator.getDefault().savePromptTemplates(templates);
-	}
-
-	@Override
-	public int getNumberOfControls() {
-		return 2;
 	}
 }

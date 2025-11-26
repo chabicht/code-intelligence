@@ -1,14 +1,20 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Bean;
+import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.model.PromptTemplate;
+import com.chabicht.code_intelligence.util.ModelUtil;
 
 public class ChatSettings extends Bean {
+	private static final BigDecimal VAL_2_5 = new BigDecimal("2.5");
+
 	private static final Pattern CLAUDE_4_PATTERN = Pattern.compile("claude-[^-]+-4");
 
 	private String model;
@@ -92,7 +98,28 @@ public class ChatSettings extends Bean {
 
 	public static boolean supportsReasoning(String modelId) {
 		return modelId != null && (modelId.contains("claude-3-7") || CLAUDE_4_PATTERN.matcher(modelId).find()
-				|| modelId.contains("gemini-2.5"));
+				|| isReasoningGemini(modelId));
+	}
+
+	public static boolean isReasoningGemini(String modelId) {
+		Optional<Tuple<String, String>> tuple = ModelUtil.getProviderModelTuple(modelId);
+		String modelName = tuple.isPresent() ? tuple.get().getSecond() : "";
+		boolean isGemini = modelName.startsWith("models/gemini-");
+
+		if (!isGemini) {
+			return false;
+		}
+
+		BigDecimal version = Optional.of(modelName.substring("models/gemini-".length()).replaceAll("[^0-9.]*$", ""))
+				.map(str -> {
+			try {
+				return new BigDecimal(str);
+			} catch (NumberFormatException e) {
+				return BigDecimal.ZERO;
+			}
+		}).orElse(BigDecimal.ZERO);
+
+		return version.compareTo(VAL_2_5) >= 0;
 	}
 
 	public boolean isReasoningSupportedAndEnabled() {

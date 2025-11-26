@@ -5,8 +5,6 @@ import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Tuple;
-import com.chabicht.code_intelligence.apiclient.AiApiConnection;
-import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 
 public class ModelUtil {
 	private ModelUtil() {
@@ -17,7 +15,7 @@ public class ModelUtil {
 		Optional<Tuple<String, String>> res = Optional.empty();
 
 		modelId = StringUtils.stripToEmpty(modelId);
-		int firstSlashIndex = modelId.indexOf('/'); 
+		int firstSlashIndex = modelId.indexOf('/');
 		if(firstSlashIndex>=0) {
 			res = Optional.of(new Tuple<>(modelId.substring(0, firstSlashIndex), modelId.substring(firstSlashIndex+1)));
 		}

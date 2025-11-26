@@ -205,7 +205,7 @@ public class ChatConversation {
 		// Fields for thinking/reasoning content
 		private String thinkingContent;
 		private boolean isThinkingComplete;
-		private Map<String, Object> thinkingMetadata = new HashMap<>();
+		private Map<String, Object> metadata = new HashMap<>();
 
 		protected ChatMessage() {
 			id = UUID.randomUUID();
@@ -341,45 +341,43 @@ public class ChatConversation {
 			this.isThinkingComplete = isThinkingComplete;
 		}
 
-		/**
-		 * Gets the metadata map for thinking content. This can be used to store
-		 * API-specific properties.
-		 * 
-		 * <p>
-		 * This field is used only for reasoning content that is sent "out of band" via
-		 * the API. This is the case for e.g. the Anthropic API, where the original
-		 * thinking content must be reconstructed for subsequent calls.
-		 * 
-		 * @return the thinking metadata map
-		 */
-		public Map<String, Object> getThinkingMetadata() {
-			return thinkingMetadata;
-		}
+	/**
+	 * Gets the metadata map for this message. This can be used to store
+	 * API-specific properties that need to be preserved across calls.
+	 * 
+	 * <p>
+	 * Examples include signature fields, cache control, or other provider-specific
+	 * data that must be echoed back in subsequent requests.
+	 * 
+	 * @return the metadata map
+	 */
+	public Map<String, Object> getMetadata() {
+		return metadata;
+	}
 
-		/**
-		 * Sets a metadata property for thinking content.
-		 * 
-		 * <p>
-		 * This field is used only for reasoning content that is sent "out of band" via
-		 * the API. This is the case for e.g. the Anthropic API, where the original
-		 * thinking content must be reconstructed for subsequent calls.
-		 * 
-		 * @param key   the metadata key
-		 * @param value the metadata value
-		 */
-		public void setThinkingMetadata(String key, Object value) {
-			this.thinkingMetadata.put(key, value);
-		}
+	/**
+	 * Sets a metadata property for this message.
+	 * 
+	 * <p>
+	 * This field is used to store API-specific data that needs to be preserved
+	 * and sent back in subsequent calls.
+	 * 
+	 * @param key   the metadata key
+	 * @param value the metadata value
+	 */
+	public void setMetadata(String key, Object value) {
+		this.metadata.put(key, value);
+	}
 
-		/**
-		 * Gets a specific metadata property for thinking content.
-		 * 
-		 * @param key the metadata key
-		 * @return the metadata value, or null if not present
-		 */
-		public Object getThinkingMetadata(String key) {
-			return this.thinkingMetadata.get(key);
-		}
+	/**
+	 * Gets a specific metadata property.
+	 * 
+	 * @param key the metadata key
+	 * @return the metadata value, or null if not present
+	 */
+	public Object getMetadata(String key) {
+		return this.metadata.get(key);
+	}
 
 		@Override
 		public String toString() {
@@ -390,9 +388,9 @@ public class ChatConversation {
 			if (StringUtils.isNotBlank(thinkingContent)) {
 				sb.append("  thinkingContent:\n  ===\n").append(thinkingContent).append("\n  ===\n");
 				sb.append("  isThinkingComplete=").append(isThinkingComplete).append("\n");
-				if (!thinkingMetadata.isEmpty()) {
-					sb.append("  thinkingMetadata=").append(thinkingMetadata).append("\n");
-				}
+			if (!metadata.isEmpty()) {
+				sb.append("  metadata=").append(metadata).append("\n");
+			}
 			}
 			if (context != null && !context.isEmpty()) {
 				sb.append("  context=").append(context).append("\n");

@@ -123,6 +123,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 				.thenAccept(response -> {
 					if (response.statusCode() >= 200 && response.statusCode() < 300) {
 						response.body().forEach(line -> {
+							// Activator.logInfo("Gemini: " + line);
 							if (line.startsWith("data: ")) {
 								String data = line.substring(6).trim();
 								try {
@@ -163,18 +164,25 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 													chat.notifyMessageUpdated(assistantMessage);
 												}
 
-												if (firstPart.has("functionCall")) {
-													JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
-													String id = Optional.ofNullable(functionCall.get("id"))
-															.map(JsonElement::getAsString).orElse(null);
-													String functionName = functionCall.get("name").getAsString();
-													JsonObject functionArgs = functionCall.getAsJsonObject("args");
-													String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
-															: "{}";
-													assistantMessage.setFunctionCall(
-															new FunctionCall(id, functionName, argsJson));
-													chat.notifyFunctionCalled(assistantMessage);
-												}
+							if (firstPart.has("functionCall")) {
+								JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
+								String id = Optional.ofNullable(functionCall.get("id"))
+										.map(JsonElement::getAsString).orElse(null);
+								String functionName = functionCall.get("name").getAsString();
+								JsonObject functionArgs = functionCall.getAsJsonObject("args");
+								String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
+										: "{}";
+								
+								// Capture thoughtSignature if present (required by Gemini 3 Pro)
+								if (firstPart.has("thoughtSignature")) {
+									String thoughtSignature = firstPart.get("thoughtSignature").getAsString();
+									assistantMessage.setMetadata("gemini_thought_signature", thoughtSignature);
+								}
+								
+								assistantMessage.setFunctionCall(
+										new FunctionCall(id, functionName, argsJson));
+								chat.notifyFunctionCalled(assistantMessage);
+							}
 											}
 										}
 
@@ -312,8 +320,16 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		functionCallObj.addProperty("id", fc.getId());
 		functionCallObj.addProperty("name", fc.getFunctionName());
 		functionCallObj.add("args", gson.fromJson(fc.getArgsJson(), JsonObject.class));
+		
 		JsonObject partObj = new JsonObject();
 		partObj.add("functionCall", functionCallObj);
+		
+		// Add thoughtSignature if present (required by Gemini 3 Pro for function calling)
+		Object thoughtSignature = msg.getMetadata("gemini_thought_signature");
+		if (thoughtSignature != null) {
+			partObj.addProperty("thoughtSignature", (String) thoughtSignature);
+		}
+		
 		jsonMsg.getAsJsonArray("parts").add(partObj);
 	}
 

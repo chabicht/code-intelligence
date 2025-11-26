@@ -4,13 +4,13 @@ Bundle-Name: Code-intelligence
 Bundle-SymbolicName: com.chabicht.code-intelligence;singleton:=true
 Bundle-Version: 1.0.0.qualifier
 Bundle-Activator: com.chabicht.code_intelligence.Activator
-Bundle-ClassPath: lib/commonmark-0.24.0.jar,
- .,
+Bundle-ClassPath: .,
  lib/jmustache-1.16.jar,
- lib/commonmark-ext-gfm-tables-0.24.0.jar,
- lib/commonmark-ext-gfm-strikethrough-0.24.0.jar,
  lib/commons-text-1.13.1.jar,
- lib/java-diff-utils-4.15.jar
+ lib/commonmark-0.27.0.jar,
+ lib/commonmark-ext-gfm-strikethrough-0.27.0.jar,
+ lib/commonmark-ext-gfm-tables-0.27.0.jar,
+ lib/java-diff-utils-4.16.jar
 Bundle-Vendor: chabicht.com
 Require-Bundle: org.eclipse.ui,
  org.eclipse.core.runtime,
