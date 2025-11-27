@@ -227,7 +227,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.ALWAYS).build();
 
-		URI endpoint = URI.create(apiConnection.getBaseUri()).resolve("/api/chat");
+		URI endpoint = URI.create(apiConnection.getBaseUri() + "/").resolve("api/chat");
 		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10)).uri(endpoint)
 				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("Content-Type", "application/json");
 
