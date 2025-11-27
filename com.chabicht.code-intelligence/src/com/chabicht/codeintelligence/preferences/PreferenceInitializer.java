@@ -32,6 +32,7 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 					+ PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX, true);
 		}
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED, true);
+		store.setDefault(PreferenceConstants.CHAT_SUBMIT_ON_ENTER, false);
 	}
 
 }

@@ -50,6 +50,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 	private Text txtChatHistorySize;
 	private Button chkChatToolsEnabled;
 	private Button chkChatToolsApplyDeferred;
+	private Button chkChatSubmitOnEnter;
 	
 	private Button chkDebugLogPrompts;
 
@@ -108,8 +109,18 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		txtChatMaxTokens = createNumberTextField(main, "Max. response tokens:");
 		txtChatHistorySize = createNumberTextField(main, "Max. history items:");
 		
-		chkChatToolsEnabled = createBooleanField(main, "Enable Tools globally in Chat");
-		chkChatToolsApplyDeferred = createBooleanField(main, "Collect tool calls and execute together at the end of a streak");
+		chkChatToolsEnabled = createBooleanField(main, "Enable Tools globally in Chat", null);
+		chkChatToolsApplyDeferred = createBooleanField(main,
+				"Collect tool calls and execute together at the end of a streak",
+				"""
+						If enabled, modifications from tool calls are recorded and provided for review in one, big chunk when the model is finished editing.
+						Otherwise, each modification triggers a separate review dialog as soon as the tool is called.
+						""");
+		chkChatSubmitOnEnter = createBooleanField(main, "Submit message on Enter (Shift+Enter for new line)",
+				"""
+						Controls how the Enter key is handled and the current chat message is submitted.
+						Default behavior: Enter adds a newline to the text, Ctrl+Enter (or Command+Enter on macOS) submit the message.
+						""");
 		
 		createManageToolsButton(main);
 
@@ -123,7 +134,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 		// Debug Section
 		createSeparator(main);
-		chkDebugLogPrompts = createBooleanField(main, "Log prompts to Error Log");
+		chkDebugLogPrompts = createBooleanField(main, "Log prompts to Error Log", null);
 
 		initializeValues();
 		
@@ -206,10 +217,15 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		return text;
 	}
 	
-	private Button createBooleanField(Composite parent, String labelText) {
+	private Button createBooleanField(Composite parent, String labelText, String tooltipText) {
 		Button button = new Button(parent, SWT.CHECK);
 		button.setText(labelText);
 		button.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 3, 1));
+
+		if (StringUtils.isNoneBlank(tooltipText)) {
+			button.setToolTipText(tooltipText);
+		}
+
 		return button;
 	}
 
@@ -232,6 +248,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		
 		chkChatToolsEnabled.setSelection(store.getBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED));
 		chkChatToolsApplyDeferred.setSelection(store.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED));
+		chkChatSubmitOnEnter.setSelection(store.getBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER));
 		
 		chkDebugLogPrompts.setSelection(store.getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
 		
@@ -253,6 +270,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		
 		store.setValue(PreferenceConstants.CHAT_TOOLS_ENABLED, chkChatToolsEnabled.getSelection());
 		store.setValue(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED, chkChatToolsApplyDeferred.getSelection());
+		store.setValue(PreferenceConstants.CHAT_SUBMIT_ON_ENTER, chkChatSubmitOnEnter.getSelection());
 		
 		store.setValue(PreferenceConstants.DEBUG_LOG_PROMPTS, chkDebugLogPrompts.getSelection());
 		
@@ -279,6 +297,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		
 		chkChatToolsEnabled.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED));
 		chkChatToolsApplyDeferred.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED));
+		chkChatSubmitOnEnter.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER));
 		
 		chkDebugLogPrompts.setSelection(store.getDefaultBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
 		

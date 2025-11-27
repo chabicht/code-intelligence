@@ -747,31 +747,9 @@ public class ChatView extends ViewPart {
 				StyledText textWidget = super.createTextWidget(parent, styles);
 
 				// Hack: Make sure we capture the CTRL+Enter hotkey before the text widget.
-				textWidget.getDisplay().addFilter(SWT.KeyDown, new Listener() {
-					@Override
-					public void handleEvent(Event event) {
-						// Only act if the event happened on our specific text widget
-						if (event.widget == textWidget) {
-							if ((event.stateMask & SWT.CTRL) != 0
-									&& (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR)) {
-								sendMessageOrAbortChat();
-								event.doit = false;
-							}
-						}
-					}
-				});
-				textWidget.getDisplay().addFilter(SWT.KeyUp, new Listener() {
-					@Override
-					public void handleEvent(Event event) {
-						// Only act if the event happened on our specific text widget
-						if (event.widget == textWidget) {
-							if ((event.stateMask & SWT.CTRL) != 0
-									&& (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR)) {
-								event.doit = false;
-							}
-						}
-					}
-				});
+				// Hack: Make sure we capture the hotkey before the text widget.
+				textWidget.getDisplay().addFilter(SWT.KeyDown, event -> handleChatInputKey(event, textWidget, true));
+				textWidget.getDisplay().addFilter(SWT.KeyUp, event -> handleChatInputKey(event, textWidget, false));
 
 				return textWidget;
 			}
@@ -1008,6 +986,42 @@ public class ChatView extends ViewPart {
 			});
 		} else {
 			control.layout(true, true);
+		}
+	}
+
+	private void handleChatInputKey(Event event, StyledText textWidget, boolean isKeyDown) {
+		// Only act if the event happened on our specific text widget
+		if (event.widget != textWidget) {
+			return;
+		}
+
+		boolean submitOnEnter = Activator.getDefault().getPreferenceStore()
+				.getBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER);
+
+		boolean isEnter = (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR);
+		boolean isShift = (event.stateMask & SWT.SHIFT) != 0;
+		// SWT.MOD1 maps to Command on macOS and Ctrl on Windows/Linux
+		boolean isModifier = (event.stateMask & SWT.MOD1) != 0;
+
+		boolean shouldSubmit = false;
+
+		if (submitOnEnter) {
+			// Mode: Enter submits, Shift+Enter adds newline
+			if (isEnter && !isShift) {
+				shouldSubmit = true;
+			}
+		} else {
+			// Mode: Enter adds newline, Ctrl/Cmd+Enter submits (Default)
+			if (isEnter && isModifier) {
+				shouldSubmit = true;
+			}
+		}
+
+		if (shouldSubmit) {
+			event.doit = false; // Consume the event to prevent newline insertion
+			if (isKeyDown) {
+				sendMessageOrAbortChat();
+			}
 		}
 	}
 
