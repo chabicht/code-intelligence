@@ -142,7 +142,10 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		JsonObject req = createFromPresets(PromptType.INSTRUCT);
 		req.addProperty("model", modelName);
 		setPropertyIfNotPresent(req, "temperature", completionPrompt.getTemperature());
-		req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
+		// Fix for MistralAI: they don't support max_completion_tokens
+		if(!modelName.toLowerCase().contains("mistral")) {
+			req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
+		}
 
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();
@@ -244,7 +247,10 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		// Create the JSON request object.
 		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
-		req.addProperty("max_completion_tokens", maxResponseTokens);
+		// Fix for MistralAI: they don't support max_completion_tokens
+		if(!modelName.toLowerCase().contains("mistral")) {
+			req.addProperty("max_completion_tokens", maxResponseTokens);
+		}
 		req.addProperty("stream", true);
 
 		Map<ChatOption, Object> options = chat.getOptions();
