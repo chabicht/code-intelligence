@@ -6,6 +6,7 @@ import org.eclipse.jface.preference.IPreferenceStore;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions.Tool;
+import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 
 /**
  * Class used to initialize default preference values.
@@ -27,6 +28,7 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 		store.setDefault(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT, 50);
 
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_ENABLED, false);
+		store.setDefault(PreferenceConstants.CHAT_TOOL_PROFILE, ToolProfile.READ_WRITE.name());
 		for (Tool t : ToolDefinitions.getInstance().getTools()) {
 			store.setDefault(PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX + "." + t.getName() + "."
 					+ PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX, true);

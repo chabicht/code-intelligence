@@ -3,6 +3,7 @@ package com.chabicht.code_intelligence.chat;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -82,7 +83,6 @@ import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Label;
-import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
 import org.eclipse.swt.widgets.Sash;
@@ -764,6 +764,10 @@ public class ChatView extends ViewPart {
 				if (dlg.open() == Dialog.OK) {
 					try {
 						BeanUtils.copyProperties(settings, dlg.getSettings());
+						// Save tool profile to preferences
+						Activator.getDefault().getPreferenceStore().setValue(
+								PreferenceConstants.CHAT_TOOL_PROFILE,
+								settings.getToolProfile().name());
 					} catch (IllegalAccessException | InvocationTargetException ex) {
 						Activator.logError(ex.getMessage(), ex);
 					}
@@ -1246,11 +1250,12 @@ public class ChatView extends ViewPart {
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
-			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
-			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
-			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
+		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
+		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+		conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
+		conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 
-			conversation.addMessage(chatMessage, true);
+		conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
 			userInput.set("");
 
@@ -1398,6 +1403,13 @@ public class ChatView extends ViewPart {
 		conversation.getOptions().clear();
 		conversation.getOptions().putAll(replacement.getOptions());
 		conversation.setConversationId(replacement.getConversationId());
+
+		// Sync current settings into loaded conversation (for backward compatibility
+		// with conversations saved before new options were added)
+		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
+		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+		conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
+		conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 	}
 
 	private ChatConversation createNewChatConversation() {

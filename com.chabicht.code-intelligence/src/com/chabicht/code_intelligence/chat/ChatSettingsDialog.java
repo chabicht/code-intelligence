@@ -20,8 +20,10 @@ import org.eclipse.jface.databinding.viewers.ObservableListContentProvider;
 import org.eclipse.jface.databinding.viewers.typed.ViewerProperties;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
+import org.eclipse.jface.viewers.ArrayContentProvider;
 import org.eclipse.jface.viewers.ComboViewer;
 import org.eclipse.jface.viewers.LabelProvider;
+import org.eclipse.jface.viewers.StructuredSelection;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
@@ -41,6 +43,7 @@ import org.eclipse.swt.widgets.Text;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
+import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.ModelSelectionDialog;
@@ -58,6 +61,7 @@ public class ChatSettingsDialog extends Dialog {
 	private Button btnReasoningEnabled;
 	private Text txtChatCompletionMaxTokens;
 	private Button btnToolsEnabled;
+	private ComboViewer cvToolProfile;
 
 	protected ChatSettingsDialog(Shell parentShell, ChatSettings settings) {
 		super(parentShell);
@@ -156,14 +160,30 @@ public class ChatSettingsDialog extends Dialog {
 
 		// Tool Configuration Group
 		Group grpTools = new Group(composite, SWT.NONE);
-		grpTools.setLayout(new GridLayout(1, false)); // Changed to 1 column
+		grpTools.setLayout(new GridLayout(2, false)); // Changed to 2 columns for profile combo
 		GridData gd_grpTools = new GridData(SWT.FILL, SWT.FILL, true, true, 3, 1);
 		grpTools.setLayoutData(gd_grpTools);
 		grpTools.setText("Tools");
 
 		btnToolsEnabled = new Button(grpTools, SWT.CHECK);
 		btnToolsEnabled.setText("Enable Tools Globally");
-		btnToolsEnabled.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		btnToolsEnabled.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1)); // Span 2 columns
+
+		// Tool Profile selection
+		Label lblToolProfile = new Label(grpTools, SWT.NONE);
+		lblToolProfile.setText("Tool Set:");
+		lblToolProfile.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
+
+		cvToolProfile = new ComboViewer(grpTools, SWT.READ_ONLY);
+		cvToolProfile.getCombo().setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		cvToolProfile.setContentProvider(ArrayContentProvider.getInstance());
+		cvToolProfile.setLabelProvider(new LabelProvider() {
+			@Override
+			public String getText(Object element) {
+				return ((ToolProfile) element).getDisplayName();
+			}
+		});
+		cvToolProfile.setInput(ToolProfile.values());
 
 		cvSystemPrompt.setLabelProvider(new LabelProvider() {
 			@Override
@@ -200,6 +220,18 @@ public class ChatSettingsDialog extends Dialog {
 		updateReasoningEnablement(settings.getModel());
 
 		btnToolsEnabled.setSelection(settings.isToolsEnabled());
+
+		// Initialize tool profile selection
+		cvToolProfile.setSelection(new StructuredSelection(settings.getToolProfile()));
+
+		// Enable/disable tool profile combo based on tools enabled checkbox
+		cvToolProfile.getCombo().setEnabled(settings.isToolsEnabled());
+		btnToolsEnabled.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				cvToolProfile.getCombo().setEnabled(btnToolsEnabled.getSelection());
+			}
+		});
 	}
 
 	private void updateReasoningEnablement(String modelId) {
@@ -276,6 +308,11 @@ public class ChatSettingsDialog extends Dialog {
 		IObservableValue observeToolsEnabledCheckbox = WidgetProperties.buttonSelection().observe(btnToolsEnabled);
 		IObservableValue toolsEnabledSettingsObserveValue = BeanProperties.value("toolsEnabled").observe(settings);
 		bindingContext.bindValue(observeToolsEnabledCheckbox, toolsEnabledSettingsObserveValue, null, null);
+
+		// Bind cvToolProfile to settings.toolProfile
+		IObservableValue observeToolProfileSelection = ViewerProperties.singleSelection().observe(cvToolProfile);
+		IObservableValue toolProfileSettingsObserveValue = BeanProperties.value("toolProfile").observe(settings);
+		bindingContext.bindValue(observeToolProfileSelection, toolProfileSettingsObserveValue, null, null);
 
 		return bindingContext;
 	}

@@ -48,7 +48,7 @@ public class ManageToolsDialog extends Dialog {
         table.setLinesVisible(true);
         GridData gd_table = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1);
         gd_table.heightHint = 200;
-        gd_table.widthHint = 400;
+        gd_table.widthHint = 550;
         table.setLayoutData(gd_table);
 
         tableViewer.setContentProvider(new IStructuredContentProvider() {
@@ -91,7 +91,19 @@ public class ManageToolsDialog extends Dialog {
         descriptionColumn.setLabelProvider(new ColumnLabelProvider() {
             @Override
             public String getText(Object element) {
-				return ((Tool) element).getDescription();
+			return ((Tool) element).getDescription();
+            }
+        });
+
+        // Tags column
+        TableViewerColumn tagsColumn = new TableViewerColumn(tableViewer, SWT.NONE);
+        TableColumn tblclmnTags = tagsColumn.getColumn();
+        tblclmnTags.setWidth(120);
+        tblclmnTags.setText("Tags");
+        tagsColumn.setLabelProvider(new ColumnLabelProvider() {
+            @Override
+            public String getText(Object element) {
+                return String.join(", ", ((Tool) element).getTags());
             }
         });
 
