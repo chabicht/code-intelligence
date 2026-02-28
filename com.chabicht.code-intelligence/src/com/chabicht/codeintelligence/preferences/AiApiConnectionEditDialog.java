@@ -136,6 +136,8 @@ public class AiApiConnectionEditDialog extends Dialog {
 
 			presetBaseUri(type);
 		});
+		txtBaseUri.setEnabled(!ApiType.GEMINI.equals(model.getType()));
+		btnLegacyFormat.setEnabled(ApiType.OPENAI.equals(model.getType()));
 		if (StringUtils.isBlank(model.getBaseUri())) {
 			presetBaseUri(model.getType());
 		}

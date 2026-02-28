@@ -9,6 +9,8 @@ import com.chabicht.code_intelligence.model.DefaultPrompts;
 public class AiApiConnection extends Bean {
 	public static enum ApiType {
 		OPENAI("OpenAI", "https://api.openai.com/v1", "https://platform.openai.com/settings/organization/api-keys"),
+		OPENAI_RESPONSES("OpenAI Responses", "https://api.openai.com/v1",
+				"https://platform.openai.com/settings/organization/api-keys"),
 		OLLAMA("Ollama", "http://localhost:11434", ""),
 		ANTHROPIC("Anthropic", "https://api.anthropic.com/v1", "https://console.anthropic.com/settings/keys"),
 		GEMINI("Gemini", "https://generativelanguage.googleapis.com/v1beta", "https://aistudio.google.com/app/apikey"),
@@ -108,6 +110,9 @@ public class AiApiConnection extends Bean {
 			switch (type) {
 			case OPENAI:
 				apiClient = new OpenAiApiClient(this);
+				break;
+			case OPENAI_RESPONSES:
+				apiClient = new OpenAiResponsesApiClient(this);
 				break;
 			case OLLAMA:
 				apiClient = new OllamaApiClient(this);
