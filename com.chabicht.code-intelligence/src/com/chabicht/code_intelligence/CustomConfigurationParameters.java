@@ -123,6 +123,23 @@ public class CustomConfigurationParameters {
 				""");
 		res.put(tCompletion, res.get(tChat));
 
+		tChat = Tuple.of(ApiType.OPENAI_RESPONSES, PromptType.CHAT);
+		tCompletion = Tuple.of(ApiType.OPENAI_RESPONSES, PromptType.INSTRUCT);
+		res.put(tChat, """
+				{
+				  "store": false,
+				  "temperature": 1,
+				  "top_p": 1,
+				  "max_output_tokens": null,
+				  "reasoning": null,
+				  "metadata": null,
+				  "tools": null,
+				  "tool_choice": "auto",
+				  "parallel_tool_calls": false
+				}
+				""");
+		res.put(tCompletion, res.get(tChat));
+
 		tChat = Tuple.of(ApiType.ANTHROPIC, PromptType.CHAT);
 		tCompletion = Tuple.of(ApiType.ANTHROPIC, PromptType.INSTRUCT);
 		res.put(tChat, """
