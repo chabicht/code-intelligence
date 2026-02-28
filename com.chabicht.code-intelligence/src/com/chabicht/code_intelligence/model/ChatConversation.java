@@ -43,7 +43,7 @@ public class ChatConversation {
 	}
 
 	public static enum ChatOption {
-		REASONING_ENABLED, REASONING_BUDGET_TOKENS, TOOLS_ENABLED;
+		REASONING_ENABLED, REASONING_BUDGET_TOKENS, TOOLS_ENABLED, TOOL_PROFILE;
 	}
 
 	/**

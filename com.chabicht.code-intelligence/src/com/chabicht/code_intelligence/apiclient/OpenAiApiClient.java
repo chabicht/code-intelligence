@@ -1,6 +1,7 @@
 package com.chabicht.code_intelligence.apiclient;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
 import java.io.IOException;
 import java.net.URI;
@@ -21,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
+import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
@@ -255,10 +257,11 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			if (apiConnection.isLegacyFormat()) {
-				patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy());
+				patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy(profile));
 			} else {
-				JsonObject toolDefinitionsOpenAi = ToolDefinitions.getInstance().getToolDefinitionsOpenAi();
+				JsonObject toolDefinitionsOpenAi = ToolDefinitions.getInstance().getToolDefinitionsOpenAi(profile);
 				// Hack for Fireworks.AI: they don't support the strict flag in function
 				// definitions.
 				if (apiConnection.getBaseUri().contains("fireworks.ai")) {

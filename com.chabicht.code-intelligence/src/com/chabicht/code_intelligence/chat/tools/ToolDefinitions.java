@@ -4,7 +4,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.io.IOUtils;
 import org.eclipse.jface.preference.IPreferenceStore;
@@ -25,6 +30,7 @@ public class ToolDefinitions {
 	private final String TOOL_DEFINITION_GEMINI;
 
 	private final List<Tool> tools = new ArrayList<>();
+	private final Map<String, Set<String>> toolTagsByName = new HashMap<>();
 
 	public static synchronized ToolDefinitions getInstance() {
 		if (INSTANCE == null) {
@@ -51,33 +57,48 @@ public class ToolDefinitions {
 				.get("functionDeclarations").getAsJsonArray();
 		for (JsonElement el : jsonArray) {
 			JsonObject o = el.getAsJsonObject();
-			tools.add(new Tool(o.get("name").getAsString(), o.get("description").getAsString(), true));
+			String toolName = o.get("name").getAsString();
+			String description = o.get("description").getAsString();
+
+			Set<String> tags = new HashSet<>();
+			if (o.has("tags") && o.get("tags").isJsonArray()) {
+				for (JsonElement tagEl : o.getAsJsonArray("tags")) {
+					tags.add(tagEl.getAsString());
+				}
+			}
+
+			tools.add(new Tool(toolName, description, true, tags));
+			toolTagsByName.put(toolName, tags);
 		}
 	}
 
-	public JsonObject getToolDefinitionsGemini() {
-		return getEnabledTools();
+	public Set<String> getToolTags(String toolName) {
+		return toolTagsByName.getOrDefault(toolName, Collections.emptySet());
 	}
 
-	public JsonObject getToolDefinitionsOllama() {
-		return toOpenAiToolFormat(false);
+	public JsonObject getToolDefinitionsGemini(ToolProfile profile) {
+		return getEnabledTools(profile);
 	}
 
-	public JsonObject getToolDefinitionsOpenAi() {
-		return toOpenAiToolFormat(true);
+	public JsonObject getToolDefinitionsOllama(ToolProfile profile) {
+		return toOpenAiToolFormat(false, profile);
 	}
 
-	public JsonObject getToolDefinitionsOpenAiLegacy() {
-		return toOpenAiFunctionFormat();
+	public JsonObject getToolDefinitionsOpenAi(ToolProfile profile) {
+		return toOpenAiToolFormat(true, profile);
 	}
 
-	public JsonObject getToolDefinitionsXAi() {
-		return toOpenAiToolFormat(false);
+	public JsonObject getToolDefinitionsOpenAiLegacy(ToolProfile profile) {
+		return toOpenAiFunctionFormat(profile);
 	}
 
-	public JsonObject getToolDefinitionsAnthropic() {
+	public JsonObject getToolDefinitionsXAi(ToolProfile profile) {
+		return toOpenAiToolFormat(false, profile);
+	}
+
+	public JsonObject getToolDefinitionsAnthropic(ToolProfile profile) {
 		com.google.gson.Gson gson = GsonUtil.createGson();
-		JsonObject toolDefinitionGemini = getEnabledTools();
+		JsonObject toolDefinitionGemini = getEnabledTools(profile);
 
 		JsonArray geminiToolsArray = toolDefinitionGemini.getAsJsonArray("tools");
 		if (geminiToolsArray == null || geminiToolsArray.isEmpty()) {
@@ -109,9 +130,9 @@ public class ToolDefinitions {
 		return finalAnthropicJson;
 	}
 
-	private JsonObject toOpenAiToolFormat(boolean allParamsMandatory) {
+	private JsonObject toOpenAiToolFormat(boolean allParamsMandatory, ToolProfile profile) {
 		com.google.gson.Gson gson = GsonUtil.createGson();
-		JsonObject toolDefinitionGemini = getEnabledTools();
+		JsonObject toolDefinitionGemini = getEnabledTools(profile);
 
 		JsonArray geminiToolsArray = toolDefinitionGemini.getAsJsonArray("tools");
 		if (geminiToolsArray == null || geminiToolsArray.isEmpty()) {
@@ -178,7 +199,7 @@ public class ToolDefinitions {
 		return parameters;
 	}
 
-	private JsonObject getEnabledTools() {
+	private JsonObject getEnabledTools(ToolProfile profile) {
 		IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
 		if (prefs.getBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED)) {
 			JsonObject toolsJson = GsonUtil.createGson().fromJson(TOOL_DEFINITION_GEMINI, JsonObject.class);
@@ -186,10 +207,22 @@ public class ToolDefinitions {
 			JsonArray toolsArray = wrapperObj.get("functionDeclarations").getAsJsonArray();
 			JsonArray res = new JsonArray();
 			for (JsonElement el : toolsArray) {
-				String toolName = el.getAsJsonObject().get("name").getAsString();
-				if (prefs.getBoolean(String.format("%s.%s.%s", PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX, toolName,
-						PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX))) {
-					res.add(el);
+				JsonObject toolObj = el.getAsJsonObject();
+				String toolName = toolObj.get("name").getAsString();
+
+				// Check 1: Is this tool individually enabled in preferences?
+				boolean individuallyEnabled = prefs.getBoolean(String.format("%s.%s.%s",
+						PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX, toolName,
+						PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX));
+
+				// Check 2: Does the active profile allow this tool?
+				boolean allowedByProfile = (profile == null) || profile.allowsTool(getToolTags(toolName));
+
+				if (individuallyEnabled && allowedByProfile) {
+					// Deep copy and strip the "tags" field before adding to result
+					JsonObject cleanedTool = toolObj.deepCopy();
+					cleanedTool.remove("tags");
+					res.add(cleanedTool);
 				}
 			}
 			wrapperObj.remove("functionDeclarations");
@@ -200,9 +233,9 @@ public class ToolDefinitions {
 		}
 	}
 
-	private JsonObject toOpenAiFunctionFormat() {
+	private JsonObject toOpenAiFunctionFormat(ToolProfile profile) {
 		com.google.gson.Gson gson = GsonUtil.createGson();
-		JsonObject toolDefinitionGemini = getEnabledTools();
+		JsonObject toolDefinitionGemini = getEnabledTools(profile);
 
 		JsonArray geminiToolsArray = toolDefinitionGemini.getAsJsonArray("tools");
 		if (geminiToolsArray == null || geminiToolsArray.isEmpty()) {
@@ -238,12 +271,14 @@ public class ToolDefinitions {
 		private String name;
 		private String description;
 		private boolean enabled;
+		private Set<String> tags;
 
-		public Tool(String name, String description, boolean enabled) {
+		public Tool(String name, String description, boolean enabled, Set<String> tags) {
 			super();
 			this.name = name;
 			this.description = description;
 			this.enabled = enabled;
+			this.tags = tags != null ? tags : Collections.emptySet();
 		}
 
 		public String getName() {
@@ -268,6 +303,14 @@ public class ToolDefinitions {
 
 		public void setEnabled(boolean enabled) {
 			this.enabled = enabled;
+		}
+
+		public Set<String> getTags() {
+			return tags;
+		}
+
+		public void setTags(Set<String> tags) {
+			this.tags = tags;
 		}
 	}
 }

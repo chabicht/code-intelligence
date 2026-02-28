@@ -2,6 +2,7 @@ package com.chabicht.code_intelligence.apiclient;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 
 import java.io.IOException;
@@ -20,6 +21,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
+import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
@@ -76,10 +78,11 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		JsonObject req = createFromPresets(PromptType.CHAT);
 
-		Map<ChatOption, Object> options = chat.getOptions();
-		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
-			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini());
-		}
+	Map<ChatOption, Object> options = chat.getOptions();
+	if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+		ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
+		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini(profile));
+	}
 
 		String systemPrompt = getSystemPrompt(chat);
 		if (StringUtils.isNoneBlank(systemPrompt)) {

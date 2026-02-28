@@ -9,8 +9,10 @@ import java.util.regex.Pattern;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.Tuple;
+import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.util.ModelUtil;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatSettings extends Bean {
 	private static final BigDecimal VAL_2_5 = new BigDecimal("2.5");
@@ -23,7 +25,25 @@ public class ChatSettings extends Bean {
 	private int maxResponseTokens = Activator.getDefault().getMaxChatTokens();
 	private int reasoningTokens = 8192;
 	private boolean toolsEnabled = true;
+	private ToolProfile toolProfile = loadDefaultToolProfile();
 	private Map<String, Boolean> toolEnabledStates = new HashMap<>();
+
+	private static ToolProfile loadDefaultToolProfile() {
+		try {
+			String stored = Activator.getDefault().getPreferenceStore()
+					.getString(PreferenceConstants.CHAT_TOOL_PROFILE);
+			if (stored != null && !stored.isEmpty()) {
+				// Backward compatibility for removed profile.
+				if ("READ_WRITE".equals(stored)) {
+					return ToolProfile.ALL;
+				}
+				return ToolProfile.valueOf(stored);
+			}
+		} catch (Exception e) {
+			// ignore, use default
+		}
+		return ToolProfile.ALL;
+	}
 
 	public String getModel() {
 		return model;
@@ -76,6 +96,15 @@ public class ChatSettings extends Bean {
 	public void setToolsEnabled(boolean toolsEnabled) {
 		propertyChangeSupport.firePropertyChange("toolsEnabled", this.toolsEnabled,
 				this.toolsEnabled = toolsEnabled);
+	}
+
+	public ToolProfile getToolProfile() {
+		return toolProfile;
+	}
+
+	public void setToolProfile(ToolProfile toolProfile) {
+		propertyChangeSupport.firePropertyChange("toolProfile", this.toolProfile,
+				this.toolProfile = toolProfile);
 	}
 
 	public Map<String, Boolean> getToolEnabledStates() {

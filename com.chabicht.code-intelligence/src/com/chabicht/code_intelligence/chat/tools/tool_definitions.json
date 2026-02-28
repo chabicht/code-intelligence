@@ -2,10 +2,11 @@
 	"tools": [
 		{
 			"functionDeclarations": [
-				{
-					"name": "apply_patch",
-					"description": "Applies a patch to a code file.",
-					"parameters": {
+			{
+				"name": "apply_patch",
+				"description": "Applies a patch to a code file.",
+				"tags": ["write"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"file_name": {
@@ -23,10 +24,11 @@
 						]
 					}
 				},
-				{
-					"name": "read_file_content",
-					"description": "Reads the content of a specified file, or a specific line range within the file. Returns the content with line numbers prefixed.",
-					"parameters": {
+			{
+				"name": "read_file_content",
+				"description": "Reads the content of a specified file, or a specific line range within the file. Returns the content with line numbers prefixed.",
+				"tags": ["read"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"file_name": {
@@ -47,10 +49,11 @@
 						]
 					}
 				},
-				{
-					"name": "apply_change",
-					"description": "Applies a change to a code file.",
-					"parameters": {
+			{
+				"name": "apply_change",
+				"description": "Applies a change to a code file.",
+				"tags": ["write"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"file_name": {
@@ -78,10 +81,11 @@
 						]
 					}
 				},
-				{
-					"name": "perform_text_search",
-					"description": "Performs a text search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
-					"parameters": {
+			{
+				"name": "perform_text_search",
+				"description": "Performs a text search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
+				"tags": ["read"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"search_text": {
@@ -109,10 +113,11 @@
 						]
 					}
 				},
-				{
-					"name": "perform_regex_search",
-					"description": "Performs a RegEx search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
-					"parameters": {
+			{
+				"name": "perform_regex_search",
+				"description": "Performs a RegEx search in the workspace and returns the matches. The search is performed synchronously and results are collected directly.",
+				"tags": ["read"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"search_pattern": {
@@ -136,10 +141,11 @@
 						]
 					}
 				},
-				{
-					"name": "create_file",
-					"description": "Creates a new file with the specified content. Fails if the file already exists.",
-					"parameters": {
+			{
+				"name": "create_file",
+				"description": "Creates a new file with the specified content. Fails if the file already exists.",
+				"tags": ["write"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"file_path": {
@@ -157,10 +163,11 @@
 						]
 					}
 				},
-				{
-					"name": "find_files",
-					"description": "Finds files within the workspace by matching their full, workspace-relative path against a regular expression. This is useful for locating files when the exact name or path is unknown.",
-					"parameters": {
+			{
+				"name": "find_files",
+				"description": "Finds files within the workspace by matching their full, workspace-relative path against a regular expression. This is useful for locating files when the exact name or path is unknown.",
+				"tags": ["read"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 							"file_path_pattern": {
@@ -184,10 +191,11 @@
 						]
 					}
 				},
-				{
-					"name": "list_projects",
-					"description": "Lists all projects in the current workspace, showing their name and whether they are open or closed.",
-					"parameters": {
+			{
+				"name": "list_projects",
+				"description": "Lists all projects in the current workspace, showing their name and whether they are open or closed.",
+				"tags": ["read"],
+				"parameters": {
 						"type": "object",
 						"properties": {
 						}
