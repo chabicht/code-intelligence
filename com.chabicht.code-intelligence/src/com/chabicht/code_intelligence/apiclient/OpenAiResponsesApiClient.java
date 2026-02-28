@@ -290,6 +290,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
 			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.READ_WRITE);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAi(profile));
+			normalizeToolDefinitionsForResponses(req);
 		}
 		req.addProperty("parallel_tool_calls", false);
 
@@ -393,6 +394,47 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			preset.remove(key);
 		}
 		return preset;
+	}
+
+	private void normalizeToolDefinitionsForResponses(JsonObject req) {
+		if (!req.has("tools") || !req.get("tools").isJsonArray()) {
+			return;
+		}
+		JsonArray normalizedTools = new JsonArray();
+		for (JsonElement toolElement : req.getAsJsonArray("tools")) {
+			if (!toolElement.isJsonObject()) {
+				continue;
+			}
+			JsonObject tool = toolElement.getAsJsonObject();
+			if (!tool.has("type") || tool.get("type").isJsonNull()
+					|| !"function".equals(tool.get("type").getAsString())) {
+				normalizedTools.add(tool);
+				continue;
+			}
+
+			JsonObject normalizedTool = new JsonObject();
+			normalizedTool.addProperty("type", "function");
+			if (tool.has("function") && tool.get("function").isJsonObject()) {
+				JsonObject function = tool.getAsJsonObject("function");
+				copyIfPresent(function, normalizedTool, "name");
+				copyIfPresent(function, normalizedTool, "description");
+				copyIfPresent(function, normalizedTool, "parameters");
+				copyIfPresent(function, normalizedTool, "strict");
+			} else {
+				copyIfPresent(tool, normalizedTool, "name");
+				copyIfPresent(tool, normalizedTool, "description");
+				copyIfPresent(tool, normalizedTool, "parameters");
+				copyIfPresent(tool, normalizedTool, "strict");
+			}
+			normalizedTools.add(normalizedTool);
+		}
+		req.add("tools", normalizedTools);
+	}
+
+	private void copyIfPresent(JsonObject source, JsonObject target, String key) {
+		if (source.has(key) && !source.get(key).isJsonNull()) {
+			target.add(key, source.get(key).deepCopy());
+		}
 	}
 
 	private String findSystemInstructions(ChatConversation chat) {
