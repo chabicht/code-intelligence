@@ -33,12 +33,16 @@ public class ChatSettings extends Bean {
 			String stored = Activator.getDefault().getPreferenceStore()
 					.getString(PreferenceConstants.CHAT_TOOL_PROFILE);
 			if (stored != null && !stored.isEmpty()) {
+				// Backward compatibility for removed profile.
+				if ("READ_WRITE".equals(stored)) {
+					return ToolProfile.ALL;
+				}
 				return ToolProfile.valueOf(stored);
 			}
 		} catch (Exception e) {
 			// ignore, use default
 		}
-		return ToolProfile.READ_WRITE;
+		return ToolProfile.ALL;
 	}
 
 	public String getModel() {

@@ -257,7 +257,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
-			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.READ_WRITE);
+			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			if (apiConnection.isLegacyFormat()) {
 				patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAiLegacy(profile));
 			} else {

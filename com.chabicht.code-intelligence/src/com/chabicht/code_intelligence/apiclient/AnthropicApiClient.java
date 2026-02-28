@@ -128,7 +128,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 		Map<ChatOption, Object> options = chat.getOptions();
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
-			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.READ_WRITE);
+			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsAnthropic(profile));
 		}
 

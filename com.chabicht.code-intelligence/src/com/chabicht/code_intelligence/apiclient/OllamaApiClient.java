@@ -214,7 +214,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 
 		Map<ChatOption, Object> chatOptions = chat.getOptions();
 		if (chatOptions.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(chatOptions.get(TOOLS_ENABLED))) {
-			ToolProfile profile = (ToolProfile) chatOptions.getOrDefault(TOOL_PROFILE, ToolProfile.READ_WRITE);
+			ToolProfile profile = (ToolProfile) chatOptions.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOllama(profile));
 		}
 

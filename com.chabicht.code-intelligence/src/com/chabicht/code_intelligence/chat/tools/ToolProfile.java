@@ -4,7 +4,6 @@ import java.util.Set;
 
 public enum ToolProfile {
     READ_ONLY("Read Only", Set.of("read")),
-    READ_WRITE("Read/Write", Set.of("read", "write")),
     ALL("All Tools", null);
 
     private final String displayName;

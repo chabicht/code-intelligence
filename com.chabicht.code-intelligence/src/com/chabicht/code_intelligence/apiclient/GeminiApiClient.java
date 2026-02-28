@@ -80,7 +80,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	Map<ChatOption, Object> options = chat.getOptions();
 	if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
-		ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.READ_WRITE);
+		ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini(profile));
 	}
 
