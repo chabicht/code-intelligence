@@ -490,7 +490,10 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		if ("response.output_item.added".equals(type) || "response.output_item.done".equals(type)) {
 			if (payload.has("item") && payload.get("item").isJsonObject()) {
 				toolCallAccumulator.applyOutputItem(payload.getAsJsonObject("item"));
-				toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
+				if ("response.output_item.done".equals(type)) {
+					toolCallAccumulator.markDone();
+					toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
+				}
 			}
 			return;
 		}
@@ -598,6 +601,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		private final StringBuilder argumentsBuilder = new StringBuilder();
 		private boolean finalized;
 		private boolean warnedAboutMultipleCalls;
+		private boolean done;
 
 		private void applyOutputItem(JsonObject item) {
 			if (!item.has("type") || item.get("type").isJsonNull()) {
@@ -647,15 +651,20 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			if (StringUtils.isNotBlank(doneArguments) && argumentsBuilder.length() == 0) {
 				argumentsBuilder.append(doneArguments);
 			}
+			done = true;
 		}
 
 		private void finalizeIfComplete(ChatMessage assistantMessage, ChatConversation chat) {
-			if (finalized || StringUtils.isBlank(callId) || StringUtils.isBlank(functionName)) {
+			if (finalized || !done || StringUtils.isBlank(callId) || StringUtils.isBlank(functionName)) {
 				return;
 			}
 			assistantMessage.setFunctionCall(new FunctionCall(callId, functionName, argumentsBuilder.toString()));
 			chat.notifyFunctionCalled(assistantMessage);
 			finalized = true;
+		}
+
+		private void markDone() {
+			done = true;
 		}
 
 		private static String getString(JsonObject object, String key) {
