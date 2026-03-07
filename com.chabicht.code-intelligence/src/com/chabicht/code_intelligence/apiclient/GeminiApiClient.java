@@ -26,6 +26,8 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
@@ -121,11 +123,16 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 		AtomicBoolean responseFinished = new AtomicBoolean(false);
 		AtomicBoolean thinkingStarted = new AtomicBoolean(false);
+		AtomicBoolean functionCallEventSent = new AtomicBoolean(false);
+		FunctionCallBatch functionCallBatch = new FunctionCallBatch();
 
 		asyncRequest = HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofLines())
 				.thenAccept(response -> {
 					if (response.statusCode() >= 200 && response.statusCode() < 300) {
 						response.body().forEach(line -> {
+							if (responseFinished.get()) {
+								return;
+							}
 							// Activator.logInfo("Gemini: " + line);
 							if (line.startsWith("data: ")) {
 								String data = line.substring(6).trim();
@@ -139,54 +146,64 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 										if (content != null && content.has("parts")) {
 											JsonArray parts = content.getAsJsonArray("parts");
 											if (parts != null && !parts.isEmpty()) {
-												JsonObject firstPart = parts.get(0).getAsJsonObject();
+												for (JsonElement partElement : parts) {
+													if (partElement == null || !partElement.isJsonObject()) {
+														continue;
+													}
+													JsonObject part = partElement.getAsJsonObject();
 
-												if (firstPart.has("text")) {
-													String chunk = firstPart.get("text").getAsString();
-													if (firstPart.has("thought")
-															&& firstPart.get("thought").getAsBoolean()) {
-														if (!thinkingStarted.get()) {
-															assistantMessage.setContent(
-																	assistantMessage.getContent() + "\n<think>\n");
-															thinkingStarted.set(true);
-														}
-														assistantMessage.setThinkingContent(
-																(assistantMessage.getThinkingContent() == null ? ""
-																		: assistantMessage.getThinkingContent())
-																		+ chunk);
-													} else if (!firstPart.has("thought")
-															|| !firstPart.get("thought").getAsBoolean()) {
-														if (thinkingStarted.get()) {
-															assistantMessage.setContent(
-																	assistantMessage.getContent() + "\n</think>\n");
+													if (part.has("text")) {
+														String chunk = part.get("text").getAsString();
+														boolean isThoughtPart = part.has("thought")
+																&& part.get("thought").getAsBoolean();
+														if (isThoughtPart) {
+															if (!thinkingStarted.get()) {
+																assistantMessage
+																		.setContent(assistantMessage.getContent() + "\n<think>\n");
+																thinkingStarted.set(true);
+															}
+															assistantMessage.setThinkingContent(
+																	(assistantMessage.getThinkingContent() == null ? ""
+																			: assistantMessage.getThinkingContent())
+																			+ chunk);
+														} else if (thinkingStarted.get()) {
+															assistantMessage
+																	.setContent(assistantMessage.getContent() + "\n</think>\n");
 															thinkingStarted.set(false);
 														}
+
+														assistantMessage.setContent(assistantMessage.getContent() + chunk);
+														chat.notifyMessageUpdated(assistantMessage);
 													}
 
-													assistantMessage.setContent(assistantMessage.getContent() + chunk);
-													chat.notifyMessageUpdated(assistantMessage);
-												}
+													if (part.has("functionCall")) {
+														JsonObject functionCallObj = part.getAsJsonObject("functionCall");
+														String id = Optional.ofNullable(functionCallObj.get("id"))
+																.map(JsonElement::getAsString).orElse(null);
+														String functionName = functionCallObj.get("name").getAsString();
+														JsonObject functionArgs = functionCallObj.getAsJsonObject("args");
+														String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
+																: "{}";
 
-												if (firstPart.has("functionCall")) {
-													JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
-													String id = Optional.ofNullable(functionCall.get("id"))
-															.map(JsonElement::getAsString).orElse(null);
-													String functionName = functionCall.get("name").getAsString();
-													JsonObject functionArgs = functionCall.getAsJsonObject("args");
-													String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
-															: "{}";
+														FunctionCall parsedFunctionCall = new FunctionCall(id, functionName, argsJson);
+														functionCallBatch.addCall(parsedFunctionCall);
 
-													// Capture thoughtSignature if present (required by Gemini 3 Pro)
-													if (firstPart.has("thoughtSignature")) {
-														String thoughtSignature = firstPart.get("thoughtSignature")
-																.getAsString();
-														assistantMessage.setMetadata("gemini_thought_signature",
-																thoughtSignature);
+														// Backward-compatibility shim for existing single-call flow.
+														if (assistantMessage.getFunctionCall().isEmpty()) {
+															assistantMessage.setFunctionCall(parsedFunctionCall);
+														}
+
+														// Gemini expects thoughtSignature replay from the first relevant call part.
+														if (StringUtils.isBlank(functionCallBatch.getThoughtSignature())
+																&& part.has("thoughtSignature")
+																&& !part.get("thoughtSignature").isJsonNull()) {
+															String thoughtSignature = part.get("thoughtSignature")
+																	.getAsString();
+															functionCallBatch.setThoughtSignature(thoughtSignature);
+															assistantMessage.setMetadata("gemini_thought_signature",
+																	thoughtSignature);
+														}
 													}
-
-													assistantMessage.setFunctionCall(
-															new FunctionCall(id, functionName, argsJson));
-													chat.notifyFunctionCalled(assistantMessage);
 												}
 											}
 										}
@@ -195,6 +212,19 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 											String reason = candidate.get("finishReason").getAsString();
 											if ("MALFORMED_FUNCTION_CALL".equals(reason)) {
 												Activator.logError("Error " + reason + " in API response.\n");
+											}
+											if (thinkingStarted.get()) {
+												assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
+												thinkingStarted.set(false);
+											}
+											boolean hasFunctionCalls = functionCallBatch.getItems().stream()
+													.anyMatch(item -> item != null && item.getCall() != null);
+											if (hasFunctionCalls) {
+												assistantMessage.setFunctionCallBatch(functionCallBatch);
+												if (!functionCallEventSent.get()) {
+													chat.notifyFunctionCalled(assistantMessage);
+													functionCallEventSent.set(true);
+												}
 											}
 											chat.notifyChatResponseFinished(assistantMessage);
 											responseFinished.set(true);
@@ -302,15 +332,29 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 			}
 
 			JsonObject jsonMsg = createMessage(msg.getRole());
-
-			if (msg.getFunctionCall().isPresent()) {
-				fillFunctionCall(jsonMsg, msg);
-			} else {
-				fillTextMessage(jsonMsg, msg);
+			boolean hasBatchCalls = fillFunctionCallBatch(jsonMsg, msg);
+			if (!hasBatchCalls) {
+				if (msg.getFunctionCall().isPresent()) {
+					fillFunctionCall(jsonMsg, msg);
+				} else {
+					fillTextMessage(jsonMsg, msg);
+				}
 			}
 			messagesJson.add(jsonMsg);
 
-			if (msg.getFunctionResult().isPresent()) {
+			if (hasBatchCalls) {
+				FunctionCallBatch batch = msg.getFunctionCallBatch().get();
+				if (hasBatchResults(batch)) {
+					JsonObject resultUserMessage = createMessage(Role.USER);
+					fillFunctionResultsFromBatchItems(resultUserMessage, batch.getItems());
+					messagesJson.add(resultUserMessage);
+				} else if (msg.getFunctionResult().isPresent()) {
+					// Compatibility fallback while legacy single-call fields still exist.
+					JsonObject resultUserMessage = createMessage(Role.USER);
+					fillFunctionResult(resultUserMessage, msg);
+					messagesJson.add(resultUserMessage);
+				}
+			} else if (msg.getFunctionResult().isPresent()) {
 				JsonObject resultUserMessage = createMessage(Role.USER);
 				fillFunctionResult(resultUserMessage, msg);
 				messagesJson.add(resultUserMessage);
@@ -319,21 +363,60 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		return messagesJson;
 	}
 
+	private boolean fillFunctionCallBatch(JsonObject jsonMsg, ChatMessage msg) {
+		if (msg.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		FunctionCallBatch batch = msg.getFunctionCallBatch().get();
+		List<FunctionCallItem> items = batch.getItems();
+		if (items.isEmpty()) {
+			return false;
+		}
+
+		String thoughtSignature = batch.getThoughtSignature();
+		if (StringUtils.isBlank(thoughtSignature)) {
+			Object metadataSignature = msg.getMetadata("gemini_thought_signature");
+			if (metadataSignature instanceof String) {
+				thoughtSignature = (String) metadataSignature;
+			}
+		}
+
+		boolean firstCall = true;
+		for (FunctionCallItem item : items) {
+			if (item == null || item.getCall() == null) {
+				continue;
+			}
+			FunctionCall call = item.getCall();
+			fillFunctionCall(jsonMsg, call, firstCall ? thoughtSignature : null);
+			firstCall = false;
+		}
+
+		return jsonMsg.getAsJsonArray("parts").size() > 0;
+	}
+
 	private void fillFunctionCall(JsonObject jsonMsg, ChatMessage msg) {
 		FunctionCall fc = msg.getFunctionCall().get();
+		String thoughtSignature = null;
+		Object metadataSignature = msg.getMetadata("gemini_thought_signature");
+		if (metadataSignature instanceof String) {
+			thoughtSignature = (String) metadataSignature;
+		}
+		fillFunctionCall(jsonMsg, fc, thoughtSignature);
+	}
+
+	private void fillFunctionCall(JsonObject jsonMsg, FunctionCall fc, String thoughtSignature) {
 		JsonObject functionCallObj = new JsonObject();
 		functionCallObj.addProperty("id", fc.getId());
 		functionCallObj.addProperty("name", fc.getFunctionName());
-		functionCallObj.add("args", gson.fromJson(fc.getArgsJson(), JsonObject.class));
+		functionCallObj.add("args", parseJsonObjectOrEmpty(fc.getArgsJson()));
 
 		JsonObject partObj = new JsonObject();
 		partObj.add("functionCall", functionCallObj);
 
-		// Add thoughtSignature if present (required by Gemini 3 Pro for function
-		// calling)
-		Object thoughtSignature = msg.getMetadata("gemini_thought_signature");
-		if (thoughtSignature != null) {
-			partObj.addProperty("thoughtSignature", (String) thoughtSignature);
+		// Add thoughtSignature if present (required by Gemini for function call replay).
+		if (StringUtils.isNotBlank(thoughtSignature)) {
+			partObj.addProperty("thoughtSignature", thoughtSignature);
 		}
 
 		jsonMsg.getAsJsonArray("parts").add(partObj);
@@ -341,13 +424,64 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	private void fillFunctionResult(JsonObject jsonMsg, ChatMessage msg) {
 		FunctionResult fr = msg.getFunctionResult().get();
+		fillFunctionResult(jsonMsg, fr);
+	}
+
+	private void fillFunctionResults(JsonObject jsonMsg, List<FunctionResult> results) {
+		for (FunctionResult result : results) {
+			if (result == null) {
+				continue;
+			}
+			fillFunctionResult(jsonMsg, result);
+		}
+	}
+
+	private void fillFunctionResultsFromBatchItems(JsonObject jsonMsg, List<FunctionCallItem> items) {
+		if (items == null) {
+			return;
+		}
+		for (FunctionCallItem item : items) {
+			if (item == null || item.getResult() == null) {
+				continue;
+			}
+			fillFunctionResult(jsonMsg, item.getResult());
+		}
+	}
+
+	private boolean hasBatchResults(FunctionCallBatch batch) {
+		if (batch == null) {
+			return false;
+		}
+		for (FunctionCallItem item : batch.getItems()) {
+			if (item != null && item.getResult() != null) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void fillFunctionResult(JsonObject jsonMsg, FunctionResult fr) {
 		JsonObject functionCallObj = new JsonObject();
 		functionCallObj.addProperty("id", fr.getId());
 		functionCallObj.addProperty("name", fr.getFunctionName());
-		functionCallObj.add("response", gson.fromJson(fr.getResultJson(), JsonObject.class));
+		functionCallObj.add("response", parseJsonObjectOrEmpty(fr.getResultJson()));
 		JsonObject partObj = new JsonObject();
 		partObj.add("functionResponse", functionCallObj);
 		jsonMsg.getAsJsonArray("parts").add(partObj);
+	}
+
+	private JsonObject parseJsonObjectOrEmpty(String json) {
+		if (StringUtils.isBlank(json)) {
+			return new JsonObject();
+		}
+		try {
+			JsonObject parsed = gson.fromJson(json, JsonObject.class);
+			return parsed != null ? parsed : new JsonObject();
+		} catch (Exception e) {
+			Activator.logError("Failed to parse function JSON payload (length="
+					+ (json == null ? 0 : json.length()) + ")", e);
+			return new JsonObject();
+		}
 	}
 
 	private void fillTextMessage(JsonObject jsonMsg, ChatConversation.ChatMessage msg) {

@@ -104,11 +104,14 @@ import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.chat.tools.FunctionCallSession;
+import com.chabicht.code_intelligence.chat.tools.FunctionCallSession.BatchExecutionReport;
 import com.chabicht.code_intelligence.chat.tools.FunctionCallSession.ChangeApplicationResult;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionParamValue;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -211,21 +214,18 @@ public class ChatView extends ViewPart {
 			});
 		}
 
-		@Override
-		public void onFunctionCall(ChatMessage message) {
-			onMessageUpdated(message);
-			functionCallSession.handleFunctionCall(message);
-			onMessageUpdated(message);
-
-			boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
-					.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
-			if (applyChangesImmediately && functionCallSession.hasPendingChanges()) {
-				ChangeApplicationResult res = functionCallSession.applyPendingChanges();
-				if (res != ChangeApplicationResult.SUCCESS) {
-					abortChat();
+			@Override
+			public void onFunctionCall(ChatMessage message) {
+				if (message.getFunctionCallBatch().isEmpty() && message.getFunctionCall().isPresent()) {
+					FunctionCallBatch singleCallBatch = new FunctionCallBatch();
+					singleCallBatch.addCall(message.getFunctionCall().get());
+					message.setFunctionCallBatch(singleCallBatch);
 				}
+
+				message.setMetadata("tool_execution_state", "queued");
+				functionCallSession.enqueueBatch(message);
+				onMessageUpdated(message);
 			}
-		}
 
 		private String getReexecuteIconBase64() {
 			// Material Design "replay" icon, fill #333333
@@ -259,104 +259,124 @@ public class ChatView extends ViewPart {
 		}
 
 		private String messageToolUseToHtml(ChatMessage message) {
-			String functionCallHtml = "";
-			if (message.getFunctionCall().isPresent()) {
-				FunctionCall call = message.getFunctionCall().get();
-				FunctionResult result = message.getFunctionResult()
-						.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
-
-				// Build parameter divs
-				StringBuilder paramsTable = new StringBuilder("<div class=\"function-params-container\">");
-				paramsTable.append("<div class=\"params-header\">Parameters</div>");
-
-				for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
-					String paramName = entry.getKey();
-					FunctionParamValue paramValue = entry.getValue();
-					String displayValue;
-
-					if (paramValue.isMarkdown()) {
-						displayValue = markdownRenderer
-								.render(markdownParser.parse("```\n" + paramValue.getValue() + "\n```"));
-					} else {
-						displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
-					}
-
-					paramsTable.append(
-							String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
-									StringEscapeUtils.escapeHtml4(paramName), displayValue));
-				}
-				paramsTable.append("</div>");
-
-				// Build result divs if we have results
-				StringBuilder resultTable = new StringBuilder();
-				if (!result.getPrettyResults().isEmpty()) {
-					resultTable.append("<div class=\"function-results-container\">");
-					resultTable.append("<div class=\"results-header\">Results</div>");
-
-					for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
-						String resultName = entry.getKey();
-						FunctionParamValue resultValue = entry.getValue();
-						String displayValue;
-
-						if (resultValue.isMarkdown()) {
-							displayValue = markdownRenderer.render(markdownParser.parse(resultValue.getValue()));
-						} else {
-							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
+			if (message.getFunctionCallBatch().isPresent()) {
+				FunctionCallBatch batch = message.getFunctionCallBatch().get();
+				List<FunctionCallItem> callableItems = batch.getItems().stream()
+						.filter(item -> item != null && item.getCall() != null).collect(Collectors.toList());
+				if (!callableItems.isEmpty()) {
+					StringBuilder batchHtml = new StringBuilder();
+					for (int i = 0; i < callableItems.size(); i++) {
+						FunctionCallItem item = callableItems.get(i);
+						FunctionCall call = item.getCall();
+						FunctionResult result = item.getResult();
+						boolean hasFunctionResult = result != null;
+						if (!hasFunctionResult) {
+							result = new FunctionResult(call.getId(), call.getFunctionName());
 						}
 
-						resultTable.append(
-								String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
-										StringEscapeUtils.escapeHtml4(resultName), displayValue));
+						String summaryLabel = String.format("Function call %d/%d: %s", i + 1, callableItems.size(),
+								call.getFunctionName());
+						batchHtml.append(renderFunctionCallHtml(message, call, result, hasFunctionResult, summaryLabel, false));
 					}
-					resultTable.append("</div>");
-				}
-
-				// Build raw JSON section
-				String rawArgsJson = "";
-				if (StringUtils.isNotBlank(call.getArgsJson())) {
-					rawArgsJson = markdownRenderer
-							.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```"));
-				}
-
-				String rawResultJson = "";
-				if (StringUtils.isNotBlank(result.getResultJson())) {
-					rawResultJson = markdownRenderer.render(
-							markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```"));
-				}
-
-				// Build combined raw JSON section
-				String rawJsonSection = "";
-				if (StringUtils.isNotBlank(rawArgsJson) || StringUtils.isNotBlank(rawResultJson)) {
-					rawJsonSection = "<details><summary>Raw JSON</summary>";
-					if (StringUtils.isNotBlank(rawArgsJson)) {
-						rawJsonSection += "<blockquote><p>Args:</p>" + rawArgsJson + "</blockquote>";
+					if (batchHtml.length() > 0) {
+						return batchHtml.toString();
 					}
-					if (StringUtils.isNotBlank(rawResultJson)) {
-						rawJsonSection += "<blockquote><p>Result:</p>" + rawResultJson + "</blockquote>";
-					}
-					rawJsonSection += "</details>";
 				}
+			}
 
-				// Combine everything into the final structure
-				// Build re-execute button HTML
+			if (message.getFunctionCall().isEmpty()) {
+				return "";
+			}
+
+			FunctionCall call = message.getFunctionCall().get();
+			Optional<FunctionResult> resultOpt = message.getFunctionResult();
+			FunctionResult result = resultOpt.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
+			return renderFunctionCallHtml(message, call, result, resultOpt.isPresent(),
+					"Function call: " + call.getFunctionName(), true);
+		}
+
+		private String renderFunctionCallHtml(ChatMessage message, FunctionCall call, FunctionResult result,
+				boolean hasFunctionResult, String summaryLabel, boolean includeReexecuteAction) {
+			StringBuilder paramsTable = new StringBuilder("<div class=\"function-params-container\">");
+			paramsTable.append("<div class=\"params-header\">Parameters</div>");
+			for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
+				String paramName = entry.getKey();
+				FunctionParamValue paramValue = entry.getValue();
+				String displayValue;
+				if (paramValue.isMarkdown()) {
+					displayValue = markdownRenderer
+							.render(markdownParser.parse("```\n" + paramValue.getValue() + "\n```"));
+				} else {
+					displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
+				}
+				paramsTable.append(
+						String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
+								StringEscapeUtils.escapeHtml4(paramName), displayValue));
+			}
+			paramsTable.append("</div>");
+
+			StringBuilder resultTable = new StringBuilder();
+			resultTable.append("<div class=\"function-results-container\">");
+			resultTable.append("<div class=\"results-header\">Results</div>");
+			if (!result.getPrettyResults().isEmpty()) {
+				for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
+					String resultName = entry.getKey();
+					FunctionParamValue resultValue = entry.getValue();
+					String displayValue;
+					if (resultValue.isMarkdown()) {
+						displayValue = markdownRenderer.render(markdownParser.parse(resultValue.getValue()));
+					} else {
+						displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
+					}
+					resultTable.append(
+							String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
+									StringEscapeUtils.escapeHtml4(resultName), displayValue));
+				}
+			} else if (!hasFunctionResult) {
+				resultTable
+						.append("<div class=\"result-name\">status</div><div class=\"result-value\">Queued</div>");
+			} else {
+				resultTable
+						.append("<div class=\"result-name\">status</div><div class=\"result-value\">Completed</div>");
+			}
+			resultTable.append("</div>");
+
+			String rawArgsJson = "";
+			if (StringUtils.isNotBlank(call.getArgsJson())) {
+				rawArgsJson = markdownRenderer
+						.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```"));
+			}
+			String rawResultJson = "";
+			if (StringUtils.isNotBlank(result.getResultJson())) {
+				rawResultJson = markdownRenderer
+						.render(markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```"));
+			}
+
+			String rawJsonSection = "";
+			if (StringUtils.isNotBlank(rawArgsJson) || StringUtils.isNotBlank(rawResultJson)) {
+				rawJsonSection = "<details><summary>Raw JSON</summary>";
+				if (StringUtils.isNotBlank(rawArgsJson)) {
+					rawJsonSection += "<blockquote><p>Args:</p>" + rawArgsJson + "</blockquote>";
+				}
+				if (StringUtils.isNotBlank(rawResultJson)) {
+					rawJsonSection += "<blockquote><p>Result:</p>" + rawResultJson + "</blockquote>";
+				}
+				rawJsonSection += "</details>";
+			}
+
+			String actionsHtml = "";
+			if (includeReexecuteAction) {
 				String reexecuteButtonHtml = String.format(
 						"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
 								+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute"
 								+ "</button>",
-						message.getId(), // Pass the message UUID
-						getReexecuteIconBase64() // Assuming this method is added to the class
-				);
-
-				functionCallHtml = String
-						.format("<details class=\"function-call-details\"><summary>Function call: %s</summary>"
-								+ "<blockquote>" + "%s" + // Params table
-								"%s" + // Result table
-								"%s" + // Raw JSON section
-								"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
-								"</blockquote>" + "</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
-								paramsTable.toString(), resultTable.toString(), rawJsonSection, reexecuteButtonHtml);
+						message.getId(), getReexecuteIconBase64());
+				actionsHtml = "<div class=\"tool-actions\">" + reexecuteButtonHtml + "</div>";
 			}
-			return functionCallHtml;
+
+			return String.format("<details class=\"function-call-details\"><summary>%s</summary>"
+					+ "<blockquote>%s%s%s%s</blockquote></details>", StringEscapeUtils.escapeHtml4(summaryLabel),
+					paramsTable.toString(), resultTable.toString(), rawJsonSection, actionsHtml);
 		}
 
 		private String toolSummaryToHtml(ChatMessage message) {
@@ -375,27 +395,44 @@ public class ChatView extends ViewPart {
 			return String.format("<div class=\"tool-summary\">%s%s</div>", contentHtml, actions);
 		}
 
-		@Override
-		public void onChatResponseFinished(ChatMessage message) {
-			Display.getDefault().asyncExec(() -> {
-				if (message.getFunctionResult().isEmpty()) {
-					// Set text to "▶️"
-					btnSend.setText("\u25B6");
+			@Override
+			public void onChatResponseFinished(ChatMessage message) {
+				Display.getDefault().asyncExec(() -> {
+					BatchExecutionReport batchReport = functionCallSession.executePendingBatchesSequentially();
+					boolean hasExecutedToolCalls = batchReport.getCallsExecuted() > 0;
 
-					connection = null;
+					for (ChatMessage updatedMessage : batchReport.getUpdatedMessages()) {
+						updatedMessage.setMetadata("tool_execution_state", "completed");
+						onMessageUpdated(updatedMessage);
+					}
+
+					if (!hasExecutedToolCalls) {
+						// Set text to "▶️"
+						btnSend.setText("\u25B6");
+
+						connection = null;
 
 					if (isDebugPromptLoggingEnabled()) {
 						Activator.logInfo(conversation.toString());
 					}
 
-					applyPendingChanges();
+						applyPendingChanges();
 
-					addConversationToHistory();
-				} else {
-					sendFunctionResult(message);
-				}
+						addConversationToHistory();
+					} else {
+						boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
+								.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
+						if (applyChangesImmediately && functionCallSession.hasPendingChanges()) {
+							ChangeApplicationResult res = functionCallSession.applyPendingChanges();
+							if (res != ChangeApplicationResult.SUCCESS) {
+								abortChat();
+								return;
+							}
+						}
+						sendFunctionResult();
+					}
 
-				Display.getDefault().asyncExec(() -> {
+					Display.getDefault().asyncExec(() -> {
 					chat.markMessageFinished(message.getId());
 				});
 			});
@@ -533,14 +570,10 @@ public class ChatView extends ViewPart {
 		}
 	}
 
-	private void sendFunctionResult(ChatMessage message) {
+	private void sendFunctionResult() {
 		if (connection != null && connection.isChatPending()) {
 			connection.abortChat();
 		}
-
-		Display.getDefault().asyncExec(() -> {
-			chat.markMessageFinished(message.getId());
-		});
 
 		connection.chat(conversation, settings.getMaxResponseTokens());
 	}

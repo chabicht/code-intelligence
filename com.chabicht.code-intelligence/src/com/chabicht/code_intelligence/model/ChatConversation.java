@@ -201,6 +201,7 @@ public class ChatConversation {
 
 		private Optional<FunctionCall> functionCall = Optional.empty();
 		private Optional<FunctionResult> functionResult = Optional.empty();
+		private Optional<FunctionCallBatch> functionCallBatch = Optional.empty();
 
 		// Fields for thinking/reasoning content
 		private String thinkingContent;
@@ -265,7 +266,7 @@ public class ChatConversation {
 		}
 
 		public void setFunctionCall(Optional<FunctionCall> functionCall) {
-			this.functionCall = functionCall;
+			this.functionCall = (functionCall != null) ? functionCall : Optional.empty();
 		}
 
 		public void setFunctionCall(FunctionCall functionCall) {
@@ -277,11 +278,23 @@ public class ChatConversation {
 		}
 
 		public void setFunctionResult(Optional<FunctionResult> functionResult) {
-			this.functionResult = functionResult;
+			this.functionResult = (functionResult != null) ? functionResult : Optional.empty();
 		}
 
 		public void setFunctionResult(FunctionResult functionResult) {
 			this.functionResult = Optional.ofNullable(functionResult);
+		}
+
+		public Optional<FunctionCallBatch> getFunctionCallBatch() {
+			return functionCallBatch;
+		}
+
+		public void setFunctionCallBatch(Optional<FunctionCallBatch> functionCallBatch) {
+			this.functionCallBatch = (functionCallBatch != null) ? functionCallBatch : Optional.empty();
+		}
+
+		public void setFunctionCallBatch(FunctionCallBatch functionCallBatch) {
+			this.functionCallBatch = Optional.ofNullable(functionCallBatch);
 		}
 
 		/**
@@ -399,9 +412,18 @@ public class ChatConversation {
 			sb.append(" }");
 			if (functionCall.isPresent()) {
 				sb.append(",\n  functionCall=" + functionCall);
-			} else {
-				sb.append("\n");
 			}
+			if (functionCallBatch.isPresent()) {
+				FunctionCallBatch batch = functionCallBatch.get();
+				sb.append(",\n  functionCallBatch={batchId=").append(batch.getBatchId());
+				sb.append(", items=").append(batch.getItems().size());
+				sb.append(", executionComplete=").append(batch.isExecutionComplete());
+				if (StringUtils.isNotBlank(batch.getThoughtSignature())) {
+					sb.append(", thoughtSignature=").append(batch.getThoughtSignature());
+				}
+				sb.append("}");
+			}
+			sb.append("\n");
 			return sb.toString();
 		}
 	}
@@ -509,6 +531,166 @@ public class ChatConversation {
 				entry.getValue().appendMarkdown(sb, entry.getKey());
 			}
 			return sb.toString();
+		}
+	}
+
+	public static class FunctionCallBatch {
+		public static class FunctionCallItem {
+			private FunctionCall call;
+			private FunctionResult result;
+
+			public FunctionCallItem() {
+			}
+
+			public FunctionCallItem(FunctionCall call, FunctionResult result) {
+				this.call = call;
+				this.result = result;
+			}
+
+			public FunctionCall getCall() {
+				return call;
+			}
+
+			public void setCall(FunctionCall call) {
+				this.call = call;
+			}
+
+			public FunctionResult getResult() {
+				return result;
+			}
+
+			public void setResult(FunctionResult result) {
+				this.result = result;
+			}
+		}
+
+		private String batchId;
+		private List<FunctionCallItem> items = new ArrayList<>();
+		private String thoughtSignature;
+		private boolean executionComplete;
+
+		public FunctionCallBatch() {
+			this(UUID.randomUUID().toString());
+		}
+
+		public FunctionCallBatch(String batchId) {
+			this.batchId = StringUtils.isNotBlank(batchId) ? batchId : UUID.randomUUID().toString();
+		}
+
+		public String getBatchId() {
+			return batchId;
+		}
+
+		public void setBatchId(String batchId) {
+			this.batchId = StringUtils.isNotBlank(batchId) ? batchId : UUID.randomUUID().toString();
+		}
+
+		public List<FunctionCallItem> getItems() {
+			if (items == null) {
+				items = new ArrayList<>();
+			}
+			return items;
+		}
+
+		public void setItems(List<FunctionCallItem> items) {
+			this.items = (items != null) ? items : new ArrayList<>();
+		}
+
+		// Compatibility helper while migrating old call sites.
+		public List<FunctionCall> getCalls() {
+			List<FunctionCall> calls = new ArrayList<>();
+			for (FunctionCallItem item : getItems()) {
+				if (item != null && item.getCall() != null) {
+					calls.add(item.getCall());
+				}
+			}
+			return calls;
+		}
+
+		// Compatibility helper while migrating old call sites.
+		public void setCalls(List<FunctionCall> calls) {
+			List<FunctionCall> safeCalls = (calls != null) ? calls : new ArrayList<>();
+			List<FunctionResult> existingResults = getResults();
+			getItems().clear();
+			for (int i = 0; i < safeCalls.size(); i++) {
+				FunctionResult existingResult = i < existingResults.size() ? existingResults.get(i) : null;
+				getItems().add(new FunctionCallItem(safeCalls.get(i), existingResult));
+			}
+		}
+
+		// Compatibility helper while migrating old call sites.
+		public void setResults(List<FunctionResult> results) {
+			List<FunctionResult> safeResults = (results != null) ? results : new ArrayList<>();
+			List<FunctionCallItem> safeItems = getItems();
+			for (int i = 0; i < safeItems.size(); i++) {
+				FunctionCallItem item = safeItems.get(i);
+				if (item == null) {
+					item = new FunctionCallItem();
+					safeItems.set(i, item);
+				}
+				item.setResult(i < safeResults.size() ? safeResults.get(i) : null);
+			}
+			for (int i = safeItems.size(); i < safeResults.size(); i++) {
+				safeItems.add(new FunctionCallItem(null, safeResults.get(i)));
+			}
+		}
+
+		// Compatibility helper while migrating old call sites.
+		public List<FunctionResult> getResults() {
+			List<FunctionResult> results = new ArrayList<>();
+			for (FunctionCallItem item : getItems()) {
+				if (item != null && item.getResult() != null) {
+					results.add(item.getResult());
+				}
+			}
+			return results;
+		}
+
+		public String getThoughtSignature() {
+			return thoughtSignature;
+		}
+
+		public void setThoughtSignature(String thoughtSignature) {
+			this.thoughtSignature = thoughtSignature;
+		}
+
+		public boolean isExecutionComplete() {
+			return executionComplete;
+		}
+
+		public void setExecutionComplete(boolean executionComplete) {
+			this.executionComplete = executionComplete;
+		}
+
+		public void addCall(FunctionCall call) {
+			if (call != null) {
+				getItems().add(new FunctionCallItem(call, null));
+			}
+		}
+
+		public void addResult(FunctionResult result) {
+			if (result == null) {
+				return;
+			}
+			for (FunctionCallItem item : getItems()) {
+				if (item != null && item.getResult() == null) {
+					item.setResult(result);
+					return;
+				}
+			}
+			getItems().add(new FunctionCallItem(null, result));
+		}
+
+		public void setResultForCall(int callIndex, FunctionResult result) {
+			if (callIndex < 0 || result == null || callIndex >= getItems().size()) {
+				return;
+			}
+			FunctionCallItem item = getItems().get(callIndex);
+			if (item == null) {
+				item = new FunctionCallItem();
+				getItems().set(callIndex, item);
+			}
+			item.setResult(result);
 		}
 	}
 

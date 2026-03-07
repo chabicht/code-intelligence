@@ -34,6 +34,8 @@ import org.eclipse.ui.PlatformUI;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.util.GsonUtil;
 import com.google.gson.Gson;
@@ -45,6 +47,41 @@ import com.google.gson.JsonSyntaxException;
 public class FunctionCallSession {
 	public static enum ChangeApplicationResult {
 		SUCCESS, ERROR, CANCEL;
+	}
+
+	public static class BatchExecutionReport {
+		private int batchesExecuted;
+		private int callsExecuted;
+		private int callsFailed;
+		private final List<ChatMessage> updatedMessages = new ArrayList<>();
+
+		public int getBatchesExecuted() {
+			return batchesExecuted;
+		}
+
+		public void setBatchesExecuted(int batchesExecuted) {
+			this.batchesExecuted = batchesExecuted;
+		}
+
+		public int getCallsExecuted() {
+			return callsExecuted;
+		}
+
+		public void setCallsExecuted(int callsExecuted) {
+			this.callsExecuted = callsExecuted;
+		}
+
+		public int getCallsFailed() {
+			return callsFailed;
+		}
+
+		public void setCallsFailed(int callsFailed) {
+			this.callsFailed = callsFailed;
+		}
+
+		public List<ChatMessage> getUpdatedMessages() {
+			return updatedMessages;
+		}
 	}
 
 	private final IResourceAccess realResourceAccess;
@@ -63,6 +100,7 @@ public class FunctionCallSession {
 	private final Map<IFile, List<TextFileChange>> pendingTextFileChanges = new HashMap<>();
 	private final Map<String, Change> pendingCreateFileChanges = new HashMap<>();
 	private final List<UUID> messagesWithPendingChanges = new ArrayList<>();
+	private final List<ChatMessage> pendingBatchMessages = new ArrayList<>();
 
 	public FunctionCallSession() {
 		// Create the real resource access
@@ -115,18 +153,116 @@ public class FunctionCallSession {
 	public void handleFunctionCall(ChatMessage message) {
 		Optional<FunctionCall> callOpt = message.getFunctionCall();
 		if (callOpt.isPresent()) {
-			FunctionCall call = callOpt.get();
-			String functionName = call.getFunctionName();
-			String argsJson = call.getArgsJson();
+			FunctionResult result = executeFunctionCall(message.getId(), callOpt.get());
+			message.setFunctionResult(result);
+		}
+	}
 
-			FunctionResult result = new FunctionResult(call.getId(), functionName);
+	public void enqueueBatch(ChatMessage assistantMessage) {
+		if (assistantMessage == null || assistantMessage.getFunctionCallBatch().isEmpty()) {
+			return;
+		}
 
+		FunctionCallBatch batch = assistantMessage.getFunctionCallBatch().get();
+		boolean hasCalls = batch.getItems().stream().anyMatch(item -> item != null && item.getCall() != null);
+		if (!hasCalls) {
+			return;
+		}
+
+		boolean alreadyQueued = pendingBatchMessages.stream()
+				.anyMatch(queued -> queued != null && queued.getId().equals(assistantMessage.getId()));
+		if (!alreadyQueued) {
+			pendingBatchMessages.add(assistantMessage);
+		}
+	}
+
+	public BatchExecutionReport executePendingBatchesSequentially() {
+		BatchExecutionReport report = new BatchExecutionReport();
+		if (pendingBatchMessages.isEmpty()) {
+			return report;
+		}
+
+		List<ChatMessage> batchesToExecute = new ArrayList<>(pendingBatchMessages);
+		pendingBatchMessages.clear();
+
+		int batchesExecuted = 0;
+		int callsExecuted = 0;
+		int callsFailed = 0;
+
+		for (ChatMessage assistantMessage : batchesToExecute) {
+			if (assistantMessage == null || assistantMessage.getFunctionCallBatch().isEmpty()) {
+				continue;
+			}
+
+			FunctionCallBatch batch = assistantMessage.getFunctionCallBatch().get();
+			List<FunctionCallItem> items = batch.getItems();
+			boolean hasCalls = items.stream().anyMatch(item -> item != null && item.getCall() != null);
+			if (!hasCalls) {
+				batch.setExecutionComplete(true);
+				continue;
+			}
+
+			batch.setExecutionComplete(false);
+			for (FunctionCallItem item : items) {
+				if (item != null) {
+					item.setResult(null);
+				}
+			}
+
+			boolean firstExecutedCall = true;
+			for (int i = 0; i < items.size(); i++) {
+				FunctionCallItem item = items.get(i);
+				if (item == null || item.getCall() == null) {
+					continue;
+				}
+				FunctionCall call = item.getCall();
+				FunctionResult result = executeFunctionCall(assistantMessage.getId(), call);
+				item.setResult(result);
+				batch.setResultForCall(i, result);
+				callsExecuted++;
+				if (isErrorResult(result)) {
+					callsFailed++;
+				}
+
+				// Keep legacy fields aligned for compatibility until full batch-only migration.
+				if (firstExecutedCall) {
+					if (assistantMessage.getFunctionCall().isEmpty()) {
+						assistantMessage.setFunctionCall(call);
+					}
+					assistantMessage.setFunctionResult(result);
+					firstExecutedCall = false;
+				}
+			}
+
+			batch.setExecutionComplete(true);
+			batchesExecuted++;
+			report.getUpdatedMessages().add(assistantMessage);
+		}
+
+		report.setBatchesExecuted(batchesExecuted);
+		report.setCallsExecuted(callsExecuted);
+		report.setCallsFailed(callsFailed);
+		return report;
+	}
+
+	private FunctionResult executeFunctionCall(UUID messageId, FunctionCall call) {
+		String functionName = call != null ? call.getFunctionName() : null;
+		String argsJson = call != null ? call.getArgsJson() : "{}";
+		FunctionResult result = new FunctionResult(call != null ? call.getId() : null,
+				functionName != null ? functionName : "unknown");
+
+		if (call == null || StringUtils.isBlank(functionName)) {
+			populateErrorResult(result, "Invalid function call payload: missing function name.");
+			return result;
+		}
+
+		try {
 			switch (functionName) {
 			case "apply_change":
-				handleApplyChange(message.getId(), call, result, argsJson);
+				handleApplyChange(messageId, call, result, argsJson);
 				break;
 			case "apply_patch":
-				handleApplyPatch(message.getId(), call, result, argsJson);
+				handleApplyPatch(messageId, call, result, argsJson);
 				break;
 			case "perform_text_search":
 				handlePerformSearch(call, result, argsJson, false);
@@ -137,29 +273,57 @@ public class FunctionCallSession {
 			case "read_file_content":
 				handleReadFileContent(call, result, argsJson);
 				break;
-			case "create_file": // Added case for create_file
-				handleCreateFile(message.getId(), call, result, argsJson);
+			case "create_file":
+				handleCreateFile(messageId, call, result, argsJson);
 				break;
-			case "find_files": // Add this new case
+			case "find_files":
 				handleFindFiles(call, result, argsJson);
 				break;
 			case "list_projects":
 				handleListProjects(call, result, argsJson);
 				break;
 			default:
-				Activator.logError("Unsupported function call: " + functionName);
 				String errorMsg = "Unsupported function call: " + functionName;
-				result.addPrettyResult("status", "Error", false);
-				result.addPrettyResult("message", errorMsg, false);
-				JsonObject jsonResult = new JsonObject();
-				jsonResult.addProperty("status", "Error");
-				jsonResult.addProperty("message", errorMsg);
-				result.setResultJson(gson.toJson(jsonResult));
+				Activator.logError(errorMsg);
+				populateErrorResult(result, errorMsg);
 				break;
 			}
-
-			message.setFunctionResult(result);
+		} catch (Exception e) {
+			String errorMsg = "Error processing function call '" + functionName + "': " + e.getMessage();
+			Activator.logError(errorMsg, e);
+			populateErrorResult(result, errorMsg);
 		}
+
+		if (StringUtils.isBlank(result.getResultJson())) {
+			populateErrorResult(result, "Function call produced no result payload: " + functionName);
+		}
+
+		return result;
+	}
+
+	private void populateErrorResult(FunctionResult result, String message) {
+		result.addPrettyResult("status", "Error", false);
+		result.addPrettyResult("message", message, false);
+		JsonObject jsonResult = new JsonObject();
+		jsonResult.addProperty("status", "Error");
+		jsonResult.addProperty("message", message);
+		result.setResultJson(gson.toJson(jsonResult));
+	}
+
+	private boolean isErrorResult(FunctionResult result) {
+		if (result == null || StringUtils.isBlank(result.getResultJson())) {
+			return true;
+		}
+		try {
+			JsonObject jsonResult = gson.fromJson(result.getResultJson(), JsonObject.class);
+			if (jsonResult != null && jsonResult.has("status") && !jsonResult.get("status").isJsonNull()) {
+				return "Error".equalsIgnoreCase(jsonResult.get("status").getAsString());
+			}
+		} catch (Exception e) {
+			Activator.logError("Unable to parse function result status JSON", e);
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -610,6 +774,7 @@ public class FunctionCallSession {
 		pendingTextFileChanges.clear();
 		pendingCreateFileChanges.clear();
 		messagesWithPendingChanges.clear();
+		pendingBatchMessages.clear();
 
 		// Clear the buffer caches
 		if (bufferedResourceAccess != null) {
