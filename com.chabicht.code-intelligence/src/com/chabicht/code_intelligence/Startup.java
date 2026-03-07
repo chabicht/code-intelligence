@@ -16,8 +16,7 @@ public class Startup implements IStartup {
 	public void earlyStartup() {
 		Display.getDefault().syncExec(() -> {
 			Activator activator = Activator.getDefault();
-			boolean wizardShown = activator.getPreferenceStore()
-					.getBoolean(CONNECTION_SETUP_WIZARD_PROPOSED);
+			boolean wizardShown = activator.getPreferenceStore().getBoolean(CONNECTION_SETUP_WIZARD_PROPOSED);
 			if (!wizardShown && activator.loadApiConnections().isEmpty()) {
 				Shell shell = Display.getDefault().getActiveShell();
 				if (MessageDialog.openQuestion(shell, "Code Intelligence: launch setup wizard?", """

@@ -18,36 +18,36 @@ import com.chabicht.code_intelligence.util.ThemeUtil;
  */
 public class MessageContextDialog extends Dialog {
 
-    private MessageContext messageContext;
+	private MessageContext messageContext;
 
-    public MessageContextDialog(Shell parentShell, MessageContext messageContext) {
-        super(parentShell);
-        this.messageContext = messageContext;
-        setShellStyle(SWT.DIALOG_TRIM | SWT.RESIZE | SWT.APPLICATION_MODAL);
-    }
+	public MessageContextDialog(Shell parentShell, MessageContext messageContext) {
+		super(parentShell);
+		this.messageContext = messageContext;
+		setShellStyle(SWT.DIALOG_TRIM | SWT.RESIZE | SWT.APPLICATION_MODAL);
+	}
 
-    @Override
-    protected void configureShell(Shell newShell) {
-        super.configureShell(newShell);
+	@Override
+	protected void configureShell(Shell newShell) {
+		super.configureShell(newShell);
 		newShell.setText("Message Context: " + messageContext.getLabel());
-    }
+	}
 
-    @Override
-    protected Control createDialogArea(Composite parent) {
-        Composite container = (Composite) super.createDialogArea(parent);
-        container.setLayout(new GridLayout(1, false));
+	@Override
+	protected Control createDialogArea(Composite parent) {
+		Composite container = (Composite) super.createDialogArea(parent);
+		container.setLayout(new GridLayout(1, false));
 
-        StyledText styledText = new StyledText(container, SWT.BORDER | SWT.V_SCROLL | SWT.H_SCROLL);
-        styledText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+		StyledText styledText = new StyledText(container, SWT.BORDER | SWT.V_SCROLL | SWT.H_SCROLL);
+		styledText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 		styledText.setText(messageContext.compile());
 		styledText.setFont(ThemeUtil.getTextEditorFont());
-        styledText.setEditable(false);
+		styledText.setEditable(false);
 
-        return container;
-    }
+		return container;
+	}
 
-    @Override
-    protected Point getInitialSize() {
-        return new Point(600, 400);
-    }
+	@Override
+	protected Point getInitialSize() {
+		return new Point(600, 400);
+	}
 }

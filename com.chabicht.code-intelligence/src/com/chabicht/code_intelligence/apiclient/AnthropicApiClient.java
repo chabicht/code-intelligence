@@ -245,10 +245,10 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 														toolUse.addInputJson(partialJson);
 													}
 												}
-									} else if (deltaType.equals("signature_delta")) {
-										assistantMessage.setMetadata("anthropic_signature",
-												delta.get("signature").getAsString());
-									}
+											} else if (deltaType.equals("signature_delta")) {
+												assistantMessage.setMetadata("anthropic_signature",
+														delta.get("signature").getAsString());
+											}
 										}
 										break;
 
@@ -320,8 +320,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 									default:
 										Activator.logError("Unknown event type in stream: " + eventType
-												+ "\nOriginal line: " + line,
-												null);
+												+ "\nOriginal line: " + line, null);
 									}
 								}
 							} catch (JsonSyntaxException e) {
@@ -363,10 +362,10 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			if (Role.SYSTEM.equals(msg.getRole())) {
 				continue;
 			}
-            // Skip TOOL_SUMMARY messages, they are for internal use only
-            if (Role.TOOL_SUMMARY.equals(msg.getRole())) {
-                continue;
-            }
+			// Skip TOOL_SUMMARY messages, they are for internal use only
+			if (Role.TOOL_SUMMARY.equals(msg.getRole())) {
+				continue;
+			}
 
 			// Build message text with context
 			StringBuilder contentBuilder = new StringBuilder();
@@ -399,15 +398,15 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				thinkingContent.addProperty("type", "thinking");
 				thinkingContent.addProperty("thinking", msg.getThinkingContent());
 
-			// Add signature field required by Anthropic API
-			// If the field is missing we assume the user switched models. In that case we
-			// can't send the thoughts "back" to the API.
-			Object signature = msg.getMetadata("anthropic_signature");
-			if (signature != null) {
-				thinkingContent.addProperty("signature", (String) signature);
+				// Add signature field required by Anthropic API
+				// If the field is missing we assume the user switched models. In that case we
+				// can't send the thoughts "back" to the API.
+				Object signature = msg.getMetadata("anthropic_signature");
+				if (signature != null) {
+					thinkingContent.addProperty("signature", (String) signature);
 
-				contentArray.add(thinkingContent);
-			}
+					contentArray.add(thinkingContent);
+				}
 			}
 
 			// Add text content block if message content is not blank

@@ -97,8 +97,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 				!retryWithoutPreviousResponseId);
 		String requestBody = gson.toJson(buildResult.requestBody());
 
-		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5))
-				.followRedirects(Redirect.ALWAYS).build();
+		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+				.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10))
 				.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(RESPONSES_REL_PATH))
 				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("Content-Type", "application/json");
@@ -132,7 +132,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 						}
 						try {
 							JsonObject payload = JsonParser.parseString(data).getAsJsonObject();
-							handleStreamingEvent(currentEvent.get(), payload, assistantMessage, chat, toolCallAccumulator);
+							handleStreamingEvent(currentEvent.get(), payload, assistantMessage, chat,
+									toolCallAccumulator);
 						} catch (JsonSyntaxException e) {
 							Activator.logWarn("Could not parse streaming payload: " + data);
 						} catch (Exception e) {
@@ -216,7 +217,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			statusCode = response.statusCode();
 			responseBody = response.body();
 			if (statusCode < 200 || statusCode >= 300) {
-				throw new RuntimeException(String.format("API request failed with code %s:\n%s", statusCode, responseBody));
+				throw new RuntimeException(
+						String.format("API request failed with code %s:\n%s", statusCode, responseBody));
 			}
 			return (T) JsonParser.parseString(responseBody);
 		} catch (Exception e) {
@@ -233,7 +235,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 	}
 
 	@SuppressWarnings("unchecked")
-	private <T extends JsonElement, U extends JsonElement> T performPost(Class<T> clazz, String relPath, U requestBody) {
+	private <T extends JsonElement, U extends JsonElement> T performPost(Class<T> clazz, String relPath,
+			U requestBody) {
 		int statusCode = -1;
 		String responseBody = "(nothing)";
 		String requestBodyString = "(nothing)";
@@ -243,7 +246,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
 			HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10))
 					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath))
-					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString)).header("Content-Type", "application/json");
+					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
+					.header("Content-Type", "application/json");
 			if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
 				requestBuilder = requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
 			}
@@ -253,7 +257,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			statusCode = response.statusCode();
 			responseBody = response.body();
 			if (statusCode < 200 || statusCode >= 300) {
-				throw new RuntimeException(String.format("API request failed with code %s:\n%s", statusCode, responseBody));
+				throw new RuntimeException(
+						String.format("API request failed with code %s:\n%s", statusCode, responseBody));
 			}
 			return (T) JsonParser.parseString(responseBody);
 		} catch (Exception e) {
@@ -271,8 +276,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		}
 	}
 
-	private ChatRequestBuildResult buildResponsesChatRequest(String modelName, ChatConversation chat, int maxResponseTokens,
-			boolean allowPreviousResponseId) {
+	private ChatRequestBuildResult buildResponsesChatRequest(String modelName, ChatConversation chat,
+			int maxResponseTokens, boolean allowPreviousResponseId) {
 		JsonObject req = sanitizePresetForResponses(createFromPresets(PromptType.CHAT));
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
@@ -319,8 +324,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		int startIndex = -1;
 		for (int i = messages.size() - 1; i >= 0; i--) {
 			ChatMessage message = messages.get(i);
-			if (Role.ASSISTANT.equals(message.getRole())
-					&& StringUtils.equals(previousResponseId, Objects.toString(message.getMetadata(META_OPENAI_RESPONSE_ID), null))) {
+			if (Role.ASSISTANT.equals(message.getRole()) && StringUtils.equals(previousResponseId,
+					Objects.toString(message.getMetadata(META_OPENAI_RESPONSE_ID), null))) {
 				startIndex = i;
 				break;
 			}
@@ -616,7 +621,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			String nextFunctionName = getString(item, "name");
 			if (StringUtils.isNotBlank(callId) && StringUtils.isNotBlank(nextCallId)
 					&& !StringUtils.equals(callId, nextCallId) && !warnedAboutMultipleCalls) {
-				Activator.logWarn("Received multiple function calls in one assistant turn. Only the first is supported.");
+				Activator.logWarn(
+						"Received multiple function calls in one assistant turn. Only the first is supported.");
 				warnedAboutMultipleCalls = true;
 				return;
 			}

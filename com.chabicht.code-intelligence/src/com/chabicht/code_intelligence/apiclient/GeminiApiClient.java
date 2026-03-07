@@ -2,8 +2,8 @@ package com.chabicht.code_intelligence.apiclient;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
-import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
 import java.io.IOException;
 import java.net.URI;
@@ -78,11 +78,11 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
 		JsonObject req = createFromPresets(PromptType.CHAT);
 
-	Map<ChatOption, Object> options = chat.getOptions();
-	if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
-		ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
-		patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini(profile));
-	}
+		Map<ChatOption, Object> options = chat.getOptions();
+		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
+			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
+			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsGemini(profile));
+		}
 
 		String systemPrompt = getSystemPrompt(chat);
 		if (StringUtils.isNoneBlank(systemPrompt)) {
@@ -167,25 +167,27 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 													chat.notifyMessageUpdated(assistantMessage);
 												}
 
-							if (firstPart.has("functionCall")) {
-								JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
-								String id = Optional.ofNullable(functionCall.get("id"))
-										.map(JsonElement::getAsString).orElse(null);
-								String functionName = functionCall.get("name").getAsString();
-								JsonObject functionArgs = functionCall.getAsJsonObject("args");
-								String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
-										: "{}";
-								
-								// Capture thoughtSignature if present (required by Gemini 3 Pro)
-								if (firstPart.has("thoughtSignature")) {
-									String thoughtSignature = firstPart.get("thoughtSignature").getAsString();
-									assistantMessage.setMetadata("gemini_thought_signature", thoughtSignature);
-								}
-								
-								assistantMessage.setFunctionCall(
-										new FunctionCall(id, functionName, argsJson));
-								chat.notifyFunctionCalled(assistantMessage);
-							}
+												if (firstPart.has("functionCall")) {
+													JsonObject functionCall = firstPart.getAsJsonObject("functionCall");
+													String id = Optional.ofNullable(functionCall.get("id"))
+															.map(JsonElement::getAsString).orElse(null);
+													String functionName = functionCall.get("name").getAsString();
+													JsonObject functionArgs = functionCall.getAsJsonObject("args");
+													String argsJson = (functionArgs != null) ? gson.toJson(functionArgs)
+															: "{}";
+
+													// Capture thoughtSignature if present (required by Gemini 3 Pro)
+													if (firstPart.has("thoughtSignature")) {
+														String thoughtSignature = firstPart.get("thoughtSignature")
+																.getAsString();
+														assistantMessage.setMetadata("gemini_thought_signature",
+																thoughtSignature);
+													}
+
+													assistantMessage.setFunctionCall(
+															new FunctionCall(id, functionName, argsJson));
+													chat.notifyFunctionCalled(assistantMessage);
+												}
 											}
 										}
 
@@ -323,16 +325,17 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		functionCallObj.addProperty("id", fc.getId());
 		functionCallObj.addProperty("name", fc.getFunctionName());
 		functionCallObj.add("args", gson.fromJson(fc.getArgsJson(), JsonObject.class));
-		
+
 		JsonObject partObj = new JsonObject();
 		partObj.add("functionCall", functionCallObj);
-		
-		// Add thoughtSignature if present (required by Gemini 3 Pro for function calling)
+
+		// Add thoughtSignature if present (required by Gemini 3 Pro for function
+		// calling)
 		Object thoughtSignature = msg.getMetadata("gemini_thought_signature");
 		if (thoughtSignature != null) {
 			partObj.addProperty("thoughtSignature", (String) thoughtSignature);
 		}
-		
+
 		jsonMsg.getAsJsonArray("parts").add(partObj);
 	}
 

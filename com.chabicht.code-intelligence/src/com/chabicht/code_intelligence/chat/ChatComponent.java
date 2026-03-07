@@ -32,7 +32,7 @@ import com.chabicht.code_intelligence.util.ThemeUtil;
 public class ChatComponent extends Composite {
 	private static final RGB BLACK = new RGB(0, 0, 0);
 	private static final RGB WHITE = new RGB(255, 255, 255);
-	
+
 	private Browser bChat;
 	private final Set<UUID> knownMessages = new HashSet<>();
 	private boolean ready = false;
@@ -67,8 +67,8 @@ public class ChatComponent extends Composite {
 		boolean isDark = ThemeUtil.isDarkTheme();
 		Color bgColor = getTextBackgroundColor();
 		String bgColorString = toCss(bgColor);
-		Color fgColor = rm.create(ColorDescriptor
-				.createFrom(interpolate(isDark ? WHITE : BLACK, new RGB(255 - bgColor.getRed(), 255 - bgColor.getGreen(), 255 - bgColor.getBlue()), 90)));
+		Color fgColor = rm.create(ColorDescriptor.createFrom(interpolate(isDark ? WHITE : BLACK,
+				new RGB(255 - bgColor.getRed(), 255 - bgColor.getGreen(), 255 - bgColor.getBlue()), 90)));
 		String fgColorString = toCss(fgColor);
 
 		Color bubbleColor = rm.create(interpolate(bgColor, fgColor, 95));
@@ -102,8 +102,7 @@ public class ChatComponent extends Composite {
 		return template;
 	}
 
-	private String replacePlaceholder(String template, String placeholder, String resourceFileName,
-			String tagName) {
+	private String replacePlaceholder(String template, String placeholder, String resourceFileName, String tagName) {
 		try {
 			String resourceContent = loadResource(resourceFileName);
 			return template.replaceAll(placeholder,

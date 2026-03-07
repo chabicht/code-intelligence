@@ -260,7 +260,6 @@ public class ChatConversation {
 			return sb.toString();
 		}
 
-
 		public Optional<FunctionCall> getFunctionCall() {
 			return functionCall;
 		}
@@ -341,43 +340,43 @@ public class ChatConversation {
 			this.isThinkingComplete = isThinkingComplete;
 		}
 
-	/**
-	 * Gets the metadata map for this message. This can be used to store
-	 * API-specific properties that need to be preserved across calls.
-	 * 
-	 * <p>
-	 * Examples include signature fields, cache control, or other provider-specific
-	 * data that must be echoed back in subsequent requests.
-	 * 
-	 * @return the metadata map
-	 */
-	public Map<String, Object> getMetadata() {
-		return metadata;
-	}
+		/**
+		 * Gets the metadata map for this message. This can be used to store
+		 * API-specific properties that need to be preserved across calls.
+		 * 
+		 * <p>
+		 * Examples include signature fields, cache control, or other provider-specific
+		 * data that must be echoed back in subsequent requests.
+		 * 
+		 * @return the metadata map
+		 */
+		public Map<String, Object> getMetadata() {
+			return metadata;
+		}
 
-	/**
-	 * Sets a metadata property for this message.
-	 * 
-	 * <p>
-	 * This field is used to store API-specific data that needs to be preserved
-	 * and sent back in subsequent calls.
-	 * 
-	 * @param key   the metadata key
-	 * @param value the metadata value
-	 */
-	public void setMetadata(String key, Object value) {
-		this.metadata.put(key, value);
-	}
+		/**
+		 * Sets a metadata property for this message.
+		 * 
+		 * <p>
+		 * This field is used to store API-specific data that needs to be preserved and
+		 * sent back in subsequent calls.
+		 * 
+		 * @param key   the metadata key
+		 * @param value the metadata value
+		 */
+		public void setMetadata(String key, Object value) {
+			this.metadata.put(key, value);
+		}
 
-	/**
-	 * Gets a specific metadata property.
-	 * 
-	 * @param key the metadata key
-	 * @return the metadata value, or null if not present
-	 */
-	public Object getMetadata(String key) {
-		return this.metadata.get(key);
-	}
+		/**
+		 * Gets a specific metadata property.
+		 * 
+		 * @param key the metadata key
+		 * @return the metadata value, or null if not present
+		 */
+		public Object getMetadata(String key) {
+			return this.metadata.get(key);
+		}
 
 		@Override
 		public String toString() {
@@ -388,9 +387,9 @@ public class ChatConversation {
 			if (StringUtils.isNotBlank(thinkingContent)) {
 				sb.append("  thinkingContent:\n  ===\n").append(thinkingContent).append("\n  ===\n");
 				sb.append("  isThinkingComplete=").append(isThinkingComplete).append("\n");
-			if (!metadata.isEmpty()) {
-				sb.append("  metadata=").append(metadata).append("\n");
-			}
+				if (!metadata.isEmpty()) {
+					sb.append("  metadata=").append(metadata).append("\n");
+				}
 			}
 			if (context != null && !context.isEmpty()) {
 				sb.append("  context=").append(context).append("\n");
@@ -532,7 +531,8 @@ public class ChatConversation {
 
 		public void appendMarkdown(StringBuilder sb, String key) {
 			String value = this.getValue();
-			String contentIndent = "  "; // Indentation for content lines under the key, relative to the key's base indent.
+			String contentIndent = "  "; // Indentation for content lines under the key, relative to the key's base
+											// indent.
 
 			sb.append("  **").append(key).append(":** ");
 

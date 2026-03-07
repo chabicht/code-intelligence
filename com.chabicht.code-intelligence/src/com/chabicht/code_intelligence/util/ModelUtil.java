@@ -16,10 +16,11 @@ public class ModelUtil {
 
 		modelId = StringUtils.stripToEmpty(modelId);
 		int firstSlashIndex = modelId.indexOf('/');
-		if(firstSlashIndex>=0) {
-			res = Optional.of(new Tuple<>(modelId.substring(0, firstSlashIndex), modelId.substring(firstSlashIndex+1)));
+		if (firstSlashIndex >= 0) {
+			res = Optional
+					.of(new Tuple<>(modelId.substring(0, firstSlashIndex), modelId.substring(firstSlashIndex + 1)));
 		}
-		
+
 		return res;
 	}
 }

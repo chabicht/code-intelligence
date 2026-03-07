@@ -61,9 +61,8 @@ public class CodeIntelligenceCompletionProposalComputer implements IJavaCompleti
 
 			int ctxBeforeStartOffset = doc.getLineOffset(Math.max(0, startLine - ctxLinesBefore));
 			int selectedLinesStartOffset = doc.getLineOffset(doc.getLineOfOffset(textSelection.getOffset()));
-			int selectedLinesEndOffset = doc
-					.getLineOffset(Math.min(doc.getNumberOfLines() - 1,
-							doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1));
+			int selectedLinesEndOffset = doc.getLineOffset(Math.min(doc.getNumberOfLines() - 1,
+					doc.getLineOfOffset(textSelection.getOffset() + textSelection.getLength()) + 1));
 			int ctxAfterEndLine = Math.min(doc.getNumberOfLines() - 1, endLine + ctxLinesAfter + 1);
 			int ctxAfterEndOffset = doc.getLineOffset(ctxAfterEndLine);
 			// Special case: last line

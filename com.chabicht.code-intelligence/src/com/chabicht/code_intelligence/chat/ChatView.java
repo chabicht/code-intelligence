@@ -765,8 +765,7 @@ public class ChatView extends ViewPart {
 					try {
 						BeanUtils.copyProperties(settings, dlg.getSettings());
 						// Save tool profile to preferences
-						Activator.getDefault().getPreferenceStore().setValue(
-								PreferenceConstants.CHAT_TOOL_PROFILE,
+						Activator.getDefault().getPreferenceStore().setValue(PreferenceConstants.CHAT_TOOL_PROFILE,
 								settings.getToolProfile().name());
 					} catch (IllegalAccessException | InvocationTargetException ex) {
 						Activator.logError(ex.getMessage(), ex);
@@ -1250,12 +1249,12 @@ public class ChatView extends ViewPart {
 			externallyAddedContext.clear();
 			addSelectionAsContext(chatMessage);
 
-		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
-		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
-		conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
-		conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
+			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
+			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
+			conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 
-		conversation.addMessage(chatMessage, true);
+			conversation.addMessage(chatMessage, true);
 			connection.chat(conversation, settings.getMaxResponseTokens());
 			userInput.set("");
 
@@ -1519,45 +1518,45 @@ public class ChatView extends ViewPart {
 	}
 
 	/**
-	 * Copies the entire chat conversation to clipboard in markdown format.
-	 * Includes all messages with their roles, content, context, and tool calls.
+	 * Copies the entire chat conversation to clipboard in markdown format. Includes
+	 * all messages with their roles, content, context, and tool calls.
 	 */
 	public void copyEntireChatToClipboard() {
 		List<ChatMessage> messages = conversation.getMessages();
-		
+
 		if (messages.isEmpty()) {
 			// Optionally show a message that there's nothing to copy
 			return;
 		}
-		
+
 		StringBuilder markdown = new StringBuilder();
 		markdown.append("# Chat Conversation\n\n");
-		
+
 		// Add conversation metadata if available
 		if (conversation.getCaption() != null && !conversation.getCaption().isEmpty()) {
 			markdown.append("**Title:** ").append(conversation.getCaption()).append("\n\n");
 		}
-		
+
 		// Add timestamp
 		markdown.append("**Exported:** ").append(new Date()).append("\n\n");
 		markdown.append("---\n\n");
-		
+
 		// Process each message
 		for (int i = 0; i < messages.size(); i++) {
 			ChatMessage message = messages.get(i);
-			
+
 			// Format message based on role
 			String roleHeader = formatRoleHeader(message.getRole());
 			markdown.append("## ").append(roleHeader).append("\n\n");
-			
+
 			// Add message content
 			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
 			String content = thoughtsAndMessage.getMessage();
-			
+
 			if (content != null && !content.trim().isEmpty()) {
 				markdown.append(content).append("\n\n");
 			}
-			
+
 			// Add context if present
 			if (!message.getContext().isEmpty()) {
 				markdown.append("### Context\n\n");
@@ -1567,25 +1566,25 @@ public class ChatView extends ViewPart {
 					markdown.append("\n```\n\n");
 				}
 			}
-			
+
 			// Add tool call details
 			String toolCallDetails = message.getToolCallDetailsAsMarkdown();
 			if (toolCallDetails != null && !toolCallDetails.trim().isEmpty()) {
 				markdown.append(toolCallDetails).append("\n");
 			}
-			
+
 			// Add separator between messages (except for the last one)
 			if (i < messages.size() - 1) {
 				markdown.append("---\n\n");
 			}
 		}
-		
+
 		// Copy to clipboard
 		Clipboard clipboard = new Clipboard(Display.getDefault());
 		TextTransfer textTransfer = TextTransfer.getInstance();
 		clipboard.setContents(new Object[] { markdown.toString() }, new Transfer[] { textTransfer });
 		clipboard.dispose();
-		
+
 		// Optional: Show confirmation message
 		// You could add a status bar message or toast notification here
 	}
@@ -1595,16 +1594,16 @@ public class ChatView extends ViewPart {
 	 */
 	private String formatRoleHeader(Role role) {
 		switch (role) {
-			case USER:
-				return "User";
-			case ASSISTANT:
-				return "Assistant";
-			case SYSTEM:
-				return "System";
-			case TOOL_SUMMARY:
-				return "Tool Summary";
-			default:
-				return role.toString();
+		case USER:
+			return "User";
+		case ASSISTANT:
+			return "Assistant";
+		case SYSTEM:
+			return "System";
+		case TOOL_SUMMARY:
+			return "Tool Summary";
+		default:
+			return role.toString();
 		}
 	}
 
@@ -1820,8 +1819,7 @@ public class ChatView extends ViewPart {
 		// Apply pending changes after all function calls are done.
 		if (functionCallSession.hasPendingChanges()) {
 			// 1. Identify the sequence of tool calls that just finished.
-			Set<UUID> messagesWithPendingChanges = new HashSet<>(
-					functionCallSession.getMessagesWithPendingChanges());
+			Set<UUID> messagesWithPendingChanges = new HashSet<>(functionCallSession.getMessagesWithPendingChanges());
 			List<ChatMessage> toolCallSequence = new ArrayList<>();
 			conversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
 					.forEach(toolCallSequence::add);

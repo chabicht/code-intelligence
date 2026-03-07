@@ -261,8 +261,7 @@ public class BufferedResourceAccess implements IResourceAccess {
 	 * @return A new document with changes applied, or the original if no changes
 	 */
 	private IDocument applyPendingChanges(String filePath, IDocument originalDoc) {
-		List<TextFileChange> changes = session.getPendingTextFileChanges()
-				.get(filePath);
+		List<TextFileChange> changes = session.getPendingTextFileChanges().get(filePath);
 		if (changes == null || changes.isEmpty()) {
 			return originalDoc;
 		}

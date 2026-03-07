@@ -273,35 +273,33 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 										}
 									}
 
-								// Handle thinking content
+									// Handle thinking content
 									if (messageObj.has("thinking")
 											&& !StringUtils.isEmpty(messageObj.get("thinking").getAsString())) {
-									if (!thinkingStarted.get()) {
+										if (!thinkingStarted.get()) {
+											assistantMessage.setContent(assistantMessage.getContent() + "\n<think>\n");
+											thinkingStarted.set(true);
+										}
+										String thinking = messageObj.get("thinking").getAsString();
+										assistantMessage.setContent(assistantMessage.getContent() + thinking);
 										assistantMessage
-												.setContent(assistantMessage.getContent() + "\n<think>\n");
-										thinkingStarted.set(true);
+												.setThinkingContent((assistantMessage.getThinkingContent() == null ? ""
+														: assistantMessage.getThinkingContent()) + thinking);
+										chat.notifyMessageUpdated(assistantMessage);
 									}
-									String thinking = messageObj.get("thinking").getAsString();
-									assistantMessage.setContent(assistantMessage.getContent() + thinking);
-									assistantMessage.setThinkingContent(
-											(assistantMessage.getThinkingContent() == null ? ""
-													: assistantMessage.getThinkingContent()) + thinking);
-									chat.notifyMessageUpdated(assistantMessage);
-								}
 
-								// Handle content
+									// Handle content
 									if (messageObj.has("content")
 											&& !StringUtils.isEmpty(messageObj.get("content").getAsString())) {
-									if (thinkingStarted.get()) {
-										assistantMessage
-												.setContent(assistantMessage.getContent() + "\n</think>\n");
-										thinkingStarted.set(false);
-									}
-									String chunk = messageObj.get("content").getAsString();
-									assistantMessage.setContent(assistantMessage.getContent() + chunk);
+										if (thinkingStarted.get()) {
+											assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
+											thinkingStarted.set(false);
+										}
+										String chunk = messageObj.get("content").getAsString();
+										assistantMessage.setContent(assistantMessage.getContent() + chunk);
 
-									chat.notifyMessageUpdated(assistantMessage);
-								}
+										chat.notifyMessageUpdated(assistantMessage);
+									}
 								}
 								if (jsonChunk.has("done") && jsonChunk.get("done").getAsBoolean()) {
 									finalizeAssistantMessage(assistantMessage, chat, responseFinished);

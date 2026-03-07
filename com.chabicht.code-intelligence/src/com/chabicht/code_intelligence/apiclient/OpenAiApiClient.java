@@ -145,7 +145,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("model", modelName);
 		setPropertyIfNotPresent(req, "temperature", completionPrompt.getTemperature());
 		// Fix for MistralAI: they don't support max_completion_tokens
-		if(!modelName.toLowerCase().contains("mistral")) {
+		if (!modelName.toLowerCase().contains("mistral")) {
 			req.addProperty("max_completion_tokens", Activator.getDefault().getMaxCompletionTokens());
 		}
 
@@ -250,7 +250,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
 		// Fix for MistralAI: they don't support max_completion_tokens
-		if(!modelName.toLowerCase().contains("mistral")) {
+		if (!modelName.toLowerCase().contains("mistral")) {
 			req.addProperty("max_completion_tokens", maxResponseTokens);
 		}
 		req.addProperty("stream", true);
@@ -342,13 +342,13 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 											handleToolCallDelta(delta.getAsJsonArray("tool_calls"), activeToolCalls,
 													assistantMessage, chat);
 										}
-                                        
-                                        // Check for function_call in the delta (deprecated format)
-                                        if (delta.has("function_call") && !delta.get("function_call").isJsonNull()) {
-                                            // Process function call (deprecated format)
-                                            handleFunctionCallDelta(delta.getAsJsonObject("function_call"), activeToolCalls,
-                                                    assistantMessage, chat);
-                                        }
+
+										// Check for function_call in the delta (deprecated format)
+										if (delta.has("function_call") && !delta.get("function_call").isJsonNull()) {
+											// Process function call (deprecated format)
+											handleFunctionCallDelta(delta.getAsJsonObject("function_call"),
+													activeToolCalls, assistantMessage, chat);
+										}
 
 										if (StringUtils.isNotEmpty(chunk)) {
 											// Append the received chunk to the assistant message.
@@ -362,7 +362,8 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 									if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
 										String finishReason = choice.get("finish_reason").getAsString();
 										if ("tool_calls".equals(finishReason) || "function_call".equals(finishReason)) {
-											// All tool calls or function calls are complete - finalize any pending calls
+											// All tool calls or function calls are complete - finalize any pending
+											// calls
 											finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 										}
 									}
@@ -387,12 +388,12 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			}
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat", e);
-			
+
 			// Clean up any pending tool/function calls
 			if (!activeToolCalls.isEmpty()) {
 				finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 			}
-			
+
 			chat.notifyChatResponseFinished(assistantMessage);
 			asyncRequest = null;
 			return null;
@@ -521,41 +522,39 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	/**
-	 * Processes function call deltas from the streaming API response (deprecated format).
+	 * Processes function call deltas from the streaming API response (deprecated
+	 * format).
 	 * 
-	 * @param functionCallDelta  The function call delta from the current chunk
-	 * @param activeToolCalls    Map of active tool calls being tracked
-	 * @param assistantMessage   The assistant message to update
-	 * @param chat               The chat conversation
+	 * @param functionCallDelta The function call delta from the current chunk
+	 * @param activeToolCalls   Map of active tool calls being tracked
+	 * @param assistantMessage  The assistant message to update
+	 * @param chat              The chat conversation
 	 */
-	private void handleFunctionCallDelta(JsonObject functionCallDelta, 
-	                                   Map<Integer, ToolCallInfo> activeToolCalls,
-	                                   ChatConversation.ChatMessage assistantMessage, 
-	                                   ChatConversation chat) {
+	private void handleFunctionCallDelta(JsonObject functionCallDelta, Map<Integer, ToolCallInfo> activeToolCalls,
+			ChatConversation.ChatMessage assistantMessage, ChatConversation chat) {
 		try {
-			// For the deprecated function_call format, we always use index 0 
+			// For the deprecated function_call format, we always use index 0
 			// (there is only one function call in this format)
 			int index = 0;
-			
+
 			// Check if this is a new function call or an update to an existing one
 			if (!activeToolCalls.containsKey(index)) {
 				// This is a new function call, extract the name
 				String name = null;
-				
+
 				if (functionCallDelta.has("name") && !functionCallDelta.get("name").isJsonNull()) {
 					name = functionCallDelta.get("name").getAsString();
-					
+
 					// Generate a unique ID for the function call
 					String id = "call_func_" + System.currentTimeMillis();
 					activeToolCalls.put(index, new ToolCallInfo(index, id, name));
 				}
 			}
-			
+
 			// Now update the existing function call with any new argument chunks
-			if (activeToolCalls.containsKey(index) && 
-				functionCallDelta.has("arguments") && 
-				!functionCallDelta.get("arguments").isJsonNull()) {
-				
+			if (activeToolCalls.containsKey(index) && functionCallDelta.has("arguments")
+					&& !functionCallDelta.get("arguments").isJsonNull()) {
+
 				String argumentChunk = functionCallDelta.get("arguments").getAsString();
 				activeToolCalls.get(index).appendArguments(argumentChunk);
 			}
@@ -563,7 +562,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			Activator.logError("Error processing function call delta: " + functionCallDelta, e);
 		}
 	}
-	
+
 	/**
 	 * Helper class to track and accumulate tool call information from streaming
 	 * responses.

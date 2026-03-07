@@ -37,7 +37,7 @@ public class ConnectionSelectionPage extends WizardPage {
 	private Text txtBaseUri;
 
 	private WritableList<ProviderDefaults> providers = new WritableList<>();
-	
+
 	private Link lnkApiKey;
 	private Text txtApiKey;
 
@@ -55,10 +55,10 @@ public class ConnectionSelectionPage extends WizardPage {
 		this.connection = connection;
 		setTitle("Select a connection provider");
 		setMessage("First you have to configure the AI provider you want to use.");
-		
-	    List<ProviderDefaults> list = new ArrayList<>(Activator.getDefault().getSupportedProviders().values());
-	    Collections.sort(list, (a, b) -> a.getProviderName().compareTo(b.getProviderName()));
-	    providers.addAll(list);
+
+		List<ProviderDefaults> list = new ArrayList<>(Activator.getDefault().getSupportedProviders().values());
+		Collections.sort(list, (a, b) -> a.getProviderName().compareTo(b.getProviderName()));
+		providers.addAll(list);
 	}
 
 	@Override
@@ -115,17 +115,17 @@ public class ConnectionSelectionPage extends WizardPage {
 	}
 
 	private void initData(ComboViewer cvProvider) {
-	    cvProvider.setLabelProvider(new LabelProvider() {
-	        @Override
-	        public String getText(Object element) {
-	            if (element instanceof ProviderDefaults pd) {
-	                return pd.getProviderName();
-	            }
-	            return super.getText(element);
-	        }
-	    });
-	    cvProvider.setContentProvider(new ObservableListContentProvider<ProviderDefaults>());
-	    cvProvider.setInput(providers);
+		cvProvider.setLabelProvider(new LabelProvider() {
+			@Override
+			public String getText(Object element) {
+				if (element instanceof ProviderDefaults pd) {
+					return pd.getProviderName();
+				}
+				return super.getText(element);
+			}
+		});
+		cvProvider.setContentProvider(new ObservableListContentProvider<ProviderDefaults>());
+		cvProvider.setInput(providers);
 	}
 
 	private void initListeners() {

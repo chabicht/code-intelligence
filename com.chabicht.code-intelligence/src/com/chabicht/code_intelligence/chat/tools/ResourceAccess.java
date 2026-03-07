@@ -80,8 +80,10 @@ public class ResourceAccess implements IResourceAccess {
 			});
 		} catch (CoreException e) {
 			Log.logError("Error while searching for file by name: " + finalFilename, e);
-			// If an error occurs during the search, foundFiles might be empty or incomplete.
-			// The subsequent logic is designed to handle this (e.g., by reporting "No file found").
+			// If an error occurs during the search, foundFiles might be empty or
+			// incomplete.
+			// The subsequent logic is designed to handle this (e.g., by reporting "No file
+			// found").
 		}
 
 		if (foundFiles.size() == 1) {
@@ -157,7 +159,7 @@ public class ResourceAccess implements IResourceAccess {
 		if (documentMap.containsKey(file)) {
 			return documentMap.get(file);
 		}
-	
+
 		ITextFileBufferManager bufferManager = FileBuffers.getTextFileBufferManager();
 		IPath path = file.getFullPath();
 		IDocument document = null;
@@ -167,23 +169,22 @@ public class ResourceAccess implements IResourceAccess {
 			ITextFileBuffer textFileBuffer = bufferManager.getTextFileBuffer(path, LocationKind.IFILE);
 			if (textFileBuffer != null) {
 				document = textFileBuffer.getDocument();
-								documentMap.put(file, document); // Store for later disconnection
+				documentMap.put(file, document); // Store for later disconnection
 			} else {
 				Log.logError("Could not get text file buffer for: " + file.getName());
 			}
-					} catch (CoreException e) {
+		} catch (CoreException e) {
 			Log.logError("Failed to connect or get document for " + file.getName() + ": " + e.getMessage(), e);
 			// Ensure disconnection if connection partially succeeded but failed later
 			try {
 				bufferManager.disconnect(path, LocationKind.IFILE, new NullProgressMonitor());
-						} catch (CoreException disconnectEx) {
+			} catch (CoreException disconnectEx) {
 				Log.logError("Error during buffer disconnect cleanup for " + file.getName(), disconnectEx);
 			}
 			return null; // Return null if document couldn't be obtained
 		}
 		return document;
 	}
-
 
 	/**
 	 * Disconnects all documents managed in the provided map.
@@ -219,8 +220,7 @@ public class ResourceAccess implements IResourceAccess {
 				((org.eclipse.core.resources.IFolder) parent).create(true, true, new NullProgressMonitor());
 			} catch (CoreException e) {
 				Log.logError("Failed to create parent directory for " + filePath + ": " + e.getMessage(), e);
-				return CreateFileResult.failure(
-						"Failed to create parent directory: " + e.getMessage(), filePath);
+				return CreateFileResult.failure("Failed to create parent directory: " + e.getMessage(), filePath);
 			}
 		}
 
@@ -236,13 +236,14 @@ public class ResourceAccess implements IResourceAccess {
 				source.close();
 			} catch (java.io.IOException e) {
 				Log.logWarn("Error closing input stream for " + filePath, e);
+			}
 		}
 	}
-}
 
 	@Override
 	public IFileHandle findFileHandleByName(String fileName) {
-		// For now, only support real files - BufferedResourceAccess will add virtual support
+		// For now, only support real files - BufferedResourceAccess will add virtual
+		// support
 		IFile file = findFileByNameBestEffort(fileName);
 		return file != null ? new RealFileHandle(file) : null;
 	}

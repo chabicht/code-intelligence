@@ -94,8 +94,7 @@ public class ChatSettings extends Bean {
 	}
 
 	public void setToolsEnabled(boolean toolsEnabled) {
-		propertyChangeSupport.firePropertyChange("toolsEnabled", this.toolsEnabled,
-				this.toolsEnabled = toolsEnabled);
+		propertyChangeSupport.firePropertyChange("toolsEnabled", this.toolsEnabled, this.toolsEnabled = toolsEnabled);
 	}
 
 	public ToolProfile getToolProfile() {
@@ -103,8 +102,7 @@ public class ChatSettings extends Bean {
 	}
 
 	public void setToolProfile(ToolProfile toolProfile) {
-		propertyChangeSupport.firePropertyChange("toolProfile", this.toolProfile,
-				this.toolProfile = toolProfile);
+		propertyChangeSupport.firePropertyChange("toolProfile", this.toolProfile, this.toolProfile = toolProfile);
 	}
 
 	public Map<String, Boolean> getToolEnabledStates() {
@@ -141,12 +139,12 @@ public class ChatSettings extends Bean {
 
 		BigDecimal version = Optional.of(modelName.substring("models/gemini-".length()).replaceAll("[^0-9.]*$", ""))
 				.map(str -> {
-			try {
-				return new BigDecimal(str);
-			} catch (NumberFormatException e) {
-				return BigDecimal.ZERO;
-			}
-		}).orElse(BigDecimal.ZERO);
+					try {
+						return new BigDecimal(str);
+					} catch (NumberFormatException e) {
+						return BigDecimal.ZERO;
+					}
+				}).orElse(BigDecimal.ZERO);
 
 		return version.compareTo(VAL_2_5) >= 0;
 	}

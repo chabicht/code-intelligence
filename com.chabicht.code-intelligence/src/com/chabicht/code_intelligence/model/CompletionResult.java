@@ -5,7 +5,7 @@ import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringEscapeUtils;
 
 public class CompletionResult {
-	
+
 	private static final String THINK_START_TAG = "<think>";
 	private static final String THINK_END_TAG = "</think>";
 	private static final Pattern codeBlockMarkup = Pattern.compile("^\\s*```[^\n]*\n|\n```\\s*$|^\\s*`|`\\s*$");
@@ -13,10 +13,10 @@ public class CompletionResult {
 	private final String rawResult;
 	private final String completion;
 	private final String thought;
-	
+
 	public CompletionResult(String completion) {
 		this.rawResult = completion;
-		
+
 		String thought = null;
 		int start = completion.indexOf(THINK_START_TAG);
 		if (start >= 0) {
@@ -26,9 +26,9 @@ public class CompletionResult {
 				completion = completion.substring(0, start) + completion.substring(end + THINK_END_TAG.length());
 			}
 		}
-		
+
 		completion = codeBlockMarkup.matcher(completion).replaceAll("");
-		
+
 		this.completion = completion;
 		this.thought = thought;
 	}
@@ -36,7 +36,7 @@ public class CompletionResult {
 	public String getRawResult() {
 		return rawResult;
 	}
-	
+
 	public String getCaption() {
 		String comp = completion.strip();
 
@@ -64,11 +64,11 @@ public class CompletionResult {
 	public String getCompletion() {
 		return completion;
 	}
-	
+
 	public String getThought() {
 		return thought;
 	}
-	
+
 	public String getDescription() {
 		String comp = "<pre>" + completion + "</pre>";
 		if (thought != null && !thought.isEmpty())

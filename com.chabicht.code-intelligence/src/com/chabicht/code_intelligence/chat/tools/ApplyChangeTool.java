@@ -384,7 +384,8 @@ public class ApplyChangeTool {
 		return new int[] { extendedRegion[0] + matchingRegion[0], extendedRegion[0] + matchingRegion[1] };
 	}
 
-	private int[] extendRegion(IDocument document, int searchStart, int searchLength, int linesToAdd) throws BadLocationException {
+	private int[] extendRegion(IDocument document, int searchStart, int searchLength, int linesToAdd)
+			throws BadLocationException {
 		// Get the line numbers for the search region
 		int searchStartLine = document.getLineOfOffset(searchStart);
 		int searchEndLine = document.getLineOfOffset(Math.min(searchStart + searchLength, document.getLength() - 1));

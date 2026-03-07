@@ -88,24 +88,23 @@ public class AddSelectionToContextUtil {
 				Range range = getLineRangeInFile(sre);
 				String source = sre.getSource();
 				if (StringUtils.isNotBlank(source)) {
-					ChatView.addContext(
-							new MessageContext(ancestor, range.type, range.start(), range.end, source));
+					ChatView.addContext(new MessageContext(ancestor, range.type, range.start(), range.end, source));
 				} else {
 					String stringRep = sre.toString();
 					String binaryLabel = "Binary " + stringRep.replaceAll(" \\[.*", "");
 					ChatView.addContext(
 							new MessageContext(binaryLabel, RangeType.OFFSET, range.start, range.end, stringRep) {
 
-						@Override
-						public String getLabel() {
-							return binaryLabel;
-						}
+								@Override
+								public String getLabel() {
+									return binaryLabel;
+								}
 
-						@Override
+								@Override
 								public String getDescriptor(boolean prefixLineNumbers) {
-							return "";
-						}
-					});
+									return "";
+								}
+							});
 				}
 			} catch (JavaModelException e) {
 				Activator.logError("Could not obtain source for reference " + obj, e);
@@ -148,10 +147,8 @@ public class AddSelectionToContextUtil {
 					sb.append(severity == 2 ? "Error" : "Warning").append(" on line ").append(lineNumber)
 							.append(" in document ").append(file.getName()).append(": ").append(message).append("\n");
 
-					ChatView.addContext(
-							new MessageContext(UUID.randomUUID(), file.getFullPath().toString(), RangeType.LINE,
-									startLine, endLine,
-									sb.toString(), context, null));
+					ChatView.addContext(new MessageContext(UUID.randomUUID(), file.getFullPath().toString(),
+							RangeType.LINE, startLine, endLine, sb.toString(), context, null));
 				} catch (CoreException e) {
 					Activator.logError("Could not add IMarker to context: " + marker.toString(), e);
 				}
@@ -176,7 +173,7 @@ public class AddSelectionToContextUtil {
 				Activator.logError("Failed to obtain source range in file " + file.getFullPath().toString(), e);
 			}
 		}
-		return new Range(RangeType.OFFSET, sourceRange.getOffset(), sourceRange.getOffset()+sourceRange.getLength());
+		return new Range(RangeType.OFFSET, sourceRange.getOffset(), sourceRange.getOffset() + sourceRange.getLength());
 	}
 
 	private static Optional<IFile> getFile(ISourceReference sr) {

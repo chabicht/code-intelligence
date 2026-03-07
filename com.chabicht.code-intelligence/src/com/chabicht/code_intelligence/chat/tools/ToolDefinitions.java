@@ -23,8 +23,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 public class ToolDefinitions {
-	private static final JsonObject NO_TOOLS = GsonUtil.createGson()
-			.fromJson("{}", JsonObject.class);
+	private static final JsonObject NO_TOOLS = GsonUtil.createGson().fromJson("{}", JsonObject.class);
 
 	private static ToolDefinitions INSTANCE;
 	private final String TOOL_DEFINITION_GEMINI;
@@ -211,9 +210,9 @@ public class ToolDefinitions {
 				String toolName = toolObj.get("name").getAsString();
 
 				// Check 1: Is this tool individually enabled in preferences?
-				boolean individuallyEnabled = prefs.getBoolean(String.format("%s.%s.%s",
-						PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX, toolName,
-						PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX));
+				boolean individuallyEnabled = prefs
+						.getBoolean(String.format("%s.%s.%s", PreferenceConstants.CHAT_TOOL_ENABLED_PREFIX, toolName,
+								PreferenceConstants.CHAT_TOOL_ENABLED_SUFFIX));
 
 				// Check 2: Does the active profile allow this tool?
 				boolean allowedByProfile = (profile == null) || profile.allowsTool(getToolTags(toolName));
@@ -239,8 +238,8 @@ public class ToolDefinitions {
 
 		JsonArray geminiToolsArray = toolDefinitionGemini.getAsJsonArray("tools");
 		if (geminiToolsArray == null || geminiToolsArray.isEmpty()) {
-		    JsonObject result = new JsonObject();
-		    result.add("functions", new JsonArray());
+			JsonObject result = new JsonObject();
+			result.add("functions", new JsonArray());
 			return result;
 		}
 
@@ -249,17 +248,17 @@ public class ToolDefinitions {
 
 		JsonArray openAiFunctionsArray = new JsonArray();
 		if (functionDeclarations != null) {
-		    for (JsonElement funcDeclElement : functionDeclarations) {
-			    JsonObject geminiFuncDecl = funcDeclElement.getAsJsonObject();
-			    JsonObject openAiFunction = new JsonObject();
-			    openAiFunction.addProperty("name", geminiFuncDecl.get("name").getAsString());
-			    openAiFunction.addProperty("description", geminiFuncDecl.get("description").getAsString());
+			for (JsonElement funcDeclElement : functionDeclarations) {
+				JsonObject geminiFuncDecl = funcDeclElement.getAsJsonObject();
+				JsonObject openAiFunction = new JsonObject();
+				openAiFunction.addProperty("name", geminiFuncDecl.get("name").getAsString());
+				openAiFunction.addProperty("description", geminiFuncDecl.get("description").getAsString());
 
-			    JsonObject parameters = geminiFuncDecl.getAsJsonObject("parameters").deepCopy();
-			    parameters.addProperty("additionalProperties", false);
-			    openAiFunction.add("parameters", parameters);
-			    openAiFunctionsArray.add(openAiFunction);
-		    }
+				JsonObject parameters = geminiFuncDecl.getAsJsonObject("parameters").deepCopy();
+				parameters.addProperty("additionalProperties", false);
+				openAiFunction.add("parameters", parameters);
+				openAiFunctionsArray.add(openAiFunction);
+			}
 		}
 
 		JsonObject finalOpenAiJson = new JsonObject();

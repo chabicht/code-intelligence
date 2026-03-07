@@ -34,7 +34,7 @@ public class ApiConnectionComposite extends Composite {
 		super(parent, style);
 		this.connections = connections;
 		setLayout(new GridLayout(2, false));
-		
+
 		createContent();
 	}
 
@@ -92,7 +92,7 @@ public class ApiConnectionComposite extends Composite {
 
 		viewer.addDoubleClickListener(e -> editConnection());
 		viewer.setInput(connections);
-		
+
 		return viewer;
 	}
 
@@ -109,7 +109,7 @@ public class ApiConnectionComposite extends Composite {
 			connections.removeAll(tableViewer.getStructuredSelection().toList());
 			tableViewer.refresh();
 		});
-		
+
 		return box;
 	}
 
@@ -145,7 +145,7 @@ public class ApiConnectionComposite extends Composite {
 		button.addSelectionListener(SelectionListener.widgetSelectedAdapter(listener));
 		return button;
 	}
-	
+
 	public void refresh() {
 		if (tableViewer != null && !tableViewer.getTable().isDisposed()) {
 			tableViewer.refresh();

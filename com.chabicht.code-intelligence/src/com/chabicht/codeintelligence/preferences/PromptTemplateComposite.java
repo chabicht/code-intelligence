@@ -56,7 +56,7 @@ public class PromptTemplateComposite extends Composite {
 		this.apiConnections = apiConnections;
 		this.instructModelIdGetter = instructModelIdGetter;
 		this.chatModelIdGetter = chatModelIdGetter;
-		
+
 		setLayout(new GridLayout(2, false));
 		createContent();
 	}
@@ -195,8 +195,10 @@ public class PromptTemplateComposite extends Composite {
 		}
 		if (upButton != null || downButton != null) {
 			int index = getSelectedIndex();
-			if (upButton != null) upButton.setEnabled(hasSelection && index > 0);
-			if (downButton != null) downButton.setEnabled(hasSelection && index < templates.size() - 1);
+			if (upButton != null)
+				upButton.setEnabled(hasSelection && index > 0);
+			if (downButton != null)
+				downButton.setEnabled(hasSelection && index < templates.size() - 1);
 		}
 	}
 

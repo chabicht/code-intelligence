@@ -50,7 +50,8 @@ public class FuzzyLine implements java.io.Serializable, Comparable<FuzzyLine>, C
 		} else if (this.originalLine == null) {
 			return -1; // This line's originalLine is null, so it's "less than" a non-null originalLine
 		} else if (o.originalLine == null) {
-			return 1; // Other line's originalLine is null, so this non-null originalLine is "greater than" it
+			return 1; // Other line's originalLine is null, so this non-null originalLine is "greater
+						// than" it
 		} else {
 			// Both originalLine strings are non-null, delegate to String's compareTo
 			return this.originalLine.compareTo(o.originalLine);
