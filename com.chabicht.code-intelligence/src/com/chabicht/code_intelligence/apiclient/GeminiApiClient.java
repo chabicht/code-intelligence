@@ -35,7 +35,6 @@ import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -43,7 +42,6 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
 public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
-	private transient final Gson gson = Activator.getDefault() != null ? Activator.getDefault().createGson() : new Gson();
 	private CompletableFuture<Void> asyncRequest;
 	private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/";
 

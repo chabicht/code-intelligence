@@ -13,7 +13,12 @@ import com.google.gson.JsonObject;
 public class AbstractApiClient {
 
 	protected final AiApiConnection apiConnection;
-	protected final transient Gson gson = Activator.getDefault().createGson();
+	protected final transient Gson gson = initGson();
+
+	private static Gson initGson() {
+		Activator activator = Activator.getDefault();
+		return activator != null ? activator.createGson() : new Gson();
+	}
 
 	public AbstractApiClient(AiApiConnection apiConnection) {
 		super();

@@ -34,7 +34,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -49,7 +48,6 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 	private static final Set<String> INCOMPATIBLE_PRESET_KEYS = Set.of("messages", "functions", "function_call",
 			"max_completion_tokens", "stream_options");
 
-	private transient final Gson gson = Activator.getDefault().createGson();
 	private CompletableFuture<Void> asyncRequest;
 
 	public OpenAiResponsesApiClient(AiApiConnection apiConnection) {
