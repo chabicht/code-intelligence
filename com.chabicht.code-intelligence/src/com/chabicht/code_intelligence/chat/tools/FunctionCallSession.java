@@ -120,7 +120,9 @@ public class FunctionCallSession {
 		this.findFilesTool = new FindFilesTool(bufferedResourceAccess); // Add this line
 		this.listProjectsTool = new ListProjectsTool(realResourceAccess);
 
-		Activator.logInfo("FunctionCallSession: Initialized with BufferedResourceAccess");
+		if (Activator.getDefault() != null) {
+			Activator.logInfo("FunctionCallSession: Initialized with BufferedResourceAccess");
+		}
 	}
 
 	private List<TextFileChange> getOrCreateTextFileChanges(IFile file) {
