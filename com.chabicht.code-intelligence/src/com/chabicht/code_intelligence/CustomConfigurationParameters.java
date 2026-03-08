@@ -139,7 +139,7 @@ public class CustomConfigurationParameters {
 				  "metadata": null,
 				  "tools": null,
 				  "tool_choice": "auto",
-				  "parallel_tool_calls": false
+				  "parallel_tool_calls": true
 				}
 				""");
 		res.put(tCompletion, res.get(tChat));

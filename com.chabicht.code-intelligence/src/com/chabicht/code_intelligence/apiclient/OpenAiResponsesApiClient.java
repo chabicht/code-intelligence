@@ -289,7 +289,6 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		if (maxResponseTokens > 0 && !req.has("max_output_tokens")) {
 			req.addProperty("max_output_tokens", maxResponseTokens);
 		}
-		req.addProperty("parallel_tool_calls", false);
 
 		String instructions = findSystemInstructions(chat);
 		if (StringUtils.isNotBlank(instructions)) {
@@ -302,7 +301,6 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAi(profile));
 			normalizeToolDefinitionsForResponses(req);
 		}
-		req.addProperty("parallel_tool_calls", false);
 
 		String previousResponseId = allowPreviousResponseId ? findLatestResponseId(chat) : null;
 		JsonArray input;
