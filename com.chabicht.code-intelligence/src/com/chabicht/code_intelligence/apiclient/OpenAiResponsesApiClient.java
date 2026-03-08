@@ -10,10 +10,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,12 +30,15 @@ import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -153,6 +158,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 				}
 			} finally {
 				if (!retryStarted.get()) {
+					toolCallAccumulator.markStreamFinished();
 					toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
 					chat.notifyChatResponseFinished(assistantMessage);
 					asyncRequest = null;
@@ -161,6 +167,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat request", e);
 			if (!retryStarted.get()) {
+				toolCallAccumulator.markStreamFinished();
 				toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
 				chat.notifyChatResponseFinished(assistantMessage);
 				asyncRequest = null;
@@ -313,6 +320,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		}
 
 		req.add("input", input);
+		logDebugInputSummary(usedPreviousResponseId, input);
 		return new ChatRequestBuildResult(req, usedPreviousResponseId);
 	}
 
@@ -338,9 +346,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			if (Role.USER.equals(message.getRole())) {
 				input.add(buildUserMessageItem(compileMessageContent(message)));
 			}
-			if (message.getFunctionResult().isPresent()) {
-				input.add(buildFunctionCallOutputItem(message.getFunctionResult().get()));
-			}
+			appendFunctionCallOutputs(input, message);
 		}
 		return input;
 	}
@@ -359,11 +365,32 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 					input.add(buildMessageItem("assistant", assistantText));
 				}
 			}
-			if (message.getFunctionResult().isPresent()) {
-				input.add(buildFunctionCallOutputItem(message.getFunctionResult().get()));
-			}
+			appendFunctionCallOutputs(input, message);
 		}
 		return input;
+	}
+
+	private void appendFunctionCallOutputs(JsonArray input, ChatMessage message) {
+		boolean appendedBatchResults = appendBatchFunctionCallOutputs(input, message);
+		if (!appendedBatchResults && message.getFunctionResult().isPresent()) {
+			input.add(buildFunctionCallOutputItem(message.getFunctionResult().get()));
+		}
+	}
+
+	private boolean appendBatchFunctionCallOutputs(JsonArray input, ChatMessage message) {
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		boolean appended = false;
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getResult() == null) {
+				continue;
+			}
+			input.add(buildFunctionCallOutputItem(item.getResult()));
+			appended = true;
+		}
+		return appended;
 	}
 
 	private JsonObject buildUserMessageItem(String text) {
@@ -478,26 +505,17 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		}
 
 		if ("response.function_call_arguments.delta".equals(type)) {
-			if (payload.has("delta") && !payload.get("delta").isJsonNull()) {
-				toolCallAccumulator.appendArguments(payload.get("delta").getAsString());
-			}
+			toolCallAccumulator.applyArgumentsDelta(payload);
 			return;
 		}
 
 		if ("response.function_call_arguments.done".equals(type)) {
 			toolCallAccumulator.applyDoneEvent(payload);
-			toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
 			return;
 		}
 
 		if ("response.output_item.added".equals(type) || "response.output_item.done".equals(type)) {
-			if (payload.has("item") && payload.get("item").isJsonObject()) {
-				toolCallAccumulator.applyOutputItem(payload.getAsJsonObject("item"));
-				if ("response.output_item.done".equals(type)) {
-					toolCallAccumulator.markDone();
-					toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
-				}
-			}
+			toolCallAccumulator.applyOutputItemEvent(payload, "response.output_item.done".equals(type));
 			return;
 		}
 
@@ -506,6 +524,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			if (StringUtils.isNotBlank(responseId)) {
 				assistantMessage.setMetadata(META_OPENAI_RESPONSE_ID, responseId);
 			}
+			toolCallAccumulator.markResponseCompleted();
+			toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
 			return;
 		}
 
@@ -559,6 +579,35 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		return body.contains("previous_response_not_found");
 	}
 
+	private void logDebugInputSummary(boolean usedPreviousResponseId, JsonArray input) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+
+		int inputCount = input != null ? input.size() : 0;
+		int functionOutputCount = 0;
+		if (input != null) {
+			for (JsonElement item : input) {
+				if (!item.isJsonObject()) {
+					continue;
+				}
+				String type = getString(item.getAsJsonObject(), "type");
+				if ("function_call_output".equals(type)) {
+					functionOutputCount++;
+				}
+			}
+		}
+		Activator.logInfo(String.format(
+				"responses request input built: previous_response_id=%s, input_items=%d, function_call_outputs=%d",
+				usedPreviousResponseId ? "present" : "absent", inputCount, functionOutputCount));
+	}
+
+	private boolean isDebugToolBatchLoggingEnabled() {
+		Activator activator = Activator.getDefault();
+		return activator != null
+				&& activator.getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
+	}
+
 	private String extractOutputText(JsonObject response) {
 		if (response.has("output_text") && !response.get("output_text").isJsonNull()) {
 			JsonElement outputText = response.get("output_text");
@@ -598,84 +647,277 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		return String.join("", chunks);
 	}
 
-	private static final class ToolCallAccumulator {
-		private String callId;
-		private String functionName;
-		private final StringBuilder argumentsBuilder = new StringBuilder();
+	private static String getString(JsonObject object, String key) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+			return null;
+		}
+		return object.get(key).getAsString();
+	}
+
+	private static JsonObject getObject(JsonObject object, String key) {
+		if (object == null || !object.has(key) || !object.get(key).isJsonObject()) {
+			return null;
+		}
+		return object.getAsJsonObject(key);
+	}
+
+	private static int getInt(JsonObject object, String key, int fallback) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+			return fallback;
+		}
+		try {
+			return object.get(key).getAsInt();
+		} catch (Exception ignored) {
+			return fallback;
+		}
+	}
+
+	private final class ToolCallAccumulator {
+		private static final int NO_INDEX = Integer.MIN_VALUE;
+		private static final int SYNTHETIC_INDEX_START = 10_000;
+
+		private final Map<Integer, PendingToolCall> callsByOutputIndex = new TreeMap<>();
+		private final Map<String, Integer> outputIndexByItemId = new HashMap<>();
+		private int nextSyntheticIndex = SYNTHETIC_INDEX_START;
+
+		private boolean responseCompleted;
+		private boolean streamFinished;
 		private boolean finalized;
-		private boolean warnedAboutMultipleCalls;
-		private boolean done;
 
-		private void applyOutputItem(JsonObject item) {
-			if (!item.has("type") || item.get("type").isJsonNull()) {
-				return;
+		private void applyOutputItemEvent(JsonObject payload, boolean doneEvent) {
+			JsonObject item = getObject(payload, "item");
+			if (item == null) {
+				item = payload;
 			}
-			String itemType = item.get("type").getAsString();
-			if (!"function_call".equals(itemType)) {
+			if (item == null || !"function_call".equals(getString(item, "type"))) {
 				return;
 			}
 
-			String nextCallId = getString(item, "call_id");
-			String nextFunctionName = getString(item, "name");
-			if (StringUtils.isNotBlank(callId) && StringUtils.isNotBlank(nextCallId)
-					&& !StringUtils.equals(callId, nextCallId) && !warnedAboutMultipleCalls) {
-				Activator.logWarn(
-						"Received multiple function calls in one assistant turn. Only the first is supported.");
-				warnedAboutMultipleCalls = true;
-				return;
-			}
-			if (StringUtils.isBlank(callId) && StringUtils.isNotBlank(nextCallId)) {
-				callId = nextCallId;
-			}
-			if (StringUtils.isBlank(functionName) && StringUtils.isNotBlank(nextFunctionName)) {
-				functionName = nextFunctionName;
-			}
-			String arguments = getString(item, "arguments");
-			if (StringUtils.isNotBlank(arguments) && argumentsBuilder.length() == 0) {
-				argumentsBuilder.append(arguments);
-			}
+			PendingToolCall call = getOrCreateCall(payload, item);
+			call.mergeItem(item, doneEvent);
 		}
 
-		private void appendArguments(String delta) {
-			if (delta != null) {
-				argumentsBuilder.append(delta);
+		private void applyArgumentsDelta(JsonObject payload) {
+			String delta = getString(payload, "delta");
+			if (delta == null) {
+				return;
 			}
+
+			PendingToolCall call = resolveCall(payload);
+			if (call == null) {
+				call = getOrCreateCall(payload, null);
+			}
+			call.appendArgumentsDelta(delta);
 		}
 
 		private void applyDoneEvent(JsonObject payload) {
-			String doneCallId = getString(payload, "call_id");
-			String doneFunctionName = getString(payload, "name");
-			String doneArguments = getString(payload, "arguments");
-			if (StringUtils.isBlank(callId) && StringUtils.isNotBlank(doneCallId)) {
-				callId = doneCallId;
+			JsonObject item = getObject(payload, "item");
+			if (item != null) {
+				String type = getString(item, "type");
+				if (StringUtils.isNotBlank(type) && !"function_call".equals(type)) {
+					return;
+				}
 			}
-			if (StringUtils.isBlank(functionName) && StringUtils.isNotBlank(doneFunctionName)) {
-				functionName = doneFunctionName;
+
+			PendingToolCall call = resolveCall(payload);
+			if (call == null) {
+				call = getOrCreateCall(payload, item);
 			}
-			if (StringUtils.isNotBlank(doneArguments) && argumentsBuilder.length() == 0) {
-				argumentsBuilder.append(doneArguments);
+
+			if (item != null) {
+				call.mergeItem(item, true);
+			} else {
+				call.mergeLegacyDonePayload(payload);
 			}
-			done = true;
+		}
+
+		private void markResponseCompleted() {
+			responseCompleted = true;
+		}
+
+		private void markStreamFinished() {
+			streamFinished = true;
 		}
 
 		private void finalizeIfComplete(ChatMessage assistantMessage, ChatConversation chat) {
-			if (finalized || !done || StringUtils.isBlank(callId) || StringUtils.isBlank(functionName)) {
+			if (finalized || assistantMessage == null || chat == null) {
 				return;
 			}
-			assistantMessage.setFunctionCall(new FunctionCall(callId, functionName, argumentsBuilder.toString()));
+			if (!responseCompleted && !streamFinished) {
+				return;
+			}
+
+			FunctionCallBatch batch = new FunctionCallBatch();
+			for (PendingToolCall pendingCall : callsByOutputIndex.values()) {
+				FunctionCall functionCall = pendingCall.toFunctionCall();
+				if (functionCall != null) {
+					batch.addCall(functionCall);
+				}
+			}
+			if (batch.getItems().isEmpty()) {
+				return;
+			}
+
+			assistantMessage.setFunctionCallBatch(batch);
+			if (assistantMessage.getFunctionCall().isEmpty()) {
+				assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
+			}
+
+			logDebugBatchParsed(assistantMessage, batch);
 			chat.notifyFunctionCalled(assistantMessage);
 			finalized = true;
 		}
 
-		private void markDone() {
-			done = true;
-		}
+		private PendingToolCall resolveCall(JsonObject payload) {
+			int outputIndex = getInt(payload, "output_index", NO_INDEX);
+			if (outputIndex != NO_INDEX && callsByOutputIndex.containsKey(outputIndex)) {
+				return callsByOutputIndex.get(outputIndex);
+			}
 
-		private static String getString(JsonObject object, String key) {
-			if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+			String itemId = getString(payload, "item_id");
+			if (StringUtils.isBlank(itemId)) {
+				JsonObject item = getObject(payload, "item");
+				itemId = getString(item, "id");
+			}
+			if (StringUtils.isBlank(itemId)) {
 				return null;
 			}
-			return object.get(key).getAsString();
+
+			Integer mappedIndex = outputIndexByItemId.get(itemId);
+			if (mappedIndex == null) {
+				return null;
+			}
+			return callsByOutputIndex.get(mappedIndex);
+		}
+
+		private PendingToolCall getOrCreateCall(JsonObject payload, JsonObject item) {
+			int outputIndex = getInt(payload, "output_index", NO_INDEX);
+			String itemId = getString(payload, "item_id");
+
+			if (item != null) {
+				String itemIdFromItem = getString(item, "id");
+				if (StringUtils.isNotBlank(itemIdFromItem)) {
+					itemId = itemIdFromItem;
+				}
+			}
+
+			if (outputIndex == NO_INDEX && StringUtils.isNotBlank(itemId) && outputIndexByItemId.containsKey(itemId)) {
+				outputIndex = outputIndexByItemId.get(itemId);
+			}
+			if (outputIndex == NO_INDEX) {
+				outputIndex = nextSyntheticIndex++;
+			}
+
+			PendingToolCall call = callsByOutputIndex.get(outputIndex);
+			if (call == null) {
+				call = new PendingToolCall(outputIndex);
+				callsByOutputIndex.put(outputIndex, call);
+			}
+
+			if (StringUtils.isNotBlank(itemId)) {
+				call.setItemId(itemId);
+				outputIndexByItemId.put(itemId, outputIndex);
+			}
+
+			return call;
+		}
+
+		private void logDebugBatchParsed(ChatMessage message, FunctionCallBatch batch) {
+			if (!isDebugToolBatchLoggingEnabled()) {
+				return;
+			}
+			String callIds = batch.getItems().stream().filter(item -> item != null && item.getCall() != null)
+					.map(item -> StringUtils.defaultIfBlank(item.getCall().getId(), "no-id"))
+					.collect(Collectors.joining(", "));
+			Activator.logInfo(String.format("responses multi-tool parsed: messageId=%s, batchId=%s, calls=%d, callIds=[%s]",
+					message != null ? message.getId() : null, batch.getBatchId(), batch.getItems().size(), callIds));
+		}
+
+		private static final class PendingToolCall {
+			private final int outputIndex;
+			private String itemId;
+			private String callId;
+			private String functionName;
+			private final StringBuilder argumentsBuilder = new StringBuilder();
+			private boolean argumentDeltaSeen;
+			private boolean argumentSeededFromItem;
+
+			private PendingToolCall(int outputIndex) {
+				this.outputIndex = outputIndex;
+			}
+
+			private void mergeItem(JsonObject item, boolean donePayload) {
+				String id = getString(item, "id");
+				if (StringUtils.isNotBlank(id)) {
+					setItemId(id);
+				}
+
+				String resolvedCallId = getString(item, "call_id");
+				if (StringUtils.isNotBlank(resolvedCallId)) {
+					callId = resolvedCallId;
+				}
+
+				String resolvedFunctionName = getString(item, "name");
+				if (StringUtils.isNotBlank(resolvedFunctionName)) {
+					functionName = resolvedFunctionName;
+				}
+
+				String arguments = getString(item, "arguments");
+				if (StringUtils.isNotBlank(arguments) && (!argumentDeltaSeen || donePayload)) {
+					argumentsBuilder.setLength(0);
+					argumentsBuilder.append(arguments);
+					argumentSeededFromItem = true;
+				}
+			}
+
+			private void appendArgumentsDelta(String delta) {
+				if (delta == null) {
+					return;
+				}
+				if (!argumentDeltaSeen && argumentSeededFromItem) {
+					argumentsBuilder.setLength(0);
+				}
+				argumentDeltaSeen = true;
+				argumentsBuilder.append(delta);
+			}
+
+			private void mergeLegacyDonePayload(JsonObject payload) {
+				String legacyCallId = getString(payload, "call_id");
+				if (StringUtils.isNotBlank(legacyCallId)) {
+					callId = legacyCallId;
+				}
+
+				String legacyFunctionName = getString(payload, "name");
+				if (StringUtils.isNotBlank(legacyFunctionName)) {
+					functionName = legacyFunctionName;
+				}
+
+				String legacyArguments = getString(payload, "arguments");
+				if (StringUtils.isNotBlank(legacyArguments) && !argumentDeltaSeen) {
+					argumentsBuilder.setLength(0);
+					argumentsBuilder.append(legacyArguments);
+					argumentSeededFromItem = true;
+				}
+			}
+
+			private FunctionCall toFunctionCall() {
+				if (StringUtils.isBlank(functionName)) {
+					return null;
+				}
+
+				String resolvedId = callId;
+				if (StringUtils.isBlank(resolvedId)) {
+					resolvedId = StringUtils.isNotBlank(itemId) ? itemId : "call_" + outputIndex;
+				}
+				String argumentsJson = StringUtils.defaultIfBlank(argumentsBuilder.toString(), "{}");
+				return new FunctionCall(resolvedId, functionName, argumentsJson);
+			}
+
+			private void setItemId(String itemId) {
+				if (StringUtils.isNotBlank(itemId)) {
+					this.itemId = itemId;
+				}
+			}
 		}
 	}
 
