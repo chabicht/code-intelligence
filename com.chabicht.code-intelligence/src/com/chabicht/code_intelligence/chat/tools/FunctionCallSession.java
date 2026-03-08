@@ -38,6 +38,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.util.GsonUtil;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -164,7 +165,8 @@ public class FunctionCallSession {
 		}
 
 		FunctionCallBatch batch = assistantMessage.getFunctionCallBatch().get();
-		boolean hasCalls = batch.getItems().stream().anyMatch(item -> item != null && item.getCall() != null);
+		int callCount = countBatchCalls(batch.getItems());
+		boolean hasCalls = callCount > 0;
 		if (!hasCalls) {
 			return;
 		}
@@ -173,6 +175,7 @@ public class FunctionCallSession {
 				.anyMatch(queued -> queued != null && queued.getId().equals(assistantMessage.getId()));
 		if (!alreadyQueued) {
 			pendingBatchMessages.add(assistantMessage);
+			logDebugBatchQueued(assistantMessage, batch, callCount, pendingBatchMessages.size());
 		}
 	}
 
@@ -184,6 +187,9 @@ public class FunctionCallSession {
 
 		List<ChatMessage> batchesToExecute = new ArrayList<>(pendingBatchMessages);
 		pendingBatchMessages.clear();
+		if (isDebugToolBatchLoggingEnabled()) {
+			Activator.logInfo("multi-tool execution queue start: batches=" + batchesToExecute.size());
+		}
 
 		int batchesExecuted = 0;
 		int callsExecuted = 0;
@@ -196,12 +202,14 @@ public class FunctionCallSession {
 
 			FunctionCallBatch batch = assistantMessage.getFunctionCallBatch().get();
 			List<FunctionCallItem> items = batch.getItems();
-			boolean hasCalls = items.stream().anyMatch(item -> item != null && item.getCall() != null);
+			int batchCallCount = countBatchCalls(items);
+			boolean hasCalls = batchCallCount > 0;
 			if (!hasCalls) {
 				batch.setExecutionComplete(true);
 				continue;
 			}
 
+			logDebugBatchExecutionStart(assistantMessage, batch, batchCallCount);
 			batch.setExecutionComplete(false);
 			for (FunctionCallItem item : items) {
 				if (item != null) {
@@ -210,6 +218,8 @@ public class FunctionCallSession {
 			}
 
 			boolean firstExecutedCall = true;
+			int batchCallsExecuted = 0;
+			int batchCallsFailed = 0;
 			for (int i = 0; i < items.size(); i++) {
 				FunctionCallItem item = items.get(i);
 				if (item == null || item.getCall() == null) {
@@ -220,8 +230,10 @@ public class FunctionCallSession {
 				item.setResult(result);
 				batch.setResultForCall(i, result);
 				callsExecuted++;
+				batchCallsExecuted++;
 				if (isErrorResult(result)) {
 					callsFailed++;
+					batchCallsFailed++;
 				}
 
 				// Keep legacy fields aligned for compatibility until full batch-only migration.
@@ -237,12 +249,77 @@ public class FunctionCallSession {
 			batch.setExecutionComplete(true);
 			batchesExecuted++;
 			report.getUpdatedMessages().add(assistantMessage);
+			logDebugBatchExecutionEnd(assistantMessage, batch, batchCallsExecuted, batchCallsFailed);
 		}
 
 		report.setBatchesExecuted(batchesExecuted);
 		report.setCallsExecuted(callsExecuted);
 		report.setCallsFailed(callsFailed);
+		if (isDebugToolBatchLoggingEnabled()) {
+			Activator.logInfo(String.format("multi-tool execution queue end: batchesExecuted=%d, callsExecuted=%d, callsFailed=%d",
+					batchesExecuted, callsExecuted, callsFailed));
+		}
 		return report;
+	}
+
+	private int countBatchCalls(List<FunctionCallItem> items) {
+		if (items == null) {
+			return 0;
+		}
+		int count = 0;
+		for (FunctionCallItem item : items) {
+			if (item != null && item.getCall() != null) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private String buildBatchCallSummary(List<FunctionCallItem> items) {
+		if (items == null) {
+			return "[]";
+		}
+		String summary = items.stream().filter(item -> item != null && item.getCall() != null).map(item -> {
+			FunctionCall call = item.getCall();
+			String name = StringUtils.defaultIfBlank(call.getFunctionName(), "unknown");
+			String id = StringUtils.defaultIfBlank(call.getId(), "no-id");
+			return name + "#" + id;
+		}).collect(java.util.stream.Collectors.joining(", "));
+		return "[" + summary + "]";
+	}
+
+	private void logDebugBatchQueued(ChatMessage message, FunctionCallBatch batch, int callCount, int queueSize) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+		Activator.logInfo(String.format("multi-tool queued: messageId=%s, batchId=%s, calls=%d, callRefs=%s, queueSize=%d",
+				message != null ? message.getId() : null, batch != null ? batch.getBatchId() : null, callCount,
+				buildBatchCallSummary(batch != null ? batch.getItems() : null), queueSize));
+	}
+
+	private void logDebugBatchExecutionStart(ChatMessage message, FunctionCallBatch batch, int callCount) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+		Activator.logInfo(String.format("multi-tool execution start: messageId=%s, batchId=%s, calls=%d, callRefs=%s",
+				message != null ? message.getId() : null, batch != null ? batch.getBatchId() : null, callCount,
+				buildBatchCallSummary(batch != null ? batch.getItems() : null)));
+	}
+
+	private void logDebugBatchExecutionEnd(ChatMessage message, FunctionCallBatch batch, int callsExecuted, int callsFailed) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+		Activator.logInfo(String.format(
+				"multi-tool execution end: messageId=%s, batchId=%s, callsExecuted=%d, callsFailed=%d",
+				message != null ? message.getId() : null, batch != null ? batch.getBatchId() : null, callsExecuted,
+				callsFailed));
+	}
+
+	private boolean isDebugToolBatchLoggingEnabled() {
+		Activator activator = Activator.getDefault();
+		return activator != null
+				&& activator.getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
 	}
 
 	private FunctionResult executeFunctionCall(UUID messageId, FunctionCall call) {

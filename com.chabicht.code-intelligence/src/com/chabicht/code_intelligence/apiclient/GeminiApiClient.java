@@ -34,6 +34,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -208,28 +209,28 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 											}
 										}
 
-										if (candidate.has("finishReason")) {
-											String reason = candidate.get("finishReason").getAsString();
-											if ("MALFORMED_FUNCTION_CALL".equals(reason)) {
-												Activator.logError("Error " + reason + " in API response.\n");
-											}
-											if (thinkingStarted.get()) {
-												assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
-												thinkingStarted.set(false);
-											}
-											boolean hasFunctionCalls = functionCallBatch.getItems().stream()
-													.anyMatch(item -> item != null && item.getCall() != null);
-											if (hasFunctionCalls) {
-												assistantMessage.setFunctionCallBatch(functionCallBatch);
-												if (!functionCallEventSent.get()) {
-													chat.notifyFunctionCalled(assistantMessage);
-													functionCallEventSent.set(true);
+											if (candidate.has("finishReason")) {
+												String reason = candidate.get("finishReason").getAsString();
+												if ("MALFORMED_FUNCTION_CALL".equals(reason)) {
+													Activator.logError("Error " + reason + " in API response.\n");
 												}
+												if (thinkingStarted.get()) {
+													assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
+													thinkingStarted.set(false);
+												}
+												int parsedCallCount = countBatchCalls(functionCallBatch);
+												if (parsedCallCount > 0) {
+													assistantMessage.setFunctionCallBatch(functionCallBatch);
+													logDebugBatchParsed(assistantMessage, functionCallBatch, parsedCallCount);
+													if (!functionCallEventSent.get()) {
+														chat.notifyFunctionCalled(assistantMessage);
+														functionCallEventSent.set(true);
+													}
+												}
+												chat.notifyChatResponseFinished(assistantMessage);
+												responseFinished.set(true);
+												asyncRequest = null;
 											}
-											chat.notifyChatResponseFinished(assistantMessage);
-											responseFinished.set(true);
-											asyncRequest = null;
-										}
 									}
 								} catch (Exception e) {
 									Activator.logError("Exception processing streaming chat chunk: " + data, e);
@@ -482,6 +483,47 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 					+ (json == null ? 0 : json.length()) + ")", e);
 			return new JsonObject();
 		}
+	}
+
+	private int countBatchCalls(FunctionCallBatch batch) {
+		if (batch == null || batch.getItems() == null) {
+			return 0;
+		}
+		int count = 0;
+		for (FunctionCallItem item : batch.getItems()) {
+			if (item != null && item.getCall() != null) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private String buildBatchCallIdSummary(FunctionCallBatch batch) {
+		if (batch == null || batch.getItems() == null) {
+			return "[]";
+		}
+		String summary = batch.getItems().stream()
+				.filter(item -> item != null && item.getCall() != null)
+				.map(item -> StringUtils.defaultIfBlank(item.getCall().getId(), "no-id"))
+				.collect(Collectors.joining(", "));
+		return "[" + summary + "]";
+	}
+
+	private void logDebugBatchParsed(ChatMessage message, FunctionCallBatch batch, int callCount) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+		String thoughtSignatureState = StringUtils.isNotBlank(batch.getThoughtSignature()) ? "present" : "absent";
+		Activator.logInfo(String.format(
+				"multi-tool parsed: messageId=%s, batchId=%s, calls=%d, callIds=%s, thoughtSignature=%s",
+				message != null ? message.getId() : null, batch != null ? batch.getBatchId() : null, callCount,
+				buildBatchCallIdSummary(batch), thoughtSignatureState));
+	}
+
+	private boolean isDebugToolBatchLoggingEnabled() {
+		Activator activator = Activator.getDefault();
+		return activator != null
+				&& activator.getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
 	}
 
 	private void fillTextMessage(JsonObject jsonMsg, ChatConversation.ChatMessage msg) {

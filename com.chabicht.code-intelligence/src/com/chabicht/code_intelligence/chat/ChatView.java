@@ -224,6 +224,7 @@ public class ChatView extends ViewPart {
 
 				message.setMetadata("tool_execution_state", "queued");
 				functionCallSession.enqueueBatch(message);
+				logDebugBatchQueuedInView(message);
 				onMessageUpdated(message);
 			}
 
@@ -400,6 +401,7 @@ public class ChatView extends ViewPart {
 				Display.getDefault().asyncExec(() -> {
 					BatchExecutionReport batchReport = functionCallSession.executePendingBatchesSequentially();
 					boolean hasExecutedToolCalls = batchReport.getCallsExecuted() > 0;
+					logDebugBatchExecutionReport(batchReport);
 
 					for (ChatMessage updatedMessage : batchReport.getUpdatedMessages()) {
 						updatedMessage.setMetadata("tool_execution_state", "completed");
@@ -412,9 +414,9 @@ public class ChatView extends ViewPart {
 
 						connection = null;
 
-					if (isDebugPromptLoggingEnabled()) {
-						Activator.logInfo(conversation.toString());
-					}
+						if (isDebugPromptLoggingEnabled()) {
+							Activator.logInfo(conversation.toString());
+						}
 
 						applyPendingChanges();
 
@@ -429,14 +431,15 @@ public class ChatView extends ViewPart {
 								return;
 							}
 						}
+						logDebugContinuationRequestBuilt(batchReport);
 						sendFunctionResult();
 					}
 
 					Display.getDefault().asyncExec(() -> {
-					chat.markMessageFinished(message.getId());
+						chat.markMessageFinished(message.getId());
+					});
 				});
-			});
-		}
+			}
 	};
 
 	public void reexecute(String messageUuidString) {
@@ -576,6 +579,54 @@ public class ChatView extends ViewPart {
 		}
 
 		connection.chat(conversation, settings.getMaxResponseTokens());
+	}
+
+	private void logDebugBatchQueuedInView(ChatMessage message) {
+		if (!isDebugPromptLoggingEnabled() || message == null || message.getFunctionCallBatch().isEmpty()) {
+			return;
+		}
+		FunctionCallBatch batch = message.getFunctionCallBatch().get();
+		Activator.logInfo(String.format("multi-tool queued (view): messageId=%s, batchId=%s, calls=%d, callRefs=%s",
+				message.getId(), batch.getBatchId(), countCallableItems(batch), buildCallRefsSummary(batch)));
+	}
+
+	private void logDebugBatchExecutionReport(BatchExecutionReport report) {
+		if (!isDebugPromptLoggingEnabled() || report == null) {
+			return;
+		}
+		Activator.logInfo(String.format("multi-tool execution report (view): batches=%d, callsExecuted=%d, callsFailed=%d",
+				report.getBatchesExecuted(), report.getCallsExecuted(), report.getCallsFailed()));
+	}
+
+	private void logDebugContinuationRequestBuilt(BatchExecutionReport report) {
+		if (!isDebugPromptLoggingEnabled()) {
+			return;
+		}
+		UUID conversationId = conversation != null ? conversation.getConversationId() : null;
+		Activator.logInfo(String.format(
+				"multi-tool continuation built: conversationId=%s, batches=%d, callsExecuted=%d, callsFailed=%d",
+				conversationId, report != null ? report.getBatchesExecuted() : 0,
+				report != null ? report.getCallsExecuted() : 0, report != null ? report.getCallsFailed() : 0));
+	}
+
+	private int countCallableItems(FunctionCallBatch batch) {
+		if (batch == null) {
+			return 0;
+		}
+		return (int) batch.getItems().stream().filter(item -> item != null && item.getCall() != null).count();
+	}
+
+	private String buildCallRefsSummary(FunctionCallBatch batch) {
+		if (batch == null) {
+			return "[]";
+		}
+		String summary = batch.getItems().stream().filter(item -> item != null && item.getCall() != null).map(item -> {
+			FunctionCall call = item.getCall();
+			String name = StringUtils.defaultIfBlank(call.getFunctionName(), "unknown");
+			String id = StringUtils.defaultIfBlank(call.getId(), "no-id");
+			return name + "#" + id;
+		}).collect(Collectors.joining(", "));
+		return "[" + summary + "]";
 	}
 
 	protected String prettyPrintJson(String jsonString) {
