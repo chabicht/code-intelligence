@@ -345,12 +345,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
-		boolean appendedBatchCalls = appendBatchAssistantToolCalls(jsonMsg, message);
-		if (!appendedBatchCalls && Role.ASSISTANT.equals(message.getRole()) && message.getFunctionCall().isPresent()) {
-			JsonArray toolCallsArray = new JsonArray();
-			toolCallsArray.add(buildToolCallItem(message.getFunctionCall().get()));
-			jsonMsg.add("tool_calls", toolCallsArray);
-		}
+		appendBatchAssistantToolCalls(jsonMsg, message);
 	}
 
 	private boolean appendBatchAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
@@ -383,10 +378,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	private void appendToolResultMessages(JsonArray messagesJson, ChatMessage message) {
-		boolean appendedBatchResults = appendBatchToolResultMessages(messagesJson, message);
-		if (!appendedBatchResults && message.getFunctionResult().isPresent()) {
-			messagesJson.add(buildToolResultMessage(message.getFunctionResult().get()));
-		}
+		appendBatchToolResultMessages(messagesJson, message);
 	}
 
 	private boolean appendBatchToolResultMessages(JsonArray messagesJson, ChatMessage message) {
@@ -447,7 +439,6 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 
 		assistantMessage.setFunctionCallBatch(batch);
-		assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
 	}
 
 	private FunctionCall parseToolCall(JsonObject toolCallObj) {
@@ -527,7 +518,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	private void finalizeAssistantMessage(ChatMessage assistantMessage, ChatConversation chat,
 			AtomicBoolean responseFinished) {
 		if (assistantMessage != null && !responseFinished.get()) {
-			if (assistantMessage.getFunctionCallBatch().isPresent() || assistantMessage.getFunctionCall().isPresent()) {
+			if (assistantMessage.getFunctionCallBatch().isPresent()) {
 				chat.notifyFunctionCalled(assistantMessage);
 			}
 

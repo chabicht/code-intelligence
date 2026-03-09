@@ -269,11 +269,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 			JsonObject jsonMsg = createMessage(msg.getRole());
 			boolean hasBatchCalls = fillFunctionCallBatch(jsonMsg, msg);
 			if (!hasBatchCalls) {
-				if (msg.getFunctionCall().isPresent()) {
-					fillFunctionCall(jsonMsg, msg);
-				} else {
-					fillTextMessage(jsonMsg, msg);
-				}
+				fillTextMessage(jsonMsg, msg);
 			}
 			messagesJson.add(jsonMsg);
 
@@ -283,16 +279,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 					JsonObject resultUserMessage = createMessage(Role.USER);
 					fillFunctionResultsFromBatchItems(resultUserMessage, batch.getItems());
 					messagesJson.add(resultUserMessage);
-				} else if (msg.getFunctionResult().isPresent()) {
-					// Compatibility fallback while legacy single-call fields still exist.
-					JsonObject resultUserMessage = createMessage(Role.USER);
-					fillFunctionResult(resultUserMessage, msg);
-					messagesJson.add(resultUserMessage);
 				}
-			} else if (msg.getFunctionResult().isPresent()) {
-				JsonObject resultUserMessage = createMessage(Role.USER);
-				fillFunctionResult(resultUserMessage, msg);
-				messagesJson.add(resultUserMessage);
 			}
 		}
 		return messagesJson;
@@ -330,16 +317,6 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		return jsonMsg.getAsJsonArray("parts").size() > 0;
 	}
 
-	private void fillFunctionCall(JsonObject jsonMsg, ChatMessage msg) {
-		FunctionCall fc = msg.getFunctionCall().get();
-		String thoughtSignature = null;
-		Object metadataSignature = msg.getMetadata("gemini_thought_signature");
-		if (metadataSignature instanceof String) {
-			thoughtSignature = (String) metadataSignature;
-		}
-		fillFunctionCall(jsonMsg, fc, thoughtSignature);
-	}
-
 	private void fillFunctionCall(JsonObject jsonMsg, FunctionCall fc, String thoughtSignature) {
 		JsonObject functionCallObj = new JsonObject();
 		functionCallObj.addProperty("id", fc.getId());
@@ -355,11 +332,6 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 
 		jsonMsg.getAsJsonArray("parts").add(partObj);
-	}
-
-	private void fillFunctionResult(JsonObject jsonMsg, ChatMessage msg) {
-		FunctionResult fr = msg.getFunctionResult().get();
-		fillFunctionResult(jsonMsg, fr);
 	}
 
 	private void fillFunctionResults(JsonObject jsonMsg, List<FunctionResult> results) {
@@ -511,11 +483,6 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 
 			FunctionCall parsedFunctionCall = new FunctionCall(id, functionName, argsJson);
 			functionCallBatch.addCall(parsedFunctionCall);
-
-			// Backward-compatibility shim for existing single-call flow.
-			if (assistantMessage.getFunctionCall().isEmpty()) {
-				assistantMessage.setFunctionCall(parsedFunctionCall);
-			}
 
 			// Gemini expects thoughtSignature replay from the first relevant call part.
 			if (StringUtils.isBlank(functionCallBatch.getThoughtSignature()) && part.has("thoughtSignature")

@@ -369,10 +369,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 	}
 
 	private void appendFunctionCallOutputs(JsonArray input, ChatMessage message) {
-		boolean appendedBatchResults = appendBatchFunctionCallOutputs(input, message);
-		if (!appendedBatchResults && message.getFunctionResult().isPresent()) {
-			input.add(buildFunctionCallOutputItem(message.getFunctionResult().get()));
-		}
+		appendBatchFunctionCallOutputs(input, message);
 	}
 
 	private boolean appendBatchFunctionCallOutputs(JsonArray input, ChatMessage message) {
@@ -757,9 +754,6 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			}
 
 			assistantMessage.setFunctionCallBatch(batch);
-			if (assistantMessage.getFunctionCall().isEmpty()) {
-				assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
-			}
 
 			logDebugBatchParsed(assistantMessage, batch);
 			chat.notifyFunctionCalled(assistantMessage);

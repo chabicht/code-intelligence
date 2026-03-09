@@ -60,15 +60,13 @@ public class GeminiFunctionBatchTest {
 		parseMethod.setAccessible(true);
 		parseMethod.invoke(client, chat, assistantMessage, candidate, thinkingStarted, batch);
 
-		assertEquals(2, batch.getItems().size(), "All function calls from one candidate should be captured");
-		assertEquals("find_files", batch.getItems().get(0).getCall().getFunctionName());
-		assertEquals("read_file_content", batch.getItems().get(1).getCall().getFunctionName());
-		assertEquals("sig-1", batch.getThoughtSignature(), "First call thought signature should be stored");
-		assertTrue(assistantMessage.getFunctionCall().isPresent(), "Legacy first-call shim should remain populated");
-		assertEquals("call-1", assistantMessage.getFunctionCall().get().getId());
-	}
+			assertEquals(2, batch.getItems().size(), "All function calls from one candidate should be captured");
+			assertEquals("find_files", batch.getItems().get(0).getCall().getFunctionName());
+			assertEquals("read_file_content", batch.getItems().get(1).getCall().getFunctionName());
+			assertEquals("sig-1", batch.getThoughtSignature(), "First call thought signature should be stored");
+		}
 
-	@Test
+		@Test
 	void createChatContentsArrayGroupsBatchCallsAndResponses() throws Exception {
 		GeminiApiClient client = new GeminiApiClient(createGeminiConnection());
 		ChatConversation chat = new ChatConversation();
@@ -113,20 +111,21 @@ public class GeminiFunctionBatchTest {
 	}
 
 	@Test
-	void createChatContentsArrayKeepsLegacySingleCallPath() throws Exception {
-		GeminiApiClient client = new GeminiApiClient(createGeminiConnection());
-		ChatConversation chat = new ChatConversation();
+		void createChatContentsArraySupportsSingleItemBatchPath() throws Exception {
+			GeminiApiClient client = new GeminiApiClient(createGeminiConnection());
+			ChatConversation chat = new ChatConversation();
 
-		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
-		FunctionCall legacyCall = new FunctionCall("legacy-call", "find_files", "{\"query\":\"*.md\"}");
-		FunctionResult legacyResult = new FunctionResult("legacy-call", "find_files");
-		legacyResult.setResultJson("{\"status\":\"ok\",\"items\":[]}");
-		assistantMessage.setFunctionCall(legacyCall);
-		assistantMessage.setFunctionResult(legacyResult);
-		chat.addMessage(assistantMessage, false);
+			ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
+			FunctionCall call = new FunctionCall("legacy-call", "find_files", "{\"query\":\"*.md\"}");
+			FunctionResult result = new FunctionResult("legacy-call", "find_files");
+			result.setResultJson("{\"status\":\"ok\",\"items\":[]}");
+			FunctionCallBatch batch = new FunctionCallBatch("batch-single");
+			batch.setItems(java.util.List.of(new FunctionCallItem(call, result)));
+			assistantMessage.setFunctionCallBatch(batch);
+			chat.addMessage(assistantMessage, false);
 
-		JsonArray contents = invokeCreateChatContentsArray(client, chat);
-		assertEquals(2, contents.size(), "Legacy call/result still expected as two turns");
+			JsonArray contents = invokeCreateChatContentsArray(client, chat);
+			assertEquals(2, contents.size(), "Single-item batch call/result should serialize as two turns");
 
 		JsonObject modelTurn = contents.get(0).getAsJsonObject();
 		assertEquals("model", modelTurn.get("role").getAsString());

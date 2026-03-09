@@ -31,8 +31,6 @@ public class OpenAiResponsesFunctionBatchTest {
 		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
 		FunctionCallBatch batch = createBatchWithResults();
 		assistantMessage.setFunctionCallBatch(batch);
-		assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
-		assistantMessage.setFunctionResult(batch.getItems().get(0).getResult());
 		chat.addMessage(assistantMessage, false);
 
 		JsonArray input = invokeBuildInputItemsForConversation(client, chat);
@@ -49,7 +47,6 @@ public class OpenAiResponsesFunctionBatchTest {
 		assistantMessage.setMetadata("openai_response_id", "resp_123");
 		FunctionCallBatch batch = createBatchWithResults();
 		assistantMessage.setFunctionCallBatch(batch);
-		assistantMessage.setFunctionResult(batch.getItems().get(0).getResult());
 		chat.addMessage(assistantMessage, false);
 
 		JsonArray input = invokeBuildIncrementalInputItems(client, chat, "resp_123");

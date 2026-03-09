@@ -58,4 +58,21 @@ public class FunctionCallBatchOrchestratorTest {
 		assertNotNull(batch.getItems().get(0).getResult());
 		assertNotNull(batch.getItems().get(1).getResult());
 	}
+
+	@Test
+	void handleFunctionCallExecutesBatchWhenPresent() {
+		FunctionCallSession session = new FunctionCallSession();
+		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
+		FunctionCallBatch batch = new FunctionCallBatch("batch-handle");
+
+		batch.addCall(new FunctionCall("call-1", "", "{}"));
+		batch.addCall(new FunctionCall("call-2", "", "{}"));
+		assistantMessage.setFunctionCallBatch(batch);
+
+		session.handleFunctionCall(assistantMessage);
+
+		assertTrue(batch.isExecutionComplete());
+		assertNotNull(batch.getItems().get(0).getResult());
+		assertNotNull(batch.getItems().get(1).getResult());
+	}
 }

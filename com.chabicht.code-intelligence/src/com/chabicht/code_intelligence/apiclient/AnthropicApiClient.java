@@ -370,7 +370,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 			// Skip if both message content and thinking content are blank
 			if (StringUtils.isBlank(messageContent) && StringUtils.isBlank(msg.getThinkingContent())
-					&& msg.getFunctionCallBatch().isEmpty() && msg.getFunctionCall().isEmpty()) {
+					&& msg.getFunctionCallBatch().isEmpty()) {
 				continue;
 			}
 
@@ -427,10 +427,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 	}
 
 	private void appendAssistantToolUses(JsonArray contentArray, ChatMessage message) {
-		boolean appendedBatchCalls = appendBatchAssistantToolUses(contentArray, message);
-		if (!appendedBatchCalls && Role.ASSISTANT.equals(message.getRole()) && message.getFunctionCall().isPresent()) {
-			contentArray.add(buildToolUseBlock(message.getFunctionCall().get()));
-		}
+		appendBatchAssistantToolUses(contentArray, message);
 	}
 
 	private boolean appendBatchAssistantToolUses(JsonArray contentArray, ChatMessage message) {
@@ -462,15 +459,6 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		JsonObject batchResultTurn = buildBatchToolResultTurn(message);
 		if (batchResultTurn != null) {
 			messagesJson.add(batchResultTurn);
-			return;
-		}
-		if (message.getFunctionResult().isPresent()) {
-			JsonObject resultMsg = new JsonObject();
-			resultMsg.addProperty("role", "user");
-			JsonArray resultContentArray = new JsonArray();
-			resultContentArray.add(buildToolResultBlock(message.getFunctionResult().get()));
-			resultMsg.add("content", resultContentArray);
-			messagesJson.add(resultMsg);
 		}
 	}
 
@@ -664,13 +652,12 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		}
 
 		assistantMessage.setFunctionCallBatch(batch);
-		assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
 	}
 
 	private void finalizeAssistantMessage(ChatMessage assistantMessage, ChatConversation chat,
 			AtomicBoolean responseFinished) {
 		if (assistantMessage != null && !responseFinished.get()) {
-			if (assistantMessage.getFunctionCallBatch().isPresent() || assistantMessage.getFunctionCall().isPresent()) {
+			if (assistantMessage.getFunctionCallBatch().isPresent()) {
 				chat.notifyFunctionCalled(assistantMessage);
 			}
 

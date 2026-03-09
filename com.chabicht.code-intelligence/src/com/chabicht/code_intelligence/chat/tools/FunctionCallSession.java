@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -154,11 +153,11 @@ public class FunctionCallSession {
 	 * @return
 	 */
 	public void handleFunctionCall(ChatMessage message) {
-		Optional<FunctionCall> callOpt = message.getFunctionCall();
-		if (callOpt.isPresent()) {
-			FunctionResult result = executeFunctionCall(message.getId(), callOpt.get());
-			message.setFunctionResult(result);
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return;
 		}
+
+		executeBatch(message);
 	}
 
 	public void enqueueBatch(ChatMessage assistantMessage) {
@@ -237,10 +236,9 @@ public class FunctionCallSession {
 				}
 			}
 
-			boolean firstExecutedCall = true;
-			int batchCallsExecuted = 0;
-			int batchCallsFailed = 0;
-			for (int i = 0; i < items.size(); i++) {
+				int batchCallsExecuted = 0;
+				int batchCallsFailed = 0;
+				for (int i = 0; i < items.size(); i++) {
 				FunctionCallItem item = items.get(i);
 				if (item == null || item.getCall() == null) {
 					continue;
@@ -251,20 +249,11 @@ public class FunctionCallSession {
 				batch.setResultForCall(i, result);
 				callsExecuted++;
 				batchCallsExecuted++;
-				if (isErrorResult(result)) {
-					callsFailed++;
-					batchCallsFailed++;
-				}
-
-				// Keep legacy fields aligned for compatibility until full batch-only migration.
-				if (firstExecutedCall) {
-					if (assistantMessage.getFunctionCall().isEmpty()) {
-						assistantMessage.setFunctionCall(call);
+					if (isErrorResult(result)) {
+						callsFailed++;
+						batchCallsFailed++;
 					}
-					assistantMessage.setFunctionResult(result);
-					firstExecutedCall = false;
 				}
-			}
 
 			batch.setExecutionComplete(true);
 			batchesExecuted++;

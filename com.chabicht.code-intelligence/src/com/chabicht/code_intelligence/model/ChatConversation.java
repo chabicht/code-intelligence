@@ -199,8 +199,6 @@ public class ChatConversation {
 		private final List<MessageContext> context = new ArrayList<>();
 		private final List<UUID> summarizedToolCallIds = new ArrayList<>();
 
-		private Optional<FunctionCall> functionCall = Optional.empty();
-		private Optional<FunctionResult> functionResult = Optional.empty();
 		private Optional<FunctionCallBatch> functionCallBatch = Optional.empty();
 
 		// Fields for thinking/reasoning content
@@ -243,46 +241,47 @@ public class ChatConversation {
 			return summarizedToolCallIds;
 		}
 
+		public List<FunctionCallBatch.FunctionCallItem> getCallableFunctionItems() {
+			List<FunctionCallBatch.FunctionCallItem> callableItems = new ArrayList<>();
+
+			if (getFunctionCallBatch().isPresent()) {
+				for (FunctionCallBatch.FunctionCallItem item : getFunctionCallBatch().get().getItems()) {
+					if (item != null && item.getCall() != null) {
+						callableItems.add(item);
+					}
+				}
+			}
+			return callableItems;
+		}
+
+		public boolean hasFunctionCalls() {
+			return !getCallableFunctionItems().isEmpty();
+		}
+
 		public String getToolCallDetailsAsMarkdown() {
-			if (!getFunctionCall().isPresent()) {
+			List<FunctionCallBatch.FunctionCallItem> callableItems = getCallableFunctionItems();
+			if (callableItems.isEmpty()) {
 				return "";
 			}
+
 			StringBuilder sb = new StringBuilder();
-			FunctionCall call = getFunctionCall().get();
-			// The initial "\n\n" for the section header is included here.
-			sb.append("\n\n## Tool Call ").append(call.getFunctionName()).append("\n");
+			for (int i = 0; i < callableItems.size(); i++) {
+				FunctionCallBatch.FunctionCallItem item = callableItems.get(i);
+				FunctionCall call = item.getCall();
+				FunctionResult result = item.getResult();
 
-			sb.append(call.getParamsAsMarkdown()); // Appends "" or "Parameters:\n..."
+				sb.append("\n\n## Tool Call");
+				if (callableItems.size() > 1) {
+					sb.append(" ").append(i + 1).append("/").append(callableItems.size());
+				}
+				sb.append(" ").append(call.getFunctionName()).append("\n");
+				sb.append(call.getParamsAsMarkdown());
 
-			if (getFunctionResult().isPresent()) {
-				FunctionResult result = getFunctionResult().get();
-				sb.append(result.getResultsAsMarkdown()); // Appends "" or "Results:\n..."
+				if (result != null) {
+					sb.append(result.getResultsAsMarkdown());
+				}
 			}
 			return sb.toString();
-		}
-
-		public Optional<FunctionCall> getFunctionCall() {
-			return functionCall;
-		}
-
-		public void setFunctionCall(Optional<FunctionCall> functionCall) {
-			this.functionCall = (functionCall != null) ? functionCall : Optional.empty();
-		}
-
-		public void setFunctionCall(FunctionCall functionCall) {
-			this.functionCall = Optional.ofNullable(functionCall);
-		}
-
-		public Optional<FunctionResult> getFunctionResult() {
-			return functionResult;
-		}
-
-		public void setFunctionResult(Optional<FunctionResult> functionResult) {
-			this.functionResult = (functionResult != null) ? functionResult : Optional.empty();
-		}
-
-		public void setFunctionResult(FunctionResult functionResult) {
-			this.functionResult = Optional.ofNullable(functionResult);
 		}
 
 		public Optional<FunctionCallBatch> getFunctionCallBatch() {
@@ -410,9 +409,6 @@ public class ChatConversation {
 				sb.append(", context=[]");
 			}
 			sb.append(" }");
-			if (functionCall.isPresent()) {
-				sb.append(",\n  functionCall=" + functionCall);
-			}
 			if (functionCallBatch.isPresent()) {
 				FunctionCallBatch batch = functionCallBatch.get();
 				sb.append(",\n  functionCallBatch={batchId=").append(batch.getBatchId());
@@ -593,7 +589,7 @@ public class ChatConversation {
 		}
 
 		public void setItems(List<FunctionCallItem> items) {
-			this.items = (items != null) ? items : new ArrayList<>();
+			this.items = (items != null) ? new ArrayList<>(items) : new ArrayList<>();
 		}
 
 		// Compatibility helper while migrating old call sites.
@@ -789,7 +785,9 @@ public class ChatConversation {
 		 * response includes a function call instruction instead of or in addition to
 		 * regular text content.
 		 * 
-		 * @param message The function details are in message.functionCall.
+		 * @param message The function details are in message.functionCallBatch, with
+		 *                message.functionCall remaining as a temporary compatibility
+		 *                shim.
 		 */
 		void onFunctionCall(ChatMessage message);
 

@@ -386,12 +386,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
-		boolean appendedBatchCalls = appendBatchAssistantToolCalls(jsonMsg, message);
-		if (!appendedBatchCalls && Role.ASSISTANT.equals(message.getRole()) && message.getFunctionCall().isPresent()) {
-			JsonArray toolCallsArray = new JsonArray();
-			toolCallsArray.add(buildToolCallItem(message.getFunctionCall().get()));
-			jsonMsg.add("tool_calls", toolCallsArray);
-		}
+		appendBatchAssistantToolCalls(jsonMsg, message);
 	}
 
 	private boolean appendBatchAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
@@ -427,10 +422,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	private void appendToolResultMessages(JsonArray messagesJson, ChatMessage message) {
-		boolean appendedBatchResults = appendBatchToolResultMessages(messagesJson, message);
-		if (!appendedBatchResults && message.getFunctionResult().isPresent()) {
-			messagesJson.add(buildToolResultMessage(message.getFunctionResult().get()));
-		}
+		appendBatchToolResultMessages(messagesJson, message);
 	}
 
 	private boolean appendBatchToolResultMessages(JsonArray messagesJson, ChatMessage message) {
@@ -588,9 +580,6 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 		if (!batch.getItems().isEmpty()) {
 			assistantMessage.setFunctionCallBatch(batch);
-			if (assistantMessage.getFunctionCall().isEmpty()) {
-				assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
-			}
 			logDebugBatchParsed(assistantMessage, batch);
 			chat.notifyFunctionCalled(assistantMessage);
 		}

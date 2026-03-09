@@ -216,10 +216,8 @@ public class ChatView extends ViewPart {
 
 			@Override
 			public void onFunctionCall(ChatMessage message) {
-				if (message.getFunctionCallBatch().isEmpty() && message.getFunctionCall().isPresent()) {
-					FunctionCallBatch singleCallBatch = new FunctionCallBatch();
-					singleCallBatch.addCall(message.getFunctionCall().get());
-					message.setFunctionCallBatch(singleCallBatch);
+				if (message.getFunctionCallBatch().isEmpty()) {
+					return;
 				}
 
 				message.setMetadata("tool_execution_state", "queued");
@@ -259,43 +257,35 @@ public class ChatView extends ViewPart {
 			return combinedHtml;
 		}
 
-		private String messageToolUseToHtml(ChatMessage message) {
-			if (message.getFunctionCallBatch().isPresent()) {
+			private String messageToolUseToHtml(ChatMessage message) {
+				if (message.getFunctionCallBatch().isEmpty()) {
+					return "";
+				}
+
 				FunctionCallBatch batch = message.getFunctionCallBatch().get();
 				List<FunctionCallItem> callableItems = batch.getItems().stream()
 						.filter(item -> item != null && item.getCall() != null).collect(Collectors.toList());
-				if (!callableItems.isEmpty()) {
-					StringBuilder batchHtml = new StringBuilder();
-					for (int i = 0; i < callableItems.size(); i++) {
-						FunctionCallItem item = callableItems.get(i);
-						FunctionCall call = item.getCall();
-						FunctionResult result = item.getResult();
-						boolean hasFunctionResult = result != null;
-						if (!hasFunctionResult) {
-							result = new FunctionResult(call.getId(), call.getFunctionName());
-						}
-
-						String summaryLabel = String.format("Function call %d/%d: %s", i + 1, callableItems.size(),
-								call.getFunctionName());
-						batchHtml.append(renderFunctionCallHtml(message, call, result, hasFunctionResult, summaryLabel, false));
-					}
-					batchHtml.append(renderBatchReexecuteActionHtml(message));
-					if (batchHtml.length() > 0) {
-						return batchHtml.toString();
-					}
+				if (callableItems.isEmpty()) {
+					return "";
 				}
-			}
 
-			if (message.getFunctionCall().isEmpty()) {
-				return "";
-			}
+				StringBuilder batchHtml = new StringBuilder();
+				for (int i = 0; i < callableItems.size(); i++) {
+					FunctionCallItem item = callableItems.get(i);
+					FunctionCall call = item.getCall();
+					FunctionResult result = item.getResult();
+					boolean hasFunctionResult = result != null;
+					if (!hasFunctionResult) {
+						result = new FunctionResult(call.getId(), call.getFunctionName());
+					}
 
-			FunctionCall call = message.getFunctionCall().get();
-			Optional<FunctionResult> resultOpt = message.getFunctionResult();
-			FunctionResult result = resultOpt.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
-			return renderFunctionCallHtml(message, call, result, resultOpt.isPresent(),
-					"Function call: " + call.getFunctionName(), true);
-		}
+					String summaryLabel = String.format("Function call %d/%d: %s", i + 1, callableItems.size(),
+							call.getFunctionName());
+					batchHtml.append(renderFunctionCallHtml(message, call, result, hasFunctionResult, summaryLabel, false));
+				}
+				batchHtml.append(renderBatchReexecuteActionHtml(message));
+				return batchHtml.toString();
+			}
 
 		private String renderFunctionCallHtml(ChatMessage message, FunctionCall call, FunctionResult result,
 				boolean hasFunctionResult, String summaryLabel, boolean includeReexecuteAction) {
@@ -472,62 +462,10 @@ public class ChatView extends ViewPart {
 				return;
 			}
 
-			if (messageToReexecute.getFunctionCall().isPresent()) {
-				reexecuteToolCall(messageUuidString);
-				return;
-			}
-
 			if (messageToReexecute.getSummarizedToolCallIds() != null
 					&& !messageToReexecute.getSummarizedToolCallIds().isEmpty()) {
 				reexecuteToolSummary(messageUuidString);
 			}
-		}
-	}
-
-	private void reexecuteToolCall(String messageUuidString) {
-		// Ensure conversation, functionCallSession, and chat (ChatComponent) are
-		// initialized and available
-		if (conversation == null || this.functionCallSession == null || this.chat == null) {
-			System.err.println(
-					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
-			return;
-		}
-
-		UUID messageUuid = UUID.fromString(messageUuidString);
-
-		ChatMessage messageToReexecute = conversation.getMessages().stream().filter(m -> m.getId().equals(messageUuid))
-				.findFirst().orElse(null);
-
-		if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
-			FunctionCall call = messageToReexecute.getFunctionCall().get();
-			System.out.println("ChatView: Re-executing tool call: " + call.getFunctionName() + " for message UUID: "
-					+ messageUuidString);
-
-			// Prepare the message for re-execution:
-			// Create a new, empty FunctionResult shell associated with the original call's
-			// ID and name.
-			// This ensures that handleFunctionCall populates this new shell.
-			FunctionResult newResultShell = new FunctionResult(call.getId(), call.getFunctionName());
-			messageToReexecute.setFunctionResult(newResultShell);
-
-			// Execute the function call again.
-			// This is expected to populate the 'newResultShell' within
-			// 'messageToReexecute'.
-			this.functionCallSession.handleFunctionCall(messageToReexecute);
-
-			// Update this specific message in the UI to display the new result,
-			// using the listener's method to ensure correct HTML generation.
-			if (chatListener != null) {
-				chatListener.onMessageUpdated(messageToReexecute);
-			} else {
-				System.err.println("ChatView: chatListener is null, cannot update message view for re-execute.");
-			}
-
-			this.functionCallSession.applyPendingChanges();
-		} else {
-			Log.logError(
-					"ChatView: Cannot re-execute. Message not found, not a function call, or function call details missing for UUID: "
-							+ messageUuidString);
 		}
 	}
 
@@ -600,28 +538,15 @@ public class ChatView extends ViewPart {
 			ChatMessage messageToReexecute = conversation.getMessages().stream()
 					.filter(m -> m.getId().equals(messageId)).findFirst().orElse(null);
 
-			if (messageToReexecute != null && messageToReexecute.getFunctionCallBatch().isPresent()) {
-				BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
-				messageToReexecute.setMetadata("tool_execution_state", "completed");
-				logDebugBatchExecutionReport(report);
-				if (chatListener != null) {
-					chatListener.onMessageUpdated(messageToReexecute);
-				}
-			} else if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
-				// Reset the result from the previous run
-				messageToReexecute
-						.setFunctionResult(new FunctionResult(messageToReexecute.getFunctionCall().get().getId(),
-								messageToReexecute.getFunctionCall().get().getFunctionName()));
-
-				// Re-handle the call. This will populate the new result and queue changes.
-				functionCallSession.handleFunctionCall(messageToReexecute);
-
-				// Update the UI for this specific message to show it's processing again
-				if (chatListener != null) {
-					chatListener.onMessageUpdated(messageToReexecute);
+				if (messageToReexecute != null && messageToReexecute.getFunctionCallBatch().isPresent()) {
+					BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
+					messageToReexecute.setMetadata("tool_execution_state", "completed");
+					logDebugBatchExecutionReport(report);
+					if (chatListener != null) {
+						chatListener.onMessageUpdated(messageToReexecute);
+					}
 				}
 			}
-		}
 
 		// 3. After all calls are re-processed, apply the newly accumulated changes.
 		// This will open the refactoring wizard with the new set of changes.
@@ -1982,7 +1907,7 @@ public class ChatView extends ViewPart {
 
 			// 3. Populate the summary message with the IDs of the calls
 			for (ChatMessage msg : toolCallSequence) {
-				if (msg.getFunctionCall().isPresent()) {
+				if (msg.hasFunctionCalls()) {
 					summaryMessage.getSummarizedToolCallIds().add(msg.getId());
 				}
 			}

@@ -112,8 +112,6 @@ public class AnthropicFunctionBatchIntegrationTest {
 			assertEquals("read_file_content", batch.getItems().get(1).getCall().getFunctionName());
 			assertEquals("{\"path\":\"/project/A.java\"}", batch.getItems().get(1).getCall().getArgsJson());
 			assertEquals(1, functionCallNotifications.get(), "Function-call notification should fire once per turn");
-			assertTrue(assistantMessage.getFunctionCall().isPresent(), "Legacy first-call shim should remain populated");
-			assertEquals("call-1", assistantMessage.getFunctionCall().get().getId());
 		}
 	}
 

@@ -32,8 +32,6 @@ public class OpenAiFunctionBatchTest {
 		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
 		FunctionCallBatch batch = createBatchWithResults();
 		assistantMessage.setFunctionCallBatch(batch);
-		assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
-		assistantMessage.setFunctionResult(batch.getItems().get(0).getResult());
 		chat.addMessage(assistantMessage, false);
 
 		JsonArray messages = invokeBuildMessagesJson(client, chat);
@@ -57,20 +55,21 @@ public class OpenAiFunctionBatchTest {
 	}
 
 	@Test
-	void buildMessagesJsonKeepsLegacySingleCallPath() throws Exception {
+	void buildMessagesJsonSupportsSingleItemBatchPath() throws Exception {
 		OpenAiApiClient client = new OpenAiApiClient(createConnection());
 		ChatConversation chat = new ChatConversation();
 
 		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
-		FunctionCall legacyCall = new FunctionCall("legacy-call", "find_files", "{\"query\":\"*.md\"}");
-		FunctionResult legacyResult = new FunctionResult("legacy-call", "find_files");
-		legacyResult.setResultJson("{\"status\":\"ok\",\"items\":[]}");
-		assistantMessage.setFunctionCall(legacyCall);
-		assistantMessage.setFunctionResult(legacyResult);
+		FunctionCall call = new FunctionCall("legacy-call", "find_files", "{\"query\":\"*.md\"}");
+		FunctionResult result = new FunctionResult("legacy-call", "find_files");
+		result.setResultJson("{\"status\":\"ok\",\"items\":[]}");
+		FunctionCallBatch batch = new FunctionCallBatch("batch-single");
+		batch.setItems(java.util.List.of(new FunctionCallItem(call, result)));
+		assistantMessage.setFunctionCallBatch(batch);
 		chat.addMessage(assistantMessage, false);
 
 		JsonArray messages = invokeBuildMessagesJson(client, chat);
-		assertEquals(2, messages.size(), "Legacy replay should stay as assistant + one tool result");
+		assertEquals(2, messages.size(), "Single-item batch replay should stay as assistant + one tool result");
 		assertEquals(1, messages.get(0).getAsJsonObject().getAsJsonArray("tool_calls").size());
 		assertEquals("legacy-call", messages.get(1).getAsJsonObject().get("tool_call_id").getAsString());
 	}
@@ -151,8 +150,6 @@ public class OpenAiFunctionBatchTest {
 		assertEquals("read_file_content", batch.getItems().get(1).getCall().getFunctionName());
 		assertEquals("{\"path\":\"/project/A.java\"}", batch.getItems().get(1).getCall().getArgsJson());
 		assertEquals(1, functionCallNotifications.get(), "Function-call notification should fire once per assistant turn");
-		assertTrue(assistantMessage.getFunctionCall().isPresent(), "Legacy first-call shim should remain populated");
-		assertEquals("call-1", assistantMessage.getFunctionCall().get().getId());
 	}
 
 	private FunctionCallBatch createBatchWithResults() {
