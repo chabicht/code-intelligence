@@ -13,7 +13,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID; // Added import for UUID
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -25,7 +26,13 @@ import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
+import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
@@ -162,50 +169,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	 */
 	@Override
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
-		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
-		JsonArray messagesJson = new JsonArray();
-		for (ChatConversation.ChatMessage msg : messagesToSend) {
-			// Skip TOOL_SUMMARY messages, they are for internal use only
-			if (ChatConversation.Role.TOOL_SUMMARY.equals(msg.getRole())) {
-				continue;
-			}
-
-			JsonObject jsonMsg = new JsonObject();
-			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
-
-			StringBuilder content = new StringBuilder(256);
-			if (!msg.getContext().isEmpty()) {
-				content.append("Context information:\n\n");
-			}
-			for (MessageContext ctx : msg.getContext()) {
-				content.append(ctx.compile(true));
-				content.append("\n");
-			}
-			content.append(msg.getContent());
-			jsonMsg.addProperty("content", content.toString());
-			messagesJson.add(jsonMsg);
-
-			// NEW: Add role: "tool" message if the current message was an ASSISTANT
-			// message that had a FunctionCall and now has a FunctionResult.
-			if (msg.getRole() == ChatConversation.Role.ASSISTANT && msg.getFunctionCall().isPresent()
-					&& msg.getFunctionResult().isPresent()) {
-
-				ChatConversation.FunctionCall originalFc = msg.getFunctionCall().get();
-				ChatConversation.FunctionResult fr = msg.getFunctionResult().get();
-
-				if (!originalFc.getId().equals(fr.getId())) {
-					Activator.logError("Mismatch between FunctionCall ID (" + originalFc.getId()
-							+ ") and FunctionResult ID (" + fr.getId() + ") for function " + fr.getFunctionName(),
-							null);
-				}
-
-				JsonObject toolResultMsgJson = new JsonObject();
-				toolResultMsgJson.addProperty("role", "tool");
-				toolResultMsgJson.addProperty("content", fr.getResultJson());
-				toolResultMsgJson.addProperty("name", fr.getFunctionName());
-				messagesJson.add(toolResultMsgJson);
-			}
-		}
+		JsonArray messagesJson = buildMessagesJson(chat);
 
 		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
@@ -241,6 +205,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 
 		final AtomicBoolean responseFinished = new AtomicBoolean(false);
 		final AtomicBoolean thinkingStarted = new AtomicBoolean(false);
+		final Map<Integer, FunctionCall> pendingToolCalls = new TreeMap<>();
 
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
@@ -254,23 +219,8 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 
 									// Handle tool_calls
 									if (messageObj.has("tool_calls")) {
-										JsonArray toolCallsArray = messageObj.getAsJsonArray("tool_calls");
-										if (toolCallsArray != null && !toolCallsArray.isEmpty()) {
-											if (toolCallsArray.size() > 1) {
-												Activator.logError(
-														"Ollama API returned multiple tool_calls in a single message. Processing only the first.",
-														null);
-											}
-											JsonObject toolCallObj = toolCallsArray.get(0).getAsJsonObject();
-											JsonObject functionDetails = toolCallObj.getAsJsonObject("function");
-											String functionName = functionDetails.get("name").getAsString();
-											JsonObject argumentsObj = functionDetails.getAsJsonObject("arguments");
-											String argsJsonString = gson.toJson(argumentsObj);
-											String clientGeneratedCallId = UUID.randomUUID().toString();
-											ChatConversation.FunctionCall functionCall = new ChatConversation.FunctionCall(
-													clientGeneratedCallId, functionName, argsJsonString);
-											assistantMessage.setFunctionCall(functionCall);
-										}
+										mergeToolCalls(messageObj.getAsJsonArray("tool_calls"), pendingToolCalls,
+												assistantMessage);
 									}
 
 									// Handle thinking content
@@ -362,10 +312,222 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 	}
 
-	private void finalizeAssistantMessage(ChatConversation.ChatMessage assistantMessage, ChatConversation chat,
+	private JsonArray buildMessagesJson(ChatConversation chat) {
+		JsonArray messagesJson = new JsonArray();
+		for (ChatMessage message : new ArrayList<>(chat.getMessages())) {
+			if (Role.TOOL_SUMMARY.equals(message.getRole())) {
+				continue;
+			}
+
+			JsonObject jsonMsg = new JsonObject();
+			jsonMsg.addProperty("role", message.getRole().toString().toLowerCase());
+			jsonMsg.addProperty("content", compileMessageContent(message));
+			appendAssistantToolCalls(jsonMsg, message);
+			messagesJson.add(jsonMsg);
+			appendToolResultMessages(messagesJson, message);
+		}
+		return messagesJson;
+	}
+
+	private String compileMessageContent(ChatMessage message) {
+		StringBuilder contentBuilder = new StringBuilder(256);
+		if (!message.getContext().isEmpty()) {
+			contentBuilder.append("Context information:\n\n");
+			for (MessageContext ctx : message.getContext()) {
+				contentBuilder.append(ctx.compile(true));
+				contentBuilder.append("\n");
+			}
+		}
+		if (message.getContent() != null) {
+			contentBuilder.append(message.getContent());
+		}
+		return contentBuilder.toString();
+	}
+
+	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
+		boolean appendedBatchCalls = appendBatchAssistantToolCalls(jsonMsg, message);
+		if (!appendedBatchCalls && Role.ASSISTANT.equals(message.getRole()) && message.getFunctionCall().isPresent()) {
+			JsonArray toolCallsArray = new JsonArray();
+			toolCallsArray.add(buildToolCallItem(message.getFunctionCall().get()));
+			jsonMsg.add("tool_calls", toolCallsArray);
+		}
+	}
+
+	private boolean appendBatchAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
+		if (message == null || !Role.ASSISTANT.equals(message.getRole()) || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		JsonArray toolCallsArray = new JsonArray();
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getCall() == null) {
+				continue;
+			}
+			toolCallsArray.add(buildToolCallItem(item.getCall()));
+		}
+		if (toolCallsArray.isEmpty()) {
+			return false;
+		}
+
+		jsonMsg.add("tool_calls", toolCallsArray);
+		return true;
+	}
+
+	private JsonObject buildToolCallItem(FunctionCall functionCall) {
+		JsonObject toolCallItem = new JsonObject();
+		JsonObject functionDetails = new JsonObject();
+		functionDetails.addProperty("name", functionCall.getFunctionName());
+		functionDetails.add("arguments", parseJsonElementOrEmptyObject(functionCall.getArgsJson()));
+		toolCallItem.add("function", functionDetails);
+		return toolCallItem;
+	}
+
+	private void appendToolResultMessages(JsonArray messagesJson, ChatMessage message) {
+		boolean appendedBatchResults = appendBatchToolResultMessages(messagesJson, message);
+		if (!appendedBatchResults && message.getFunctionResult().isPresent()) {
+			messagesJson.add(buildToolResultMessage(message.getFunctionResult().get()));
+		}
+	}
+
+	private boolean appendBatchToolResultMessages(JsonArray messagesJson, ChatMessage message) {
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		boolean appended = false;
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getResult() == null) {
+				continue;
+			}
+			messagesJson.add(buildToolResultMessage(item.getResult()));
+			appended = true;
+		}
+		return appended;
+	}
+
+	private JsonObject buildToolResultMessage(FunctionResult functionResult) {
+		JsonObject toolResultMsgJson = new JsonObject();
+		toolResultMsgJson.addProperty("role", "tool");
+		toolResultMsgJson.addProperty("content", StringUtils.defaultString(functionResult.getResultJson()));
+		toolResultMsgJson.addProperty("tool_name", functionResult.getFunctionName());
+		return toolResultMsgJson;
+	}
+
+	private void mergeToolCalls(JsonArray toolCallsArray, Map<Integer, FunctionCall> pendingToolCalls,
+			ChatMessage assistantMessage) {
+		if (toolCallsArray == null || toolCallsArray.isEmpty()) {
+			return;
+		}
+
+		for (int i = 0; i < toolCallsArray.size(); i++) {
+			JsonElement toolCallElement = toolCallsArray.get(i);
+			if (!toolCallElement.isJsonObject()) {
+				continue;
+			}
+
+			JsonObject toolCallObj = toolCallElement.getAsJsonObject();
+			FunctionCall functionCall = parseToolCall(toolCallObj);
+			if (functionCall == null) {
+				continue;
+			}
+
+			pendingToolCalls.put(extractToolCallIndex(toolCallObj, i), functionCall);
+		}
+
+		if (pendingToolCalls.isEmpty()) {
+			return;
+		}
+
+		FunctionCallBatch batch = new FunctionCallBatch();
+		for (FunctionCall functionCall : pendingToolCalls.values()) {
+			batch.addCall(functionCall);
+		}
+		if (batch.getItems().isEmpty()) {
+			return;
+		}
+
+		assistantMessage.setFunctionCallBatch(batch);
+		assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
+	}
+
+	private FunctionCall parseToolCall(JsonObject toolCallObj) {
+		if (toolCallObj == null || !toolCallObj.has("function") || !toolCallObj.get("function").isJsonObject()) {
+			return null;
+		}
+
+		JsonObject functionDetails = toolCallObj.getAsJsonObject("function");
+		if (!functionDetails.has("name") || functionDetails.get("name").isJsonNull()) {
+			return null;
+		}
+
+		String functionName = functionDetails.get("name").getAsString();
+		if (StringUtils.isBlank(functionName)) {
+			return null;
+		}
+
+		String callId = null;
+		if (toolCallObj.has("id") && !toolCallObj.get("id").isJsonNull()) {
+			callId = toolCallObj.get("id").getAsString();
+		}
+		if (StringUtils.isBlank(callId)) {
+			callId = UUID.randomUUID().toString();
+		}
+
+		JsonElement argumentsElement = functionDetails.get("arguments");
+		String argsJsonString = buildArgumentsJson(argumentsElement);
+		return new FunctionCall(callId, functionName, argsJsonString);
+	}
+
+	private int extractToolCallIndex(JsonObject toolCallObj, int defaultIndex) {
+		if (toolCallObj != null && toolCallObj.has("function") && toolCallObj.get("function").isJsonObject()) {
+			JsonObject functionDetails = toolCallObj.getAsJsonObject("function");
+			if (functionDetails.has("index") && !functionDetails.get("index").isJsonNull()) {
+				try {
+					return functionDetails.get("index").getAsInt();
+				} catch (Exception e) {
+					Activator.logError("Invalid Ollama tool_call index: " + functionDetails.get("index"), e);
+				}
+			}
+		}
+		return defaultIndex;
+	}
+
+	private String buildArgumentsJson(JsonElement argumentsElement) {
+		if (argumentsElement == null || argumentsElement.isJsonNull()) {
+			return "{}";
+		}
+		if (argumentsElement.isJsonPrimitive() && argumentsElement.getAsJsonPrimitive().isString()) {
+			String serializedArguments = argumentsElement.getAsString();
+			if (StringUtils.isBlank(serializedArguments)) {
+				return "{}";
+			}
+			try {
+				return gson.toJson(JsonParser.parseString(serializedArguments));
+			} catch (Exception e) {
+				Activator.logError("Failed to parse Ollama tool arguments: " + serializedArguments, e);
+				return "{}";
+			}
+		}
+		return gson.toJson(argumentsElement);
+	}
+
+	private JsonElement parseJsonElementOrEmptyObject(String json) {
+		if (StringUtils.isBlank(json)) {
+			return new JsonObject();
+		}
+		try {
+			JsonElement parsed = JsonParser.parseString(json);
+			return parsed != null ? parsed : new JsonObject();
+		} catch (Exception e) {
+			Activator.logError("Failed to parse tool JSON payload (length=" + json.length() + ")", e);
+			return new JsonObject();
+		}
+	}
+
+	private void finalizeAssistantMessage(ChatMessage assistantMessage, ChatConversation chat,
 			AtomicBoolean responseFinished) {
 		if (assistantMessage != null && !responseFinished.get()) {
-			if (assistantMessage.getFunctionCall().isPresent()) {
+			if (assistantMessage.getFunctionCallBatch().isPresent() || assistantMessage.getFunctionCall().isPresent()) {
 				chat.notifyFunctionCalled(assistantMessage);
 			}
 
