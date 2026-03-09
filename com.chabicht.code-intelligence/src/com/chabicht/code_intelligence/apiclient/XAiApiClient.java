@@ -23,8 +23,8 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
-import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
@@ -181,7 +181,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
 			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsXAi(profile));
-			req.addProperty("parallel_tool_calls", false);
+			req.addProperty("parallel_tool_calls", true);
 		}
 
 		ChatConversation.ChatMessage assistantMessage = new ChatConversation.ChatMessage(
