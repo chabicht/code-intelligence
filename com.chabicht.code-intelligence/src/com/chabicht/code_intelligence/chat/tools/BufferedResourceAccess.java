@@ -286,11 +286,10 @@ public class BufferedResourceAccess implements IResourceAccess {
 
 	static IDocument applyChangesToDocument(IDocument originalDoc, List<TextFileChange> changes)
 			throws BadLocationException {
-		// These edits may have been computed against the same base snapshot.
-		// Apply from the end of the document to preserve their original offsets.
+		// Each queued tool call is prepared against the buffered document state that
+		// already includes earlier queued edits. Replay in queue order so later edits
+		// see the same evolving snapshot they were prepared against.
 		changes = new ArrayList<>(changes);
-		changes.sort((o1, o2) -> Integer.compare(o2.getEdit().getOffset(), o1.getEdit().getOffset()));
-
 		Document workingDoc = new Document(originalDoc.get());
 		for (TextFileChange change : changes) {
 			change.getEdit().apply(workingDoc);
