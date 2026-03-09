@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?pde version="3.8"?>
+<target name="Code Intelligence 2023-09" sequenceNumber="1">
+	<locations>
+		<location
+			includeAllPlatforms="false"
+			includeConfigurePhase="true"
+			includeMode="planner"
+			includeSource="false"
+			type="InstallableUnit">
+			<repository location="https://download.eclipse.org/releases/2023-09"/>
+			<unit id="org.eclipse.sdk.feature.group" version="0.0.0"/>
+			<unit id="org.eclipse.jdt.feature.group" version="0.0.0"/>
+			<unit id="com.google.gson" version="0.0.0"/>
+			<unit id="org.apache.commons.lang3" version="0.0.0"/>
+			<unit id="org.apache.commons.collections" version="0.0.0"/>
+			<unit id="org.apache.commons.commons-beanutils" version="0.0.0"/>
+			<unit id="org.apache.commons.commons-io" version="0.0.0"/>
+			<unit id="junit-jupiter-api" version="0.0.0"/>
+		</location>
+	</locations>
+</target>
