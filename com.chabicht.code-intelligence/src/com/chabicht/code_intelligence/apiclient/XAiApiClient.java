@@ -10,10 +10,11 @@ import java.net.http.HttpClient.Redirect;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -23,7 +24,10 @@ import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
@@ -165,60 +169,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 	@Override
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
-		// Build the JSON array of messages from the conversation
-		JsonArray messagesJson = new JsonArray();
-		for (ChatConversation.ChatMessage msg : chat.getMessages()) { // Iterate directly
-			// Skip TOOL_SUMMARY messages, they are for internal use only
-			if (ChatConversation.Role.TOOL_SUMMARY.equals(msg.getRole())) {
-				continue;
-			}
-			JsonObject jsonMsg = new JsonObject();
-			String roleName = msg.getRole().toString().toLowerCase();
-			jsonMsg.addProperty("role", roleName);
-
-			StringBuilder contentBuilder = new StringBuilder(256);
-			// Build content for every message type
-			if (!msg.getContext().isEmpty()) {
-				contentBuilder.append("Context information:\n\n");
-			}
-			for (MessageContext ctx : msg.getContext()) {
-				contentBuilder.append(ctx.compile());
-				contentBuilder.append("\n");
-			}
-			contentBuilder.append(msg.getContent());
-			jsonMsg.addProperty("content", contentBuilder.toString());
-
-			// Add function calls for assistant messages
-			if (msg.getRole() == Role.ASSISTANT && msg.getFunctionCall().isPresent()) {
-				JsonArray toolCallsArray = new JsonArray();
-				JsonObject toolCallJson = new JsonObject();
-				FunctionCall fc = msg.getFunctionCall().get();
-				toolCallJson.addProperty("id", fc.getId());
-				toolCallJson.addProperty("type", "function");
-				JsonObject functionJson = new JsonObject();
-				functionJson.addProperty("name", fc.getFunctionName());
-				functionJson.addProperty("arguments", fc.getArgsJson());
-				toolCallJson.add("function", functionJson);
-				toolCallsArray.add(toolCallJson);
-				jsonMsg.add("tool_calls", toolCallsArray);
-			}
-
-			messagesJson.add(jsonMsg);
-
-			// If this message has a function result, add it as a separate tool message
-			if (msg.getRole() == Role.ASSISTANT && msg.getFunctionCall().isPresent()
-					&& msg.getFunctionResult().isPresent()) {
-				FunctionResult fr = msg.getFunctionResult().get();
-				if (StringUtils.isNotBlank(fr.getId())) {
-					// Create a new tool message for the function result
-					JsonObject toolMsg = new JsonObject();
-					toolMsg.addProperty("role", "tool");
-					toolMsg.addProperty("content", fr.getResultJson());
-					toolMsg.addProperty("tool_call_id", fr.getId());
-					messagesJson.add(toolMsg);
-				}
-			}
-		}
+		JsonArray messagesJson = buildMessagesJson(chat);
 
 		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
@@ -250,9 +201,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpRequest request = requestBuilder.build();
 
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
-			final AtomicReference<String> tempToolCallId = new AtomicReference<>();
-			final AtomicReference<String> tempToolCallName = new AtomicReference<>();
-			final StringBuilder tempToolCallArgs = new StringBuilder();
+			Map<Integer, ToolCallInfo> activeToolCalls = new TreeMap<>();
 
 			try {
 				if (response.statusCode() >= 200 && response.statusCode() < 300) {
@@ -275,29 +224,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 										}
 
 										if (delta.has("tool_calls")) {
-											JsonArray toolCallsDelta = delta.getAsJsonArray("tool_calls");
-											if (toolCallsDelta != null && !toolCallsDelta.isEmpty()) {
-												JsonObject toolCallChunk = toolCallsDelta.get(0).getAsJsonObject(); // Process
-																													// first
-																													// tool
-																													// call
-												if (toolCallChunk.has("id")) {
-													tempToolCallId.set(toolCallChunk.get("id").getAsString());
-												}
-												// type is assumed "function" by X.ai and not explicitly stored in our
-												// FunctionCall model
-												if (toolCallChunk.has("function")) {
-													JsonObject functionChunk = toolCallChunk
-															.getAsJsonObject("function");
-													if (functionChunk.has("name")) {
-														tempToolCallName.set(functionChunk.get("name").getAsString());
-													}
-													if (functionChunk.has("arguments")) {
-														tempToolCallArgs
-																.append(functionChunk.get("arguments").getAsString());
-													}
-												}
-											}
+											handleToolCallDelta(delta.getAsJsonArray("tool_calls"), activeToolCalls);
 										}
 									}
 
@@ -308,23 +235,7 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 										// e.g., assistantMessage.setLastFinishReason(finishReason);
 
 										if ("tool_calls".equals(finishReason)) {
-											if (tempToolCallId.get() != null && tempToolCallName.get() != null) {
-												if (assistantMessage.getFunctionCall().isPresent()) {
-													Activator.logWarn(
-															"Model attempted to make multiple tool calls. Processing only the first one: "
-																	+ tempToolCallId.get());
-												} else {
-													FunctionCall actualFc = new FunctionCall(tempToolCallId.get(),
-															tempToolCallName.get(), tempToolCallArgs.toString());
-													assistantMessage.setFunctionCall(actualFc); // Uses the
-																								// setFunctionCall(FunctionCall)
-																								// overload
-													chat.notifyFunctionCalled(assistantMessage);
-												}
-											} else {
-												Activator.logWarn(
-														"Finish reason was 'tool_calls' but tool call data was incomplete.");
-											}
+											finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 										}
 									}
 									chat.notifyMessageUpdated(assistantMessage);
@@ -356,6 +267,203 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 			asyncRequest = null;
 			return null;
 		});
+	}
+
+	private JsonArray buildMessagesJson(ChatConversation chat) {
+		JsonArray messagesJson = new JsonArray();
+		for (ChatMessage message : new ArrayList<>(chat.getMessages())) {
+			if (Role.TOOL_SUMMARY.equals(message.getRole())) {
+				continue;
+			}
+
+			JsonObject jsonMsg = new JsonObject();
+			jsonMsg.addProperty("role", message.getRole().toString().toLowerCase());
+			jsonMsg.addProperty("content", compileMessageContent(message));
+			appendAssistantToolCalls(jsonMsg, message);
+			messagesJson.add(jsonMsg);
+			appendToolResultMessages(messagesJson, message);
+		}
+		return messagesJson;
+	}
+
+	private String compileMessageContent(ChatMessage message) {
+		StringBuilder contentBuilder = new StringBuilder(256);
+		if (!message.getContext().isEmpty()) {
+			contentBuilder.append("Context information:\n\n");
+		}
+		for (MessageContext ctx : message.getContext()) {
+			contentBuilder.append(ctx.compile());
+			contentBuilder.append("\n");
+		}
+		if (message.getContent() != null) {
+			contentBuilder.append(message.getContent());
+		}
+		return contentBuilder.toString();
+	}
+
+	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
+		boolean appendedBatchCalls = appendBatchAssistantToolCalls(jsonMsg, message);
+		if (!appendedBatchCalls && Role.ASSISTANT.equals(message.getRole()) && message.getFunctionCall().isPresent()) {
+			JsonArray toolCallsArray = new JsonArray();
+			toolCallsArray.add(buildToolCallItem(message.getFunctionCall().get()));
+			jsonMsg.add("tool_calls", toolCallsArray);
+		}
+	}
+
+	private boolean appendBatchAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
+		if (message == null || !Role.ASSISTANT.equals(message.getRole()) || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		JsonArray toolCallsArray = new JsonArray();
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getCall() == null) {
+				continue;
+			}
+			toolCallsArray.add(buildToolCallItem(item.getCall()));
+		}
+		if (toolCallsArray.isEmpty()) {
+			return false;
+		}
+
+		jsonMsg.add("tool_calls", toolCallsArray);
+		return true;
+	}
+
+	private JsonObject buildToolCallItem(FunctionCall functionCall) {
+		JsonObject toolCallJson = new JsonObject();
+		toolCallJson.addProperty("id", functionCall.getId());
+		toolCallJson.addProperty("type", "function");
+
+		JsonObject functionJson = new JsonObject();
+		functionJson.addProperty("name", functionCall.getFunctionName());
+		functionJson.addProperty("arguments", functionCall.getArgsJson());
+		toolCallJson.add("function", functionJson);
+		return toolCallJson;
+	}
+
+	private void appendToolResultMessages(JsonArray messagesJson, ChatMessage message) {
+		boolean appendedBatchResults = appendBatchToolResultMessages(messagesJson, message);
+		if (!appendedBatchResults && message.getFunctionResult().isPresent()) {
+			messagesJson.add(buildToolResultMessage(message.getFunctionResult().get()));
+		}
+	}
+
+	private boolean appendBatchToolResultMessages(JsonArray messagesJson, ChatMessage message) {
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		boolean appended = false;
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getResult() == null) {
+				continue;
+			}
+			messagesJson.add(buildToolResultMessage(item.getResult()));
+			appended = true;
+		}
+		return appended;
+	}
+
+	private JsonObject buildToolResultMessage(FunctionResult functionResult) {
+		JsonObject toolMsg = new JsonObject();
+		toolMsg.addProperty("role", "tool");
+		toolMsg.addProperty("content", StringUtils.defaultString(functionResult.getResultJson()));
+		toolMsg.addProperty("tool_call_id", functionResult.getId());
+		return toolMsg;
+	}
+
+	private void handleToolCallDelta(JsonArray toolCallDeltas, Map<Integer, ToolCallInfo> activeToolCalls) {
+		if (toolCallDeltas == null) {
+			return;
+		}
+		for (int i = 0; i < toolCallDeltas.size(); i++) {
+			JsonElement toolCallElement = toolCallDeltas.get(i);
+			if (!toolCallElement.isJsonObject()) {
+				continue;
+			}
+
+			JsonObject toolCallDelta = toolCallElement.getAsJsonObject();
+			int index = toolCallDelta.has("index") && !toolCallDelta.get("index").isJsonNull()
+					? toolCallDelta.get("index").getAsInt()
+					: i;
+			ToolCallInfo toolCallInfo = activeToolCalls.computeIfAbsent(index, ToolCallInfo::new);
+
+			if (toolCallDelta.has("id") && !toolCallDelta.get("id").isJsonNull()) {
+				toolCallInfo.setId(toolCallDelta.get("id").getAsString());
+			}
+			if (toolCallDelta.has("function") && toolCallDelta.get("function").isJsonObject()) {
+				JsonObject functionChunk = toolCallDelta.getAsJsonObject("function");
+				if (functionChunk.has("name") && !functionChunk.get("name").isJsonNull()) {
+					toolCallInfo.setName(functionChunk.get("name").getAsString());
+				}
+				if (functionChunk.has("arguments") && !functionChunk.get("arguments").isJsonNull()) {
+					toolCallInfo.appendArguments(functionChunk.get("arguments").getAsString());
+				}
+			}
+		}
+	}
+
+	private void finalizeToolCalls(Map<Integer, ToolCallInfo> activeToolCalls, ChatMessage assistantMessage,
+			ChatConversation chat) {
+		if (activeToolCalls == null || activeToolCalls.isEmpty()) {
+			Activator.logWarn("Finish reason was 'tool_calls' but tool call data was incomplete.");
+			return;
+		}
+
+		FunctionCallBatch batch = new FunctionCallBatch();
+		for (ToolCallInfo toolCall : activeToolCalls.values()) {
+			FunctionCall functionCall = toolCall.toFunctionCall();
+			if (functionCall != null) {
+				batch.addCall(functionCall);
+			}
+		}
+		if (batch.getItems().isEmpty()) {
+			Activator.logWarn("Finish reason was 'tool_calls' but tool call data was incomplete.");
+			return;
+		}
+
+		assistantMessage.setFunctionCallBatch(batch);
+		assistantMessage.setFunctionCall(batch.getItems().get(0).getCall());
+		chat.notifyFunctionCalled(assistantMessage);
+		activeToolCalls.clear();
+	}
+
+	private static class ToolCallInfo {
+		private final int index;
+		private String id;
+		private String name;
+		private final StringBuilder arguments = new StringBuilder();
+
+		private ToolCallInfo(int index) {
+			this.index = index;
+		}
+
+		private void setId(String id) {
+			this.id = id;
+		}
+
+		private void setName(String name) {
+			this.name = name;
+		}
+
+		private void appendArguments(String chunk) {
+			if (chunk != null) {
+				arguments.append(chunk);
+			}
+		}
+
+		private FunctionCall toFunctionCall() {
+			if (StringUtils.isBlank(id) || StringUtils.isBlank(name)) {
+				return null;
+			}
+			return new FunctionCall(id, name, arguments.toString());
+		}
+
+		@Override
+		public String toString() {
+			return "ToolCallInfo[index=" + index + ", id=" + id + ", name=" + name + "]";
+		}
 	}
 
 	@Override
