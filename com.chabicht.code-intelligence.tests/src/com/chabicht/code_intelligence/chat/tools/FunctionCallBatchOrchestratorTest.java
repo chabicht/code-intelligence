@@ -37,4 +37,25 @@ public class FunctionCallBatchOrchestratorTest {
 		assertTrue(batch.getItems().get(0).getResult().getResultJson().contains("\"status\""));
 		assertTrue(batch.getItems().get(1).getResult().getResultJson().contains("\"status\""));
 	}
+
+	@Test
+	void executesSpecificBatchWithoutQueueing() {
+		FunctionCallSession session = new FunctionCallSession();
+		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
+		FunctionCallBatch batch = new FunctionCallBatch("batch-direct-execution");
+		batch.addCall(new FunctionCall("call-1", "", "{}"));
+		batch.addCall(new FunctionCall("call-2", "", "{}"));
+		assistantMessage.setFunctionCallBatch(batch);
+
+		FunctionCallSession.BatchExecutionReport report = session.executeBatch(assistantMessage);
+
+		assertEquals(1, report.getBatchesExecuted());
+		assertEquals(2, report.getCallsExecuted());
+		assertEquals(2, report.getCallsFailed());
+		assertEquals(1, report.getUpdatedMessages().size());
+		assertEquals(assistantMessage, report.getUpdatedMessages().get(0));
+		assertTrue(batch.isExecutionComplete());
+		assertNotNull(batch.getItems().get(0).getResult());
+		assertNotNull(batch.getItems().get(1).getResult());
+	}
 }

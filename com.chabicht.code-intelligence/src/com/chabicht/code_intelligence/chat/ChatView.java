@@ -279,6 +279,7 @@ public class ChatView extends ViewPart {
 								call.getFunctionName());
 						batchHtml.append(renderFunctionCallHtml(message, call, result, hasFunctionResult, summaryLabel, false));
 					}
+					batchHtml.append(renderBatchReexecuteActionHtml(message));
 					if (batchHtml.length() > 0) {
 						return batchHtml.toString();
 					}
@@ -367,12 +368,7 @@ public class ChatView extends ViewPart {
 
 			String actionsHtml = "";
 			if (includeReexecuteAction) {
-				String reexecuteButtonHtml = String.format(
-						"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
-								+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute"
-								+ "</button>",
-						message.getId(), getReexecuteIconBase64());
-				actionsHtml = "<div class=\"tool-actions\">" + reexecuteButtonHtml + "</div>";
+				actionsHtml = renderToolActionHtml(message, "Re-execute Function Call", "Re-execute", "Re-execute");
 			}
 
 			return String.format("<details class=\"function-call-details\"><summary>%s</summary>"
@@ -380,18 +376,34 @@ public class ChatView extends ViewPart {
 					paramsTable.toString(), resultTable.toString(), rawJsonSection, actionsHtml);
 		}
 
+		private String renderBatchReexecuteActionHtml(ChatMessage message) {
+			int callableItemCount = 0;
+			if (message != null && message.getFunctionCallBatch().isPresent()) {
+				callableItemCount = (int) message.getFunctionCallBatch().get().getItems().stream()
+						.filter(item -> item != null && item.getCall() != null).count();
+			}
+			String label = callableItemCount > 1 ? "Re-execute Batch" : "Re-execute";
+			String title = callableItemCount > 1 ? "Re-execute all tool calls in this message"
+					: "Re-execute Function Call";
+			return renderToolActionHtml(message, title, label, label);
+		}
+
+		private String renderToolActionHtml(ChatMessage message, String title, String alt, String label) {
+			String actionButtonHtml = String.format(
+					"<button class=\"tool-action-button\" title=\"%s\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+							+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"%s\" style=\"width:16px; height:16px; vertical-align: middle;\"> %s"
+							+ "</button>",
+					StringEscapeUtils.escapeHtml4(title), message.getId(), getReexecuteIconBase64(),
+					StringEscapeUtils.escapeHtml4(alt), StringEscapeUtils.escapeHtml4(label));
+			return "<div class=\"tool-actions\">" + actionButtonHtml + "</div>";
+		}
+
 		private String toolSummaryToHtml(ChatMessage message) {
 			String contentHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
 
 			// Create a "Re-execute All" button
-			String reexecuteAllButtonHtml = String.format(
-					"<button class=\"tool-action-button\" title=\"Re-execute all previous tool calls\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
-							+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute All\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute All"
-							+ "</button>",
-					message.getId(), // Pass the summary message's UUID
-					getReexecuteIconBase64());
-
-			String actions = String.format("<div class=\"tool-actions\">%s</div>", reexecuteAllButtonHtml);
+			String actions = renderToolActionHtml(message, "Re-execute all previous tool calls", "Re-execute All",
+					"Re-execute All");
 
 			return String.format("<div class=\"tool-summary\">%s%s</div>", contentHtml, actions);
 		}
@@ -451,12 +463,18 @@ public class ChatView extends ViewPart {
 
 		UUID messageUuid = UUID.fromString(messageUuidString);
 
-		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
-				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+		ChatMessage messageToReexecute = conversation.getMessages().stream().filter(m -> m.getId().equals(messageUuid))
+				.findFirst().orElse(null);
 
 		if (messageToReexecute != null) {
+			if (messageToReexecute.getFunctionCallBatch().isPresent()) {
+				reexecuteToolBatch(messageUuidString);
+				return;
+			}
+
 			if (messageToReexecute.getFunctionCall().isPresent()) {
 				reexecuteToolCall(messageUuidString);
+				return;
 			}
 
 			if (messageToReexecute.getSummarizedToolCallIds() != null
@@ -477,8 +495,8 @@ public class ChatView extends ViewPart {
 
 		UUID messageUuid = UUID.fromString(messageUuidString);
 
-		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
-				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+		ChatMessage messageToReexecute = conversation.getMessages().stream().filter(m -> m.getId().equals(messageUuid))
+				.findFirst().orElse(null);
 
 		if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
 			FunctionCall call = messageToReexecute.getFunctionCall().get();
@@ -513,6 +531,48 @@ public class ChatView extends ViewPart {
 		}
 	}
 
+	private void reexecuteToolBatch(String messageUuidString) {
+		if (conversation == null || this.functionCallSession == null || this.chat == null) {
+			System.err.println(
+					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
+			return;
+		}
+
+		UUID messageUuid = UUID.fromString(messageUuidString);
+
+		ChatMessage messageToReexecute = conversation.getMessages().stream().filter(m -> m.getId().equals(messageUuid))
+				.findFirst().orElse(null);
+
+		if (messageToReexecute == null || messageToReexecute.getFunctionCallBatch().isEmpty()) {
+			Log.logError("ChatView: Cannot re-execute batch. Message not found or no function call batch present for UUID: "
+					+ messageUuidString);
+			return;
+		}
+
+		FunctionCallBatch batch = messageToReexecute.getFunctionCallBatch().get();
+		boolean hasCallableItems = batch.getItems().stream().anyMatch(item -> item != null && item.getCall() != null);
+		if (!hasCallableItems) {
+			Log.logError("ChatView: Cannot re-execute batch. No callable batch items found for UUID: " + messageUuidString);
+			return;
+		}
+
+		Log.logInfo("ChatView: Re-executing tool batch for message UUID: " + messageUuidString);
+		functionCallSession.clearPendingChanges();
+		BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
+		messageToReexecute.setMetadata("tool_execution_state", "completed");
+		logDebugBatchExecutionReport(report);
+
+		if (chatListener != null) {
+			chatListener.onMessageUpdated(messageToReexecute);
+		} else {
+			Log.logError("ChatView: chatListener is null, cannot update message view for batch re-execute.");
+		}
+
+		if (functionCallSession.hasPendingChanges()) {
+			functionCallSession.applyPendingChanges();
+		}
+	}
+
 	private void reexecuteToolSummary(String summaryMessageUuidString) {
 		if (conversation == null || this.functionCallSession == null) {
 			Log.logError("Cannot re-execute summary: conversation or session is null.");
@@ -540,7 +600,14 @@ public class ChatView extends ViewPart {
 			ChatMessage messageToReexecute = conversation.getMessages().stream()
 					.filter(m -> m.getId().equals(messageId)).findFirst().orElse(null);
 
-			if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
+			if (messageToReexecute != null && messageToReexecute.getFunctionCallBatch().isPresent()) {
+				BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
+				messageToReexecute.setMetadata("tool_execution_state", "completed");
+				logDebugBatchExecutionReport(report);
+				if (chatListener != null) {
+					chatListener.onMessageUpdated(messageToReexecute);
+				}
+			} else if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
 				// Reset the result from the previous run
 				messageToReexecute
 						.setFunctionResult(new FunctionResult(messageToReexecute.getFunctionCall().get().getId(),

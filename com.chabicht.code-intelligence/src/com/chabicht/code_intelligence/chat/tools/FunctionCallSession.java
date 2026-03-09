@@ -182,13 +182,31 @@ public class FunctionCallSession {
 	}
 
 	public BatchExecutionReport executePendingBatchesSequentially() {
-		BatchExecutionReport report = new BatchExecutionReport();
 		if (pendingBatchMessages.isEmpty()) {
-			return report;
+			return new BatchExecutionReport();
 		}
 
 		List<ChatMessage> batchesToExecute = new ArrayList<>(pendingBatchMessages);
 		pendingBatchMessages.clear();
+		return executeBatchesSequentially(batchesToExecute);
+	}
+
+	public BatchExecutionReport executeBatch(ChatMessage assistantMessage) {
+		if (assistantMessage == null || assistantMessage.getFunctionCallBatch().isEmpty()) {
+			return new BatchExecutionReport();
+		}
+
+		List<ChatMessage> batchesToExecute = new ArrayList<>();
+		batchesToExecute.add(assistantMessage);
+		return executeBatchesSequentially(batchesToExecute);
+	}
+
+	private BatchExecutionReport executeBatchesSequentially(List<ChatMessage> batchesToExecute) {
+		BatchExecutionReport report = new BatchExecutionReport();
+		if (batchesToExecute == null || batchesToExecute.isEmpty()) {
+			return report;
+		}
+
 		if (isDebugToolBatchLoggingEnabled()) {
 			Activator.logInfo("multi-tool execution queue start: batches=" + batchesToExecute.size());
 		}
