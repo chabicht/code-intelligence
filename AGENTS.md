@@ -1,5 +1,6 @@
 ## Build
 - Use `./mvn.sh` wrapper to build instead of `mvn`.
+- Use the `-q` flag to reduce the build output to a minimum (e.g. if you're running a build to verify something works) except you need more verbose information.
 - Partial builds using `-pl` and `-am` don't work with Tycho.
 
 ## Tests
