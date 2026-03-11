@@ -11,13 +11,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -104,11 +110,14 @@ import com.chabicht.code_intelligence.Tuple;
 import com.chabicht.code_intelligence.apiclient.AiModelConnection;
 import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.chat.tools.FunctionCallSession;
+import com.chabicht.code_intelligence.chat.tools.FunctionCallSession.BatchExecutionReport;
 import com.chabicht.code_intelligence.chat.tools.FunctionCallSession.ChangeApplicationResult;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatListener;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionParamValue;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
@@ -137,12 +146,15 @@ public class ChatView extends ViewPart {
 	private static final int MIN_LOWER_HEIGHT = 130;
 	private static final int BUTTON_SIZE = 40;
 	private static final int ATTACHMENT_COMP_HEIGHT = 30;
+	private static final long MESSAGE_UPDATE_THROTTLE_MS = 150L;
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
 
 	private static final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 	private final ChatSettings settings = new ChatSettings();
+	private final ScheduledExecutorService messageRenderExecutor = Executors.newSingleThreadScheduledExecutor();
+	private final Map<UUID, PendingMessageUpdate> pendingMessageUpdates = new ConcurrentHashMap<>();
 
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
 
@@ -177,54 +189,35 @@ public class ChatView extends ViewPart {
 
 		@Override
 		public void onMessageUpdated(ChatMessage message) {
-			String messageHtml = messageContentToHtml(message);
-			Display.getDefault().asyncExec(() -> {
-				chat.updateMessage(message.getId(), messageHtml);
-			});
+			queueMessageUpdate(message, false);
 		}
 
 		@Override
 		public void onMessageAdded(ChatMessage message, boolean updating) {
-			Display.getDefault().asyncExec(() -> {
-				StringBuilder attachments = new StringBuilder();
-				if (!message.getContext().isEmpty()) {
-					String attachmentIcon = getAttachmentIconHtml();
-					for (MessageContext ctx : message.getContext()) {
-						attachments.append(String.format(
-								"<span id=\"%s\" class=\"attachment-container\">"
-										+ "<span class=\"attachment-icon\">%s</span>"
-										+ "<span class=\"tooltip\">%s</span>" + "</span>",
-								ctx.getUuid(), attachmentIcon, ctx.getLabel()));
-					}
+			MessageRenderSnapshot snapshot = createMessageRenderSnapshot(message, true);
+			String initialHtml = buildInitialMessageHtml(snapshot);
+			Display display = Display.getDefault();
+			if (display == null || display.isDisposed()) {
+				return;
+			}
+			display.asyncExec(() -> {
+				if (chat == null || chat.isDisposed()) {
+					return;
 				}
-				String messageHtml = messageContentToHtml(message);
-				String combinedHtml = messageHtml + "\n" + attachments.toString();
-
-				if (Role.SYSTEM.equals(message.getRole())) {
-					combinedHtml = "<details><summary>System Prompt</summary>" + combinedHtml + "</details>";
-				}
-
-				final String finalHtml = combinedHtml;
-				Display.getDefault().asyncExec(() -> {
-					chat.addMessage(message.getId(), message.getRole().name().toLowerCase(), finalHtml, updating);
-				});
+				chat.addMessage(snapshot.getId(), snapshot.getRole().name().toLowerCase(), initialHtml, updating);
 			});
 		}
 
 		@Override
 		public void onFunctionCall(ChatMessage message) {
-			onMessageUpdated(message);
-			functionCallSession.handleFunctionCall(message);
-			onMessageUpdated(message);
-
-			boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
-					.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
-			if (applyChangesImmediately && functionCallSession.hasPendingChanges()) {
-				ChangeApplicationResult res = functionCallSession.applyPendingChanges();
-				if (res != ChangeApplicationResult.SUCCESS) {
-					abortChat();
-				}
+			if (message.getFunctionCallBatch().isEmpty()) {
+				return;
 			}
+
+			message.setMetadata("tool_execution_state", "queued");
+			functionCallSession.enqueueBatch(message);
+			logDebugBatchQueuedInView(message);
+			queueMessageUpdate(message, true);
 		}
 
 		private String getReexecuteIconBase64() {
@@ -237,11 +230,38 @@ public class ChatView extends ViewPart {
 			return String.format("<img src=\"%s\" style=\"width: 15px; height: 25px;\"/>", dataUrl);
 		}
 
-		private String messageContentToHtml(ChatMessage message) {
+		private String buildInitialMessageHtml(MessageRenderSnapshot message) {
+			String combinedHtml = messageContentToHtml(message) + "\n" + attachmentsToHtml(message.getAttachments());
+
+			if (Role.SYSTEM.equals(message.getRole())) {
+				combinedHtml = "<details><summary>System Prompt</summary>" + combinedHtml + "</details>";
+			}
+
+			return combinedHtml;
+		}
+
+		private String attachmentsToHtml(List<AttachmentRenderSnapshot> attachments) {
+			if (attachments.isEmpty()) {
+				return "";
+			}
+
+			String attachmentIcon = getAttachmentIconHtml();
+			StringBuilder attachmentHtml = new StringBuilder();
+			for (AttachmentRenderSnapshot attachment : attachments) {
+				attachmentHtml.append(String.format(
+						"<span id=\"%s\" class=\"attachment-container\">"
+								+ "<span class=\"attachment-icon\">%s</span>"
+								+ "<span class=\"tooltip\">%s</span>" + "</span>",
+						attachment.getUuid(), attachmentIcon, StringEscapeUtils.escapeHtml4(attachment.getLabel())));
+			}
+			return attachmentHtml.toString();
+		}
+
+		private String messageContentToHtml(MessageRenderSnapshot message) {
 			if (message.getRole() == Role.TOOL_SUMMARY) { // Add this new block
 				return toolSummaryToHtml(message);
 			}
-			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
+			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message.getContent());
 
 			String thinkHtml = "";
 			if (StringUtils.isNotBlank(thoughtsAndMessage.getThoughts())) {
@@ -258,127 +278,334 @@ public class ChatView extends ViewPart {
 			return combinedHtml;
 		}
 
-		private String messageToolUseToHtml(ChatMessage message) {
-			String functionCallHtml = "";
-			if (message.getFunctionCall().isPresent()) {
-				FunctionCall call = message.getFunctionCall().get();
-				FunctionResult result = message.getFunctionResult()
-						.orElse(new FunctionResult(call.getId(), call.getFunctionName()));
-
-				// Build parameter divs
-				StringBuilder paramsTable = new StringBuilder("<div class=\"function-params-container\">");
-				paramsTable.append("<div class=\"params-header\">Parameters</div>");
-
-				for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
-					String paramName = entry.getKey();
-					FunctionParamValue paramValue = entry.getValue();
-					String displayValue;
-
-					if (paramValue.isMarkdown()) {
-						displayValue = markdownRenderer
-								.render(markdownParser.parse("```\n" + paramValue.getValue() + "\n```"));
-					} else {
-						displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
-					}
-
-					paramsTable.append(
-							String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
-									StringEscapeUtils.escapeHtml4(paramName), displayValue));
-				}
-				paramsTable.append("</div>");
-
-				// Build result divs if we have results
-				StringBuilder resultTable = new StringBuilder();
-				if (!result.getPrettyResults().isEmpty()) {
-					resultTable.append("<div class=\"function-results-container\">");
-					resultTable.append("<div class=\"results-header\">Results</div>");
-
-					for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
-						String resultName = entry.getKey();
-						FunctionParamValue resultValue = entry.getValue();
-						String displayValue;
-
-						if (resultValue.isMarkdown()) {
-							displayValue = markdownRenderer.render(markdownParser.parse(resultValue.getValue()));
-						} else {
-							displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
-						}
-
-						resultTable.append(
-								String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
-										StringEscapeUtils.escapeHtml4(resultName), displayValue));
-					}
-					resultTable.append("</div>");
-				}
-
-				// Build raw JSON section
-				String rawArgsJson = "";
-				if (StringUtils.isNotBlank(call.getArgsJson())) {
-					rawArgsJson = markdownRenderer
-							.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```"));
-				}
-
-				String rawResultJson = "";
-				if (StringUtils.isNotBlank(result.getResultJson())) {
-					rawResultJson = markdownRenderer.render(
-							markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```"));
-				}
-
-				// Build combined raw JSON section
-				String rawJsonSection = "";
-				if (StringUtils.isNotBlank(rawArgsJson) || StringUtils.isNotBlank(rawResultJson)) {
-					rawJsonSection = "<details><summary>Raw JSON</summary>";
-					if (StringUtils.isNotBlank(rawArgsJson)) {
-						rawJsonSection += "<blockquote><p>Args:</p>" + rawArgsJson + "</blockquote>";
-					}
-					if (StringUtils.isNotBlank(rawResultJson)) {
-						rawJsonSection += "<blockquote><p>Result:</p>" + rawResultJson + "</blockquote>";
-					}
-					rawJsonSection += "</details>";
-				}
-
-				// Combine everything into the final structure
-				// Build re-execute button HTML
-				String reexecuteButtonHtml = String.format(
-						"<button class=\"tool-action-button\" title=\"Re-execute Function Call\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
-								+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute"
-								+ "</button>",
-						message.getId(), // Pass the message UUID
-						getReexecuteIconBase64() // Assuming this method is added to the class
-				);
-
-				functionCallHtml = String
-						.format("<details class=\"function-call-details\"><summary>Function call: %s</summary>"
-								+ "<blockquote>" + "%s" + // Params table
-								"%s" + // Result table
-								"%s" + // Raw JSON section
-								"<div class=\"tool-actions\">%s</div>" + // Container for action buttons
-								"</blockquote>" + "</details>", StringEscapeUtils.escapeHtml4(call.getFunctionName()),
-								paramsTable.toString(), resultTable.toString(), rawJsonSection, reexecuteButtonHtml);
+		private String messageToolUseToHtml(MessageRenderSnapshot message) {
+			if (message.getFunctionCallBatch().isEmpty()) {
+				return "";
 			}
-			return functionCallHtml;
+
+			FunctionCallBatch batch = message.getFunctionCallBatch().get();
+			List<FunctionCallItem> callableItems = batch.getItems().stream()
+					.filter(item -> item != null && item.getCall() != null).collect(Collectors.toList());
+			if (callableItems.isEmpty()) {
+				return "";
+			}
+
+			StringBuilder batchHtml = new StringBuilder();
+			for (int i = 0; i < callableItems.size(); i++) {
+				FunctionCallItem item = callableItems.get(i);
+				FunctionCall call = item.getCall();
+				FunctionResult result = item.getResult();
+				boolean hasFunctionResult = result != null;
+				if (!hasFunctionResult) {
+					result = new FunctionResult(call.getId(), call.getFunctionName());
+				}
+
+				String summaryLabel = String.format("Function call %d/%d: %s", i + 1, callableItems.size(),
+						call.getFunctionName());
+				batchHtml.append(renderFunctionCallHtml(message, call, result, hasFunctionResult, summaryLabel, false));
+			}
+			batchHtml.append(renderBatchReexecuteActionHtml(message));
+			return batchHtml.toString();
 		}
 
-		private String toolSummaryToHtml(ChatMessage message) {
+		private String renderFunctionCallHtml(MessageRenderSnapshot message, FunctionCall call, FunctionResult result,
+				boolean hasFunctionResult, String summaryLabel, boolean includeReexecuteAction) {
+			StringBuilder paramsTable = new StringBuilder("<div class=\"function-params-container\">");
+			paramsTable.append("<div class=\"params-header\">Parameters</div>");
+			for (Map.Entry<String, FunctionParamValue> entry : call.getPrettyParams().entrySet()) {
+				String paramName = entry.getKey();
+				FunctionParamValue paramValue = entry.getValue();
+				String displayValue;
+				if (paramValue.isMarkdown()) {
+					displayValue = markdownRenderer
+							.render(markdownParser.parse("```\n" + paramValue.getValue() + "\n```"));
+				} else {
+					displayValue = StringEscapeUtils.escapeHtml4(paramValue.getValue());
+				}
+				paramsTable.append(
+						String.format("<div class=\"param-name\">%s</div><div class=\"param-value\">%s</div>",
+								StringEscapeUtils.escapeHtml4(paramName), displayValue));
+			}
+			paramsTable.append("</div>");
+
+			StringBuilder resultTable = new StringBuilder();
+			resultTable.append("<div class=\"function-results-container\">");
+			resultTable.append("<div class=\"results-header\">Results</div>");
+			if (!result.getPrettyResults().isEmpty()) {
+				for (Map.Entry<String, FunctionParamValue> entry : result.getPrettyResults().entrySet()) {
+					String resultName = entry.getKey();
+					FunctionParamValue resultValue = entry.getValue();
+					String displayValue;
+					if (resultValue.isMarkdown()) {
+						displayValue = markdownRenderer.render(markdownParser.parse(resultValue.getValue()));
+					} else {
+						displayValue = StringEscapeUtils.escapeHtml4(resultValue.getValue());
+					}
+					resultTable.append(
+							String.format("<div class=\"result-name\">%s</div><div class=\"result-value\">%s</div>",
+									StringEscapeUtils.escapeHtml4(resultName), displayValue));
+				}
+			} else if (!hasFunctionResult) {
+				resultTable
+						.append("<div class=\"result-name\">status</div><div class=\"result-value\">Queued</div>");
+			} else {
+				resultTable
+						.append("<div class=\"result-name\">status</div><div class=\"result-value\">Completed</div>");
+			}
+			resultTable.append("</div>");
+
+			String rawArgsJson = "";
+			if (StringUtils.isNotBlank(call.getArgsJson())) {
+				rawArgsJson = markdownRenderer
+						.render(markdownParser.parse("```json\n" + prettyPrintJson(call.getArgsJson()) + "\n```"));
+			}
+			String rawResultJson = "";
+			if (StringUtils.isNotBlank(result.getResultJson())) {
+				rawResultJson = markdownRenderer
+						.render(markdownParser.parse("```json\n" + prettyPrintJson(result.getResultJson()) + "\n```"));
+			}
+
+			String rawJsonSection = "";
+			if (StringUtils.isNotBlank(rawArgsJson) || StringUtils.isNotBlank(rawResultJson)) {
+				rawJsonSection = "<details><summary>Raw JSON</summary>";
+				if (StringUtils.isNotBlank(rawArgsJson)) {
+					rawJsonSection += "<blockquote><p>Args:</p>" + rawArgsJson + "</blockquote>";
+				}
+				if (StringUtils.isNotBlank(rawResultJson)) {
+					rawJsonSection += "<blockquote><p>Result:</p>" + rawResultJson + "</blockquote>";
+				}
+				rawJsonSection += "</details>";
+			}
+
+			String actionsHtml = "";
+			if (includeReexecuteAction) {
+				actionsHtml = renderToolActionHtml(message, "Re-execute Function Call", "Re-execute", "Re-execute");
+			}
+
+			return String.format("<details class=\"function-call-details\"><summary>%s</summary>"
+					+ "<blockquote>%s%s%s%s</blockquote></details>", StringEscapeUtils.escapeHtml4(summaryLabel),
+					paramsTable.toString(), resultTable.toString(), rawJsonSection, actionsHtml);
+		}
+
+		private String renderBatchReexecuteActionHtml(MessageRenderSnapshot message) {
+			int callableItemCount = 0;
+			if (message != null && message.getFunctionCallBatch().isPresent()) {
+				callableItemCount = (int) message.getFunctionCallBatch().get().getItems().stream()
+						.filter(item -> item != null && item.getCall() != null).count();
+			}
+			String label = callableItemCount > 1 ? "Re-execute Batch" : "Re-execute";
+			String title = callableItemCount > 1 ? "Re-execute all tool calls in this message"
+					: "Re-execute Function Call";
+			return renderToolActionHtml(message, title, label, label);
+		}
+
+		private String renderToolActionHtml(MessageRenderSnapshot message, String title, String alt, String label) {
+			String actionButtonHtml = String.format(
+					"<button class=\"tool-action-button\" title=\"%s\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+							+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"%s\" style=\"width:16px; height:16px; vertical-align: middle;\"> %s"
+							+ "</button>",
+					StringEscapeUtils.escapeHtml4(title), message.getId(), getReexecuteIconBase64(),
+					StringEscapeUtils.escapeHtml4(alt), StringEscapeUtils.escapeHtml4(label));
+			return "<div class=\"tool-actions\">" + actionButtonHtml + "</div>";
+		}
+
+		private String toolSummaryToHtml(MessageRenderSnapshot message) {
 			String contentHtml = markdownRenderer.render(markdownParser.parse(message.getContent()));
 
 			// Create a "Re-execute All" button
-			String reexecuteAllButtonHtml = String.format(
-					"<button class=\"tool-action-button\" title=\"Re-execute all previous tool calls\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
-							+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"Re-execute All\" style=\"width:16px; height:16px; vertical-align: middle;\"> Re-execute All"
-							+ "</button>",
-					message.getId(), // Pass the summary message's UUID
-					getReexecuteIconBase64());
-
-			String actions = String.format("<div class=\"tool-actions\">%s</div>", reexecuteAllButtonHtml);
+			String actions = renderToolActionHtml(message, "Re-execute all previous tool calls", "Re-execute All",
+					"Re-execute All");
 
 			return String.format("<div class=\"tool-summary\">%s%s</div>", contentHtml, actions);
 		}
 
+		private void queueMessageUpdate(ChatMessage message, boolean forceImmediate) {
+			queueMessageUpdate(createMessageRenderSnapshot(message, false), forceImmediate);
+		}
+
+		private void queueMessageUpdate(MessageRenderSnapshot snapshot, boolean forceImmediate) {
+			PendingMessageUpdate pendingUpdate = pendingMessageUpdates.computeIfAbsent(snapshot.getId(),
+					PendingMessageUpdate::new);
+
+			synchronized (pendingUpdate) {
+				pendingUpdate.latestSnapshot = snapshot;
+				pendingUpdate.rerenderRequested = true;
+				pendingUpdate.nextRenderImmediate = pendingUpdate.nextRenderImmediate || forceImmediate;
+
+				if (pendingUpdate.renderRunning) {
+					return;
+				}
+
+				if (pendingUpdate.scheduledTask != null && !pendingUpdate.scheduledTask.isDone()) {
+					if (!forceImmediate) {
+						return;
+					}
+					pendingUpdate.scheduledTask.cancel(false);
+					pendingUpdate.scheduledTask = null;
+				}
+
+				long delayMs = calculateMessageUpdateDelay(pendingUpdate.nextRenderImmediate,
+						pendingUpdate.lastRenderStartedAt);
+				pendingUpdate.nextRenderImmediate = false;
+				if (!schedulePendingMessageUpdate(pendingUpdate, delayMs)) {
+					pendingMessageUpdates.remove(pendingUpdate.messageId, pendingUpdate);
+				}
+			}
+		}
+
+		private long calculateMessageUpdateDelay(boolean immediate, long lastRenderStartedAt) {
+			if (immediate || lastRenderStartedAt <= 0L) {
+				return 0L;
+			}
+
+			long nextAllowedRenderAt = lastRenderStartedAt + MESSAGE_UPDATE_THROTTLE_MS;
+			return Math.max(0L, nextAllowedRenderAt - System.currentTimeMillis());
+		}
+
+		private boolean schedulePendingMessageUpdate(PendingMessageUpdate pendingUpdate, long delayMs) {
+			try {
+				pendingUpdate.scheduledTask = messageRenderExecutor.schedule(() -> renderPendingMessageUpdate(pendingUpdate),
+						delayMs, TimeUnit.MILLISECONDS);
+				return true;
+			} catch (RejectedExecutionException e) {
+				pendingUpdate.scheduledTask = null;
+				return false;
+			}
+		}
+
+		private void renderPendingMessageUpdate(PendingMessageUpdate pendingUpdate) {
+			MessageRenderSnapshot snapshot;
+			synchronized (pendingUpdate) {
+				pendingUpdate.scheduledTask = null;
+				pendingUpdate.renderRunning = true;
+				snapshot = pendingUpdate.latestSnapshot;
+				pendingUpdate.rerenderRequested = false;
+				pendingUpdate.lastRenderStartedAt = System.currentTimeMillis();
+			}
+
+			String messageHtml = null;
+			try {
+				messageHtml = messageContentToHtml(snapshot);
+			} catch (RuntimeException e) {
+				Activator.logError("Error rendering chat message " + snapshot.getId(), e);
+			}
+
+			if (messageHtml != null) {
+				postRenderedMessageUpdate(snapshot.getId(), messageHtml);
+			}
+
+			synchronized (pendingUpdate) {
+				pendingUpdate.renderRunning = false;
+				if (pendingUpdate.rerenderRequested) {
+					long delayMs = calculateMessageUpdateDelay(pendingUpdate.nextRenderImmediate,
+							pendingUpdate.lastRenderStartedAt);
+					pendingUpdate.nextRenderImmediate = false;
+					if (!schedulePendingMessageUpdate(pendingUpdate, delayMs)) {
+						pendingMessageUpdates.remove(pendingUpdate.messageId, pendingUpdate);
+					}
+					return;
+				}
+				pendingMessageUpdates.remove(pendingUpdate.messageId, pendingUpdate);
+			}
+		}
+
+		private void postRenderedMessageUpdate(UUID messageId, String messageHtml) {
+			Display display = Display.getDefault();
+			if (display == null || display.isDisposed()) {
+				return;
+			}
+			display.asyncExec(() -> {
+				if (chat == null || chat.isDisposed()) {
+					return;
+				}
+				chat.updateMessage(messageId, messageHtml);
+			});
+		}
+
+		private MessageRenderSnapshot createMessageRenderSnapshot(ChatMessage message, boolean includeAttachments) {
+			List<AttachmentRenderSnapshot> attachments = new ArrayList<>();
+			if (includeAttachments) {
+				for (MessageContext context : message.getContext()) {
+					attachments.add(new AttachmentRenderSnapshot(context.getUuid(), context.getLabel()));
+				}
+			}
+
+			return new MessageRenderSnapshot(message.getId(), message.getRole(), StringUtils.defaultString(message.getContent()),
+					copyFunctionCallBatch(message.getFunctionCallBatch()), attachments);
+		}
+
+		private Optional<FunctionCallBatch> copyFunctionCallBatch(Optional<FunctionCallBatch> functionCallBatch) {
+			if (functionCallBatch == null || functionCallBatch.isEmpty()) {
+				return Optional.empty();
+			}
+
+			FunctionCallBatch originalBatch = functionCallBatch.get();
+			FunctionCallBatch copiedBatch = new FunctionCallBatch(originalBatch.getBatchId());
+			copiedBatch.setThoughtSignature(originalBatch.getThoughtSignature());
+			copiedBatch.setExecutionComplete(originalBatch.isExecutionComplete());
+
+			List<FunctionCallItem> copiedItems = new ArrayList<>();
+			for (FunctionCallItem item : originalBatch.getItems()) {
+				if (item == null) {
+					copiedItems.add(null);
+					continue;
+				}
+				copiedItems.add(new FunctionCallItem(copyFunctionCall(item.getCall()), copyFunctionResult(item.getResult())));
+			}
+			copiedBatch.setItems(copiedItems);
+			return Optional.of(copiedBatch);
+		}
+
+		private FunctionCall copyFunctionCall(FunctionCall functionCall) {
+			if (functionCall == null) {
+				return null;
+			}
+
+			FunctionCall copiedCall = new FunctionCall(functionCall.getId(), functionCall.getFunctionName(),
+					functionCall.getArgsJson());
+			copiedCall.setPrettyParams(copyFunctionParamValues(functionCall.getPrettyParams()));
+			return copiedCall;
+		}
+
+		private FunctionResult copyFunctionResult(FunctionResult functionResult) {
+			if (functionResult == null) {
+				return null;
+			}
+
+			FunctionResult copiedResult = new FunctionResult(functionResult.getId(), functionResult.getFunctionName());
+			copiedResult.setResultJson(functionResult.getResultJson());
+			copiedResult.setPrettyResults(copyFunctionParamValues(functionResult.getPrettyResults()));
+			return copiedResult;
+		}
+
+		private Map<String, FunctionParamValue> copyFunctionParamValues(Map<String, FunctionParamValue> values) {
+			Map<String, FunctionParamValue> copiedValues = new LinkedHashMap<>();
+			if (values == null) {
+				return copiedValues;
+			}
+
+			for (Map.Entry<String, FunctionParamValue> entry : values.entrySet()) {
+				FunctionParamValue value = entry.getValue();
+				copiedValues.put(entry.getKey(),
+						value == null ? null : new FunctionParamValue(value.getValue(), value.isMarkdown()));
+			}
+			return copiedValues;
+		}
+
 		@Override
 		public void onChatResponseFinished(ChatMessage message) {
+			queueMessageUpdate(message, true);
 			Display.getDefault().asyncExec(() -> {
-				if (message.getFunctionResult().isEmpty()) {
+				BatchExecutionReport batchReport = functionCallSession.executePendingBatchesSequentially();
+				boolean hasExecutedToolCalls = batchReport.getCallsExecuted() > 0;
+				logDebugBatchExecutionReport(batchReport);
+
+				for (ChatMessage updatedMessage : batchReport.getUpdatedMessages()) {
+					updatedMessage.setMetadata("tool_execution_state", "completed");
+					onMessageUpdated(updatedMessage);
+				}
+
+				if (!hasExecutedToolCalls) {
 					// Set text to "▶️"
 					btnSend.setText("\u25B6");
 
@@ -392,7 +619,17 @@ public class ChatView extends ViewPart {
 
 					addConversationToHistory();
 				} else {
-					sendFunctionResult(message);
+					boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
+							.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
+					if (applyChangesImmediately && functionCallSession.hasPendingChanges()) {
+						ChangeApplicationResult res = functionCallSession.applyPendingChanges();
+						if (res != ChangeApplicationResult.SUCCESS) {
+							abortChat();
+							return;
+						}
+					}
+					logDebugContinuationRequestBuilt(batchReport);
+					sendFunctionResult();
 				}
 
 				Display.getDefault().asyncExec(() -> {
@@ -401,6 +638,75 @@ public class ChatView extends ViewPart {
 			});
 		}
 	};
+
+	private static final class AttachmentRenderSnapshot {
+		private final UUID uuid;
+		private final String label;
+
+		private AttachmentRenderSnapshot(UUID uuid, String label) {
+			this.uuid = uuid;
+			this.label = label;
+		}
+
+		public UUID getUuid() {
+			return uuid;
+		}
+
+		public String getLabel() {
+			return label;
+		}
+	}
+
+	private static final class MessageRenderSnapshot {
+		private final UUID id;
+		private final Role role;
+		private final String content;
+		private final Optional<FunctionCallBatch> functionCallBatch;
+		private final List<AttachmentRenderSnapshot> attachments;
+
+		private MessageRenderSnapshot(UUID id, Role role, String content, Optional<FunctionCallBatch> functionCallBatch,
+				List<AttachmentRenderSnapshot> attachments) {
+			this.id = id;
+			this.role = role;
+			this.content = content;
+			this.functionCallBatch = functionCallBatch == null ? Optional.empty() : functionCallBatch;
+			this.attachments = attachments == null ? new ArrayList<>() : attachments;
+		}
+
+		public UUID getId() {
+			return id;
+		}
+
+		public Role getRole() {
+			return role;
+		}
+
+		public String getContent() {
+			return content;
+		}
+
+		public Optional<FunctionCallBatch> getFunctionCallBatch() {
+			return functionCallBatch;
+		}
+
+		public List<AttachmentRenderSnapshot> getAttachments() {
+			return attachments;
+		}
+	}
+
+	private static final class PendingMessageUpdate {
+		private final UUID messageId;
+		private MessageRenderSnapshot latestSnapshot;
+		private ScheduledFuture<?> scheduledTask;
+		private boolean renderRunning;
+		private boolean rerenderRequested;
+		private boolean nextRenderImmediate;
+		private long lastRenderStartedAt;
+
+		private PendingMessageUpdate(UUID messageId) {
+			this.messageId = messageId;
+		}
+	}
 
 	public void reexecute(String messageUuidString) {
 		if (conversation == null || this.functionCallSession == null || this.chat == null) {
@@ -411,12 +717,13 @@ public class ChatView extends ViewPart {
 
 		UUID messageUuid = UUID.fromString(messageUuidString);
 
-		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
-				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+		ChatMessage messageToReexecute = conversation.getMessages().stream().filter(m -> m.getId().equals(messageUuid))
+				.findFirst().orElse(null);
 
 		if (messageToReexecute != null) {
-			if (messageToReexecute.getFunctionCall().isPresent()) {
-				reexecuteToolCall(messageUuidString);
+			if (messageToReexecute.getFunctionCallBatch().isPresent()) {
+				reexecuteToolBatch(messageUuidString);
+				return;
 			}
 
 			if (messageToReexecute.getSummarizedToolCallIds() != null
@@ -426,9 +733,7 @@ public class ChatView extends ViewPart {
 		}
 	}
 
-	private void reexecuteToolCall(String messageUuidString) {
-		// Ensure conversation, functionCallSession, and chat (ChatComponent) are
-		// initialized and available
+	private void reexecuteToolBatch(String messageUuidString) {
 		if (conversation == null || this.functionCallSession == null || this.chat == null) {
 			System.err.println(
 					"ChatView: Required components (conversation, functionCallSession, chatComponent) not available for re-execute.");
@@ -437,39 +742,36 @@ public class ChatView extends ViewPart {
 
 		UUID messageUuid = UUID.fromString(messageUuidString);
 
-		ChatMessage messageToReexecute = conversation.getMessages().stream() // Use conversation
-				.filter(m -> m.getId().equals(messageUuid)).findFirst().orElse(null);
+		ChatMessage messageToReexecute = conversation.getMessages().stream().filter(m -> m.getId().equals(messageUuid))
+				.findFirst().orElse(null);
 
-		if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
-			FunctionCall call = messageToReexecute.getFunctionCall().get();
-			System.out.println("ChatView: Re-executing tool call: " + call.getFunctionName() + " for message UUID: "
+		if (messageToReexecute == null || messageToReexecute.getFunctionCallBatch().isEmpty()) {
+			Log.logError("ChatView: Cannot re-execute batch. Message not found or no function call batch present for UUID: "
 					+ messageUuidString);
+			return;
+		}
 
-			// Prepare the message for re-execution:
-			// Create a new, empty FunctionResult shell associated with the original call's
-			// ID and name.
-			// This ensures that handleFunctionCall populates this new shell.
-			FunctionResult newResultShell = new FunctionResult(call.getId(), call.getFunctionName());
-			messageToReexecute.setFunctionResult(newResultShell);
+		FunctionCallBatch batch = messageToReexecute.getFunctionCallBatch().get();
+		boolean hasCallableItems = batch.getItems().stream().anyMatch(item -> item != null && item.getCall() != null);
+		if (!hasCallableItems) {
+			Log.logError("ChatView: Cannot re-execute batch. No callable batch items found for UUID: " + messageUuidString);
+			return;
+		}
 
-			// Execute the function call again.
-			// This is expected to populate the 'newResultShell' within
-			// 'messageToReexecute'.
-			this.functionCallSession.handleFunctionCall(messageToReexecute);
+		Log.logInfo("ChatView: Re-executing tool batch for message UUID: " + messageUuidString);
+		functionCallSession.clearPendingChanges();
+		BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
+		messageToReexecute.setMetadata("tool_execution_state", "completed");
+		logDebugBatchExecutionReport(report);
 
-			// Update this specific message in the UI to display the new result,
-			// using the listener's method to ensure correct HTML generation.
-			if (chatListener != null) {
-				chatListener.onMessageUpdated(messageToReexecute);
-			} else {
-				System.err.println("ChatView: chatListener is null, cannot update message view for re-execute.");
-			}
-
-			this.functionCallSession.applyPendingChanges();
+		if (chatListener != null) {
+			chatListener.onMessageUpdated(messageToReexecute);
 		} else {
-			Log.logError(
-					"ChatView: Cannot re-execute. Message not found, not a function call, or function call details missing for UUID: "
-							+ messageUuidString);
+			Log.logError("ChatView: chatListener is null, cannot update message view for batch re-execute.");
+		}
+
+		if (functionCallSession.hasPendingChanges()) {
+			functionCallSession.applyPendingChanges();
 		}
 	}
 
@@ -500,21 +802,15 @@ public class ChatView extends ViewPart {
 			ChatMessage messageToReexecute = conversation.getMessages().stream()
 					.filter(m -> m.getId().equals(messageId)).findFirst().orElse(null);
 
-			if (messageToReexecute != null && messageToReexecute.getFunctionCall().isPresent()) {
-				// Reset the result from the previous run
-				messageToReexecute
-						.setFunctionResult(new FunctionResult(messageToReexecute.getFunctionCall().get().getId(),
-								messageToReexecute.getFunctionCall().get().getFunctionName()));
-
-				// Re-handle the call. This will populate the new result and queue changes.
-				functionCallSession.handleFunctionCall(messageToReexecute);
-
-				// Update the UI for this specific message to show it's processing again
-				if (chatListener != null) {
-					chatListener.onMessageUpdated(messageToReexecute);
+				if (messageToReexecute != null && messageToReexecute.getFunctionCallBatch().isPresent()) {
+					BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
+					messageToReexecute.setMetadata("tool_execution_state", "completed");
+					logDebugBatchExecutionReport(report);
+					if (chatListener != null) {
+						chatListener.onMessageUpdated(messageToReexecute);
+					}
 				}
 			}
-		}
 
 		// 3. After all calls are re-processed, apply the newly accumulated changes.
 		// This will open the refactoring wizard with the new set of changes.
@@ -533,16 +829,60 @@ public class ChatView extends ViewPart {
 		}
 	}
 
-	private void sendFunctionResult(ChatMessage message) {
+	private void sendFunctionResult() {
 		if (connection != null && connection.isChatPending()) {
 			connection.abortChat();
 		}
 
-		Display.getDefault().asyncExec(() -> {
-			chat.markMessageFinished(message.getId());
-		});
-
 		connection.chat(conversation, settings.getMaxResponseTokens());
+	}
+
+	private void logDebugBatchQueuedInView(ChatMessage message) {
+		if (!isDebugPromptLoggingEnabled() || message == null || message.getFunctionCallBatch().isEmpty()) {
+			return;
+		}
+		FunctionCallBatch batch = message.getFunctionCallBatch().get();
+		Activator.logInfo(String.format("multi-tool queued (view): messageId=%s, batchId=%s, calls=%d, callRefs=%s",
+				message.getId(), batch.getBatchId(), countCallableItems(batch), buildCallRefsSummary(batch)));
+	}
+
+	private void logDebugBatchExecutionReport(BatchExecutionReport report) {
+		if (!isDebugPromptLoggingEnabled() || report == null) {
+			return;
+		}
+		Activator.logInfo(String.format("multi-tool execution report (view): batches=%d, callsExecuted=%d, callsFailed=%d",
+				report.getBatchesExecuted(), report.getCallsExecuted(), report.getCallsFailed()));
+	}
+
+	private void logDebugContinuationRequestBuilt(BatchExecutionReport report) {
+		if (!isDebugPromptLoggingEnabled()) {
+			return;
+		}
+		UUID conversationId = conversation != null ? conversation.getConversationId() : null;
+		Activator.logInfo(String.format(
+				"multi-tool continuation built: conversationId=%s, batches=%d, callsExecuted=%d, callsFailed=%d",
+				conversationId, report != null ? report.getBatchesExecuted() : 0,
+				report != null ? report.getCallsExecuted() : 0, report != null ? report.getCallsFailed() : 0));
+	}
+
+	private int countCallableItems(FunctionCallBatch batch) {
+		if (batch == null) {
+			return 0;
+		}
+		return (int) batch.getItems().stream().filter(item -> item != null && item.getCall() != null).count();
+	}
+
+	private String buildCallRefsSummary(FunctionCallBatch batch) {
+		if (batch == null) {
+			return "[]";
+		}
+		String summary = batch.getItems().stream().filter(item -> item != null && item.getCall() != null).map(item -> {
+			FunctionCall call = item.getCall();
+			String name = StringUtils.defaultIfBlank(call.getFunctionName(), "unknown");
+			String id = StringUtils.defaultIfBlank(call.getId(), "no-id");
+			return name + "#" + id;
+		}).collect(Collectors.joining(", "));
+		return "[" + summary + "]";
 	}
 
 	protected String prettyPrintJson(String jsonString) {
@@ -1375,6 +1715,7 @@ public class ChatView extends ViewPart {
 		conversation = replacement;
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
+		pendingMessageUpdates.clear();
 		clearAllPendingChanges();
 		chat.reset();
 		userInput.set("");
@@ -1767,12 +2108,16 @@ public class ChatView extends ViewPart {
 	}
 
 	private MessageContentWithReasoning splitThoughtsFromMessage(ChatMessage message) {
-		String content = StringUtils.stripToEmpty(message.getContent());
+		return splitThoughtsFromMessage(message.getContent());
+	}
+
+	private MessageContentWithReasoning splitThoughtsFromMessage(String content) {
+		content = StringUtils.stripToEmpty(content);
 		Matcher thinkStartMatcher = PATTERN_THINK_START.matcher(content);
-		Matcher thinkEndMatcher = PATTERN_THINK_END.matcher(message.getContent());
+		Matcher thinkEndMatcher = PATTERN_THINK_END.matcher(content);
 
 		String thinkContent = "";
-		String messageContent = message.getContent();
+		String messageContent = content;
 		boolean endOfThinkingReached = false;
 		match_found: if (thinkStartMatcher.find()) {
 
@@ -1801,6 +2146,8 @@ public class ChatView extends ViewPart {
 
 	@Override
 	public void dispose() {
+		pendingMessageUpdates.clear();
+		messageRenderExecutor.shutdownNow();
 		executorService.shutdownNow();
 		super.dispose();
 	}
@@ -1831,7 +2178,7 @@ public class ChatView extends ViewPart {
 
 			// 3. Populate the summary message with the IDs of the calls
 			for (ChatMessage msg : toolCallSequence) {
-				if (msg.getFunctionCall().isPresent()) {
+				if (msg.hasFunctionCalls()) {
 					summaryMessage.getSummarizedToolCallIds().add(msg.getId());
 				}
 			}

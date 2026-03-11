@@ -12,11 +12,13 @@ import java.net.http.HttpClient.Redirect;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -26,14 +28,16 @@ import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -43,7 +47,6 @@ import com.google.gson.JsonSyntaxException;
 
 public class AnthropicApiClient extends AbstractApiClient implements IAiApiClient {
 
-	private transient final Gson gson = Activator.getDefault().createGson();
 	private CompletableFuture<Void> asyncRequest;
 
 	private static final String ANTHROPIC_VERSION = "2023-06-01";
@@ -172,7 +175,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 		HttpRequest request = requestBuilder.build();
 		AtomicBoolean responseFinished = new AtomicBoolean(false);
-		AtomicReference<ToolUseInfo> currentToolUse = new AtomicReference<>(null);
+		Map<Integer, ToolUseInfo> activeToolUses = new TreeMap<>();
 
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
@@ -239,7 +242,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 												// Accumulate tool input JSON
 												if (jsonResponse.has("index")) {
 													int index = jsonResponse.get("index").getAsInt();
-													ToolUseInfo toolUse = currentToolUse.get();
+													ToolUseInfo toolUse = activeToolUses.get(index);
 													if (toolUse != null) {
 														String partialJson = delta.get("partial_json").getAsString();
 														toolUse.addInputJson(partialJson);
@@ -258,11 +261,16 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 											String blockType = contentBlock.get("type").getAsString();
 
 											if (blockType.equals("tool_use")) {
-												// Store the tool use information for later when we receive
-												// input_json_delta events
+												int index = jsonResponse.has("index") ? jsonResponse.get("index").getAsInt()
+														: activeToolUses.size();
 												String id = contentBlock.get("id").getAsString();
 												String name = contentBlock.get("name").getAsString();
-												currentToolUse.set(new ToolUseInfo(id, name));
+												String initialInputJson = "{}";
+												if (contentBlock.has("input") && contentBlock.get("input").isJsonObject()
+														&& contentBlock.getAsJsonObject("input").size() > 0) {
+													initialInputJson = gson.toJson(contentBlock.getAsJsonObject("input"));
+												}
+												activeToolUses.put(index, new ToolUseInfo(id, name, initialInputJson));
 											} else if (blockType.equals("thinking")) {
 												if (!thinkingStarted.get()) {
 													assistantMessage
@@ -274,22 +282,8 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 										break;
 
 									case "content_block_stop":
-										if (jsonResponse.has("index")) {
-											int index = jsonResponse.get("index").getAsInt();
-
-											// If we have a completed tool use
-											ToolUseInfo toolUse = currentToolUse.get();
-											if (toolUse != null && toolUse.isComplete()) {
-												JsonObject input = JsonParser.parseString(toolUse.getCompleteJson())
-														.getAsJsonObject();
-												String argsJson = gson.toJson(input);
-
-												assistantMessage.setFunctionCall(
-														new FunctionCall(toolUse.getId(), toolUse.getName(), argsJson));
-												chat.notifyFunctionCalled(assistantMessage);
-												currentToolUse.set(null);
-											}
-										}
+										// Tool use blocks are finalized at the message stop/tool_use stop_reason so
+										// one assistant turn becomes one FunctionCallBatch.
 										break;
 
 									case "message_delta":
@@ -297,20 +291,16 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 											JsonObject delta = jsonResponse.getAsJsonObject("delta");
 											if (delta.has("stop_reason")
 													&& "tool_use".equals(delta.get("stop_reason").getAsString())) {
-												if (!responseFinished.get()) {
-													chat.notifyChatResponseFinished(assistantMessage);
-													responseFinished.set(true);
-												}
+												finalizeToolUses(activeToolUses, assistantMessage);
+												finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 											}
 										}
 										break;
 
 									case "message_stop":
 										// Handle end of message
-										if (!responseFinished.get()) {
-											chat.notifyChatResponseFinished(assistantMessage);
-											responseFinished.set(true);
-										}
+										finalizeToolUses(activeToolUses, assistantMessage);
+										finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 										break;
 
 									case "message_start":
@@ -335,16 +325,14 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 							null);
 				}
 			} finally {
-				if (!responseFinished.get()) {
-					chat.notifyChatResponseFinished(assistantMessage);
-				}
+				finalizeToolUses(activeToolUses, assistantMessage);
+				finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 				asyncRequest = null;
 			}
 		}).exceptionally(e -> {
 			Activator.logError("Exception during streaming chat", e);
-			if (!responseFinished.get()) {
-				chat.notifyChatResponseFinished(assistantMessage);
-			}
+			finalizeToolUses(activeToolUses, assistantMessage);
+			finalizeAssistantMessage(assistantMessage, chat, responseFinished);
 			asyncRequest = null;
 			return null;
 		});
@@ -357,7 +345,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 	private JsonArray createMessagesArray(ChatConversation chat) {
 		JsonArray messagesJson = new JsonArray();
 
-		for (ChatConversation.ChatMessage msg : chat.getMessages()) {
+		for (ChatMessage msg : new ArrayList<>(chat.getMessages())) {
 			// Skip system messages, they're handled separately
 			if (Role.SYSTEM.equals(msg.getRole())) {
 				continue;
@@ -382,7 +370,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 			// Skip if both message content and thinking content are blank
 			if (StringUtils.isBlank(messageContent) && StringUtils.isBlank(msg.getThinkingContent())
-					&& msg.getFunctionCall().isEmpty()) {
+					&& msg.getFunctionCallBatch().isEmpty()) {
 				continue;
 			}
 
@@ -417,45 +405,12 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				contentArray.add(textContent);
 			}
 
-			// If this is an assistant message with a function call, add a tool_use content
-			// block
-			if (Role.ASSISTANT.equals(msg.getRole()) && msg.getFunctionCall().isPresent()) {
-				FunctionCall fc = msg.getFunctionCall().get();
-
-				JsonObject toolUseBlock = new JsonObject();
-				toolUseBlock.addProperty("type", "tool_use");
-				toolUseBlock.addProperty("id", fc.getId());
-				toolUseBlock.addProperty("name", fc.getFunctionName());
-
-				// Parse the argsJson back to a JsonObject
-				JsonObject inputObject = JsonParser.parseString(fc.getArgsJson()).getAsJsonObject();
-				toolUseBlock.add("input", inputObject);
-
-				contentArray.add(toolUseBlock);
-			}
+			appendAssistantToolUses(contentArray, msg);
 
 			jsonMsg.add("content", contentArray);
 			messagesJson.add(jsonMsg);
 
-			// Then, if there's a function result, add it as a separate user message
-			if (msg.getFunctionResult().isPresent()) {
-				FunctionResult fr = msg.getFunctionResult().get();
-
-				JsonObject resultMsg = new JsonObject();
-				resultMsg.addProperty("role", "user");
-
-				JsonArray resultContentArray = new JsonArray();
-
-				// Add the tool result block
-				JsonObject toolResult = new JsonObject();
-				toolResult.addProperty("type", "tool_result");
-				toolResult.addProperty("tool_use_id", fr.getId());
-				toolResult.addProperty("content", fr.getResultJson());
-				resultContentArray.add(toolResult);
-
-				resultMsg.add("content", resultContentArray);
-				messagesJson.add(resultMsg);
-			}
+			appendToolResultTurn(messagesJson, msg);
 		}
 
 		// Cache conversation with default TTL (5 minutes).
@@ -469,6 +424,85 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		}
 
 		return messagesJson;
+	}
+
+	private void appendAssistantToolUses(JsonArray contentArray, ChatMessage message) {
+		appendBatchAssistantToolUses(contentArray, message);
+	}
+
+	private boolean appendBatchAssistantToolUses(JsonArray contentArray, ChatMessage message) {
+		if (message == null || !Role.ASSISTANT.equals(message.getRole()) || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		boolean appended = false;
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getCall() == null) {
+				continue;
+			}
+			contentArray.add(buildToolUseBlock(item.getCall()));
+			appended = true;
+		}
+		return appended;
+	}
+
+	private JsonObject buildToolUseBlock(FunctionCall functionCall) {
+		JsonObject toolUseBlock = new JsonObject();
+		toolUseBlock.addProperty("type", "tool_use");
+		toolUseBlock.addProperty("id", functionCall.getId());
+		toolUseBlock.addProperty("name", functionCall.getFunctionName());
+		toolUseBlock.add("input", parseJsonObjectOrEmpty(functionCall.getArgsJson()));
+		return toolUseBlock;
+	}
+
+	private void appendToolResultTurn(JsonArray messagesJson, ChatMessage message) {
+		JsonObject batchResultTurn = buildBatchToolResultTurn(message);
+		if (batchResultTurn != null) {
+			messagesJson.add(batchResultTurn);
+		}
+	}
+
+	private JsonObject buildBatchToolResultTurn(ChatMessage message) {
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return null;
+		}
+
+		JsonArray resultContentArray = new JsonArray();
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getResult() == null) {
+				continue;
+			}
+			resultContentArray.add(buildToolResultBlock(item.getResult()));
+		}
+		if (resultContentArray.isEmpty()) {
+			return null;
+		}
+
+		JsonObject resultMsg = new JsonObject();
+		resultMsg.addProperty("role", "user");
+		resultMsg.add("content", resultContentArray);
+		return resultMsg;
+	}
+
+	private JsonObject buildToolResultBlock(FunctionResult functionResult) {
+		JsonObject toolResult = new JsonObject();
+		toolResult.addProperty("type", "tool_result");
+		toolResult.addProperty("tool_use_id", functionResult.getId());
+		toolResult.addProperty("content", StringUtils.defaultString(functionResult.getResultJson()));
+		return toolResult;
+	}
+
+	private JsonObject parseJsonObjectOrEmpty(String json) {
+		if (StringUtils.isBlank(json)) {
+			return new JsonObject();
+		}
+		try {
+			JsonObject parsed = JsonParser.parseString(json).getAsJsonObject();
+			return parsed != null ? parsed : new JsonObject();
+		} catch (Exception e) {
+			Activator.logError("Failed to parse Anthropic tool JSON payload (length=" + json.length() + ")", e);
+			return new JsonObject();
+		}
 	}
 
 	/**
@@ -600,14 +634,49 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 //		Log.logInfo(logMessage);
 	}
 
+	private void finalizeToolUses(Map<Integer, ToolUseInfo> activeToolUses, ChatMessage assistantMessage) {
+		if (assistantMessage == null || activeToolUses == null || activeToolUses.isEmpty()
+				|| assistantMessage.getFunctionCallBatch().isPresent()) {
+			return;
+		}
+
+		FunctionCallBatch batch = new FunctionCallBatch();
+		for (ToolUseInfo toolUse : activeToolUses.values()) {
+			FunctionCall functionCall = toolUse.toFunctionCall();
+			if (functionCall != null) {
+				batch.addCall(functionCall);
+			}
+		}
+		if (batch.getItems().isEmpty()) {
+			return;
+		}
+
+		assistantMessage.setFunctionCallBatch(batch);
+	}
+
+	private void finalizeAssistantMessage(ChatMessage assistantMessage, ChatConversation chat,
+			AtomicBoolean responseFinished) {
+		if (assistantMessage != null && !responseFinished.get()) {
+			if (assistantMessage.getFunctionCallBatch().isPresent()) {
+				chat.notifyFunctionCalled(assistantMessage);
+			}
+
+			chat.notifyChatResponseFinished(assistantMessage);
+			responseFinished.set(true);
+		}
+	}
+
 	private static class ToolUseInfo {
 		private final String id;
 		private final String name;
 		private final StringBuilder inputJson = new StringBuilder();
 
-		public ToolUseInfo(String id, String name) {
+		public ToolUseInfo(String id, String name, String initialInputJson) {
 			this.id = id;
 			this.name = name;
+			if (StringUtils.isNotBlank(initialInputJson) && !"{}".equals(initialInputJson)) {
+				inputJson.append(initialInputJson);
+			}
 		}
 
 		public void addInputJson(String partialJson) {
@@ -621,6 +690,20 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 
 		public String getCompleteJson() {
 			return inputJson.toString();
+		}
+
+		public FunctionCall toFunctionCall() {
+			String completeJson = getCompleteJson();
+			if (StringUtils.isBlank(completeJson)) {
+				completeJson = "{}";
+			}
+			try {
+				JsonObject input = JsonParser.parseString(completeJson).getAsJsonObject();
+				return new FunctionCall(id, name, JsonParser.parseString(input.toString()).toString());
+			} catch (Exception e) {
+				Activator.logError("Failed to parse Anthropic tool_use input: " + completeJson, e);
+				return null;
+			}
 		}
 
 		public String getId() {

@@ -11,9 +11,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -24,15 +24,18 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
+import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
 import com.chabicht.code_intelligence.model.PromptType;
-import com.google.gson.Gson;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -45,7 +48,6 @@ import com.google.gson.JsonSyntaxException;
  */
 public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 
-	private transient final Gson gson = Activator.getDefault().createGson();
 	private CompletableFuture<Void> asyncRequest;
 
 	public OpenAiApiClient(AiApiConnection apiConnection) {
@@ -186,65 +188,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	 */
 	@Override
 	public void performChat(String modelName, ChatConversation chat, int maxResponseTokens) {
-		// Build the JSON array of messages from the conversation.
-		// (We use the messages already in the conversation. We assume the conversation
-		// ends with a user message.)
-		List<ChatConversation.ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
-		JsonArray messagesJson = new JsonArray();
-		for (ChatConversation.ChatMessage msg : messagesToSend) {
-			// Skip TOOL_SUMMARY messages, they are for internal use only
-			if (Role.TOOL_SUMMARY.equals(msg.getRole())) {
-				continue;
-			}
-
-			JsonObject jsonMsg = new JsonObject();
-			// Convert the role enum to lowercase string (system, user, assistant).
-			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
-
-			// For user, system messages, or assistant messages without function calls
-			StringBuilder contentBuilder = new StringBuilder(256);
-			if (!msg.getContext().isEmpty()) {
-				contentBuilder.append("Context information:\n\n");
-				for (MessageContext ctx : msg.getContext()) {
-					contentBuilder.append(ctx.compile(true));
-					contentBuilder.append("\n");
-				}
-			}
-			String textContent = msg.getContent();
-			if (textContent != null) { // Ensure content is not null before appending
-				contentBuilder.append(textContent);
-			}
-			jsonMsg.addProperty("content", contentBuilder.toString());
-
-			// Add tool call to assistant message if applicable.
-			if (Role.ASSISTANT.equals(msg.getRole()) && msg.getFunctionCall().isPresent()) {
-				FunctionCall fc = msg.getFunctionCall().get();
-				JsonArray toolCallsArray = new JsonArray();
-				JsonObject toolCallItem = new JsonObject();
-				toolCallItem.addProperty("id", fc.getId());
-				toolCallItem.addProperty("type", "function");
-
-				JsonObject functionDetails = new JsonObject();
-				functionDetails.addProperty("name", fc.getFunctionName());
-				// Arguments for OpenAI function calls should be a string containing JSON
-				functionDetails.addProperty("arguments", fc.getArgsJson());
-				toolCallItem.add("function", functionDetails);
-				toolCallsArray.add(toolCallItem);
-
-				jsonMsg.add("tool_calls", toolCallsArray);
-			}
-
-			messagesJson.add(jsonMsg); // Add the constructed message (user, assistant, or system)
-
-			if (msg.getFunctionResult().isPresent()) {
-				FunctionResult fr = msg.getFunctionResult().get();
-				JsonObject toolMessage = new JsonObject();
-				toolMessage.addProperty("role", "tool");
-				toolMessage.addProperty("tool_call_id", fr.getId());
-				toolMessage.addProperty("content", fr.getResultJson()); // Content is the JSON string of the result
-				messagesJson.add(toolMessage);
-			}
-		}
+		JsonArray messagesJson = buildMessagesJson(chat);
 
 		// Create the JSON request object.
 		JsonObject req = createFromPresets(PromptType.CHAT);
@@ -292,7 +236,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpRequest request = requestBuilder.build();
 
 		// Map to keep track of tool calls by their index
-		Map<Integer, ToolCallInfo> activeToolCalls = new HashMap<>();
+		Map<Integer, ToolCallInfo> activeToolCalls = new TreeMap<>();
 
 		// Send the request asynchronously and process the streamed response
 		// line-by-line.
@@ -406,6 +350,138 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 	}
 
+	private JsonArray buildMessagesJson(ChatConversation chat) {
+		JsonArray messagesJson = new JsonArray();
+		List<ChatMessage> messagesToSend = new ArrayList<>(chat.getMessages());
+		for (ChatMessage msg : messagesToSend) {
+			if (Role.TOOL_SUMMARY.equals(msg.getRole())) {
+				continue;
+			}
+
+			JsonObject jsonMsg = new JsonObject();
+			jsonMsg.addProperty("role", msg.getRole().toString().toLowerCase());
+			jsonMsg.addProperty("content", compileMessageContent(msg));
+			appendAssistantToolCalls(jsonMsg, msg);
+			messagesJson.add(jsonMsg);
+			appendToolResultMessages(messagesJson, msg);
+		}
+
+		logDebugMessagesSummary(messagesJson);
+		return messagesJson;
+	}
+
+	private String compileMessageContent(ChatMessage message) {
+		StringBuilder contentBuilder = new StringBuilder(256);
+		if (!message.getContext().isEmpty()) {
+			contentBuilder.append("Context information:\n\n");
+			for (MessageContext ctx : message.getContext()) {
+				contentBuilder.append(ctx.compile(true));
+				contentBuilder.append("\n");
+			}
+		}
+		if (message.getContent() != null) {
+			contentBuilder.append(message.getContent());
+		}
+		return contentBuilder.toString();
+	}
+
+	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
+		appendBatchAssistantToolCalls(jsonMsg, message);
+	}
+
+	private boolean appendBatchAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {
+		if (message == null || !Role.ASSISTANT.equals(message.getRole()) || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		JsonArray toolCallsArray = new JsonArray();
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getCall() == null) {
+				continue;
+			}
+			toolCallsArray.add(buildToolCallItem(item.getCall()));
+		}
+		if (toolCallsArray.isEmpty()) {
+			return false;
+		}
+
+		jsonMsg.add("tool_calls", toolCallsArray);
+		return true;
+	}
+
+	private JsonObject buildToolCallItem(FunctionCall functionCall) {
+		JsonObject toolCallItem = new JsonObject();
+		toolCallItem.addProperty("id", functionCall.getId());
+		toolCallItem.addProperty("type", "function");
+
+		JsonObject functionDetails = new JsonObject();
+		functionDetails.addProperty("name", functionCall.getFunctionName());
+		functionDetails.addProperty("arguments", functionCall.getArgsJson());
+		toolCallItem.add("function", functionDetails);
+		return toolCallItem;
+	}
+
+	private void appendToolResultMessages(JsonArray messagesJson, ChatMessage message) {
+		appendBatchToolResultMessages(messagesJson, message);
+	}
+
+	private boolean appendBatchToolResultMessages(JsonArray messagesJson, ChatMessage message) {
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return false;
+		}
+
+		boolean appended = false;
+		FunctionCallBatch batch = message.getFunctionCallBatch().get();
+		for (FunctionCallItem item : batch.getItems()) {
+			if (item == null || item.getResult() == null) {
+				continue;
+			}
+			messagesJson.add(buildToolResultMessage(item.getResult()));
+			appended = true;
+		}
+		return appended;
+	}
+
+	private JsonObject buildToolResultMessage(FunctionResult functionResult) {
+		JsonObject toolMessage = new JsonObject();
+		toolMessage.addProperty("role", "tool");
+		toolMessage.addProperty("tool_call_id", functionResult.getId());
+		toolMessage.addProperty("content", functionResult.getResultJson());
+		return toolMessage;
+	}
+
+	private void logDebugMessagesSummary(JsonArray messagesJson) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+
+		int assistantToolCallCount = 0;
+		int toolResultMessageCount = 0;
+		for (JsonElement messageElement : messagesJson) {
+			if (!messageElement.isJsonObject()) {
+				continue;
+			}
+			JsonObject messageObject = messageElement.getAsJsonObject();
+			if (messageObject.has("tool_calls") && messageObject.get("tool_calls").isJsonArray()) {
+				assistantToolCallCount += messageObject.getAsJsonArray("tool_calls").size();
+			}
+			if (messageObject.has("role") && !messageObject.get("role").isJsonNull()
+					&& "tool".equals(messageObject.get("role").getAsString())) {
+				toolResultMessageCount++;
+			}
+		}
+
+		Activator.logInfo(String.format(
+				"openai chat request built: messages=%d, assistant_tool_calls=%d, tool_results=%d",
+				messagesJson.size(), assistantToolCallCount, toolResultMessageCount));
+	}
+
+	private boolean isDebugToolBatchLoggingEnabled() {
+		Activator activator = Activator.getDefault();
+		return activator != null
+				&& activator.getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
+	}
+
 	@Override
 	public String caption(String modelName, String content) {
 		JsonObject req = createFromPresets(PromptType.INSTRUCT);
@@ -452,38 +528,25 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			JsonObject toolCallDelta = toolCallElement.getAsJsonObject();
 
 			try {
-				// Get the index to identify which tool call this belongs to
-				int index = toolCallDelta.get("index").getAsInt();
-
-				// Check if this is a new tool call or an update to an existing one
-				if (!activeToolCalls.containsKey(index)) {
-					// This is a new tool call, extract ID and function name
-					String id = null;
-					String functionName = null;
-
-					if (toolCallDelta.has("id") && !toolCallDelta.get("id").isJsonNull()) {
-						id = toolCallDelta.get("id").getAsString();
-					}
-
-					if (toolCallDelta.has("function")) {
-						JsonObject function = toolCallDelta.getAsJsonObject("function");
-						if (function.has("name") && !function.get("name").isJsonNull()) {
-							functionName = function.get("name").getAsString();
-						}
-					}
-
-					// Only create a new tool call info if we have both id and name
-					if (id != null && functionName != null) {
-						activeToolCalls.put(index, new ToolCallInfo(index, id, functionName));
-					}
+				if (!toolCallDelta.has("index") || toolCallDelta.get("index").isJsonNull()) {
+					continue;
 				}
 
-				// Now update the existing tool call with any new argument chunks
-				if (activeToolCalls.containsKey(index) && toolCallDelta.has("function")) {
+				int index = toolCallDelta.get("index").getAsInt();
+				ToolCallInfo toolCallInfo = activeToolCalls.computeIfAbsent(index, ToolCallInfo::new);
+
+				if (toolCallDelta.has("id") && !toolCallDelta.get("id").isJsonNull()) {
+					toolCallInfo.setId(toolCallDelta.get("id").getAsString());
+				}
+
+				if (toolCallDelta.has("function") && toolCallDelta.get("function").isJsonObject()) {
 					JsonObject function = toolCallDelta.getAsJsonObject("function");
+					if (function.has("name") && !function.get("name").isJsonNull()) {
+						toolCallInfo.setName(function.get("name").getAsString());
+					}
 					if (function.has("arguments") && !function.get("arguments").isJsonNull()) {
 						String argumentChunk = function.get("arguments").getAsString();
-						activeToolCalls.get(index).appendArguments(argumentChunk);
+						toolCallInfo.appendArguments(argumentChunk);
 					}
 				}
 			} catch (Exception e) {
@@ -502,22 +565,25 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	 */
 	private void finalizeToolCalls(Map<Integer, ToolCallInfo> activeToolCalls,
 			ChatConversation.ChatMessage assistantMessage, ChatConversation chat) {
-		// Find any remaining tool calls that haven't been finalized yet
-		for (ToolCallInfo toolCall : activeToolCalls.values()) {
-			if (!toolCall.isComplete()) {
-				toolCall.markComplete();
+		if (activeToolCalls == null || activeToolCalls.isEmpty()) {
+			return;
+		}
 
-				// Only notify for the first tool call if there are multiple
-				// (This is just one approach - you might want to handle multiple tools
-				// differently)
-				if (!assistantMessage.getFunctionCall().isPresent()) {
-					assistantMessage.setFunctionCall(toolCall.toFunctionCall());
-					chat.notifyFunctionCalled(assistantMessage);
-				}
+		FunctionCallBatch batch = new FunctionCallBatch();
+		for (ToolCallInfo toolCall : activeToolCalls.values()) {
+			toolCall.markComplete();
+			FunctionCall functionCall = toolCall.toFunctionCall();
+			if (functionCall != null) {
+				batch.addCall(functionCall);
 			}
 		}
 
-		// Clear the active tool calls map
+		if (!batch.getItems().isEmpty()) {
+			assistantMessage.setFunctionCallBatch(batch);
+			logDebugBatchParsed(assistantMessage, batch);
+			chat.notifyFunctionCalled(assistantMessage);
+		}
+
 		activeToolCalls.clear();
 	}
 
@@ -536,31 +602,33 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			// For the deprecated function_call format, we always use index 0
 			// (there is only one function call in this format)
 			int index = 0;
+			ToolCallInfo toolCallInfo = activeToolCalls.computeIfAbsent(index, ToolCallInfo::new);
 
-			// Check if this is a new function call or an update to an existing one
-			if (!activeToolCalls.containsKey(index)) {
-				// This is a new function call, extract the name
-				String name = null;
-
-				if (functionCallDelta.has("name") && !functionCallDelta.get("name").isJsonNull()) {
-					name = functionCallDelta.get("name").getAsString();
-
-					// Generate a unique ID for the function call
-					String id = "call_func_" + System.currentTimeMillis();
-					activeToolCalls.put(index, new ToolCallInfo(index, id, name));
+			if (functionCallDelta.has("name") && !functionCallDelta.get("name").isJsonNull()) {
+				toolCallInfo.setName(functionCallDelta.get("name").getAsString());
+				if (StringUtils.isBlank(toolCallInfo.getId())) {
+					toolCallInfo.setId("call_func_" + System.currentTimeMillis());
 				}
 			}
 
-			// Now update the existing function call with any new argument chunks
-			if (activeToolCalls.containsKey(index) && functionCallDelta.has("arguments")
-					&& !functionCallDelta.get("arguments").isJsonNull()) {
-
+			if (functionCallDelta.has("arguments") && !functionCallDelta.get("arguments").isJsonNull()) {
 				String argumentChunk = functionCallDelta.get("arguments").getAsString();
-				activeToolCalls.get(index).appendArguments(argumentChunk);
+				toolCallInfo.appendArguments(argumentChunk);
 			}
 		} catch (Exception e) {
 			Activator.logError("Error processing function call delta: " + functionCallDelta, e);
 		}
+	}
+
+	private void logDebugBatchParsed(ChatMessage message, FunctionCallBatch batch) {
+		if (!isDebugToolBatchLoggingEnabled()) {
+			return;
+		}
+		String callIds = batch.getItems().stream().filter(item -> item != null && item.getCall() != null)
+				.map(item -> StringUtils.defaultIfBlank(item.getCall().getId(), "no-id"))
+				.collect(Collectors.joining(", "));
+		Activator.logInfo(String.format("openai multi-tool parsed: messageId=%s, batchId=%s, calls=%d, callIds=[%s]",
+				message != null ? message.getId() : null, batch.getBatchId(), batch.getItems().size(), callIds));
 	}
 
 	/**
@@ -569,20 +637,20 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	 */
 	private static class ToolCallInfo {
 		private final int index; // The position of this tool call in the array
-		private final String id; // The unique ID of the tool call
-		private final String name; // The function name
+		private String id; // The unique ID of the tool call
+		private String name; // The function name
 		private final StringBuilder argumentsJson = new StringBuilder(); // Accumulating JSON arguments
 		private boolean isComplete = false; // Whether the tool call is complete
 		private String errorMessage = null; // Any error message if the tool call failed
 
-		public ToolCallInfo(int index, String id, String name) {
+		public ToolCallInfo(int index) {
 			this.index = index;
-			this.id = id;
-			this.name = name;
 		}
 
 		public void appendArguments(String argumentChunk) {
-			argumentsJson.append(argumentChunk);
+			if (argumentChunk != null) {
+				argumentsJson.append(argumentChunk);
+			}
 		}
 
 		public boolean isComplete() {
@@ -599,7 +667,12 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		}
 
 		public FunctionCall toFunctionCall() {
-			return new FunctionCall(id, name, argumentsJson.toString());
+			if (StringUtils.isBlank(name)) {
+				return null;
+			}
+			String resolvedId = StringUtils.defaultIfBlank(id, "call_" + index);
+			String arguments = StringUtils.defaultIfBlank(argumentsJson.toString(), "{}");
+			return new FunctionCall(resolvedId, name, arguments);
 		}
 
 		// Getters
@@ -611,8 +684,20 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 			return id;
 		}
 
+		public void setId(String id) {
+			if (StringUtils.isNotBlank(id)) {
+				this.id = id;
+			}
+		}
+
 		public String getName() {
 			return name;
+		}
+
+		public void setName(String name) {
+			if (StringUtils.isNotBlank(name)) {
+				this.name = name;
+			}
 		}
 
 		public String getArgumentsJson() {

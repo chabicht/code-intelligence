@@ -25,7 +25,8 @@ public class CustomConfigurationParameters {
 	}
 
 	private CustomConfigurationParameters() {
-		this.map = Activator.getDefault().loadCustomConfigurationParameters();
+		Activator activator = Activator.getDefault();
+		this.map = activator != null ? activator.loadCustomConfigurationParameters() : Collections.emptyMap();
 	}
 
 	public Map<String, String> get(String connectionName) {
@@ -41,7 +42,10 @@ public class CustomConfigurationParameters {
 	}
 
 	public void setMap(Map<String, Map<String, String>> replacement) {
-		Activator.getDefault().saveCustomConfigurationParameters(replacement);
+		Activator activator = Activator.getDefault();
+		if (activator != null) {
+			activator.saveCustomConfigurationParameters(replacement);
+		}
 		map = replacement;
 	}
 
@@ -135,7 +139,7 @@ public class CustomConfigurationParameters {
 				  "metadata": null,
 				  "tools": null,
 				  "tool_choice": "auto",
-				  "parallel_tool_calls": false
+				  "parallel_tool_calls": true
 				}
 				""");
 		res.put(tCompletion, res.get(tChat));

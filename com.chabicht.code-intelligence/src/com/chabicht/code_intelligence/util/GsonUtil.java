@@ -15,6 +15,7 @@ public class GsonUtil {
 
 	public static Gson createGson() {
 		return new GsonBuilder().registerTypeAdapter(Instant.class, new InstantTypeAdapter())
-				.registerTypeAdapter(Optional.class, new OptionalTypeAdapter()).create();
+				.registerTypeAdapter(Optional.class, new OptionalTypeAdapter())
+				.registerTypeAdapterFactory(new ChatMessageTypeAdapterFactory()).create();
 	}
 }

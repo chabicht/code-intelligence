@@ -1,6 +1,5 @@
 package com.chabicht.code_intelligence.chat.tools;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -261,7 +260,7 @@ public class BufferedResourceAccess implements IResourceAccess {
 	 * @return A new document with changes applied, or the original if no changes
 	 */
 	private IDocument applyPendingChanges(String filePath, IDocument originalDoc) {
-		List<TextFileChange> changes = session.getPendingTextFileChanges().get(filePath);
+		List<TextFileChange> changes = findPendingChanges(filePath);
 		if (changes == null || changes.isEmpty()) {
 			return originalDoc;
 		}
@@ -274,15 +273,21 @@ public class BufferedResourceAccess implements IResourceAccess {
 		}
 	}
 
+	private List<TextFileChange> findPendingChanges(String filePath) {
+		for (Map.Entry<IFile, List<TextFileChange>> entry : session.getPendingTextFileChanges().entrySet()) {
+			IFile file = entry.getKey();
+			if (file != null && file.getFullPath() != null && filePath.equals(file.getFullPath().toString())) {
+				return entry.getValue();
+			}
+		}
+		return null;
+	}
+
 	static IDocument applyChangesToDocument(IDocument originalDoc, List<TextFileChange> changes)
 			throws BadLocationException {
-		// Sort by position descending
-		changes = new ArrayList<>(changes);
-		changes.sort((o1, o2) -> Integer.compare(o2.getEdit().getOffset(), o1.getEdit().getOffset()));
-
 		Document workingDoc = new Document(originalDoc.get());
 		for (TextFileChange change : changes) {
-			change.getEdit().apply(workingDoc);
+			change.getEdit().copy().apply(workingDoc);
 		}
 		return workingDoc;
 	}
