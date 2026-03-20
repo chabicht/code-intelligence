@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_EFFORT;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -286,7 +288,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		JsonObject req = sanitizePresetForResponses(createFromPresets(PromptType.CHAT));
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
-		if (maxResponseTokens > 0 && !req.has("max_output_tokens")) {
+		if (maxResponseTokens > 0 && !hasNonNullProperty(req, "max_output_tokens")) {
 			req.addProperty("max_output_tokens", maxResponseTokens);
 		}
 
@@ -296,6 +298,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		}
 
 		Map<ChatOption, Object> options = chat.getOptions();
+		applyReasoningOptions(req, options);
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
 			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAi(profile));
@@ -320,6 +323,30 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		req.add("input", input);
 		logDebugInputSummary(usedPreviousResponseId, input);
 		return new ChatRequestBuildResult(req, usedPreviousResponseId);
+	}
+
+	private void applyReasoningOptions(JsonObject req, Map<ChatOption, Object> options) {
+		Object effortOption = options.get(REASONING_EFFORT);
+		if (!(effortOption instanceof ReasoningEffort reasoningEffort) || reasoningEffort.getApiValue() == null) {
+			return;
+		}
+
+		if (!hasNonNullProperty(req, "reasoning")) {
+			JsonObject reasoning = new JsonObject();
+			reasoning.addProperty("effort", reasoningEffort.getApiValue());
+			req.add("reasoning", reasoning);
+			return;
+		}
+
+		JsonElement reasoningElement = req.get("reasoning");
+		if (!reasoningElement.isJsonObject()) {
+			return;
+		}
+
+		JsonObject reasoning = reasoningElement.getAsJsonObject();
+		if (!hasNonNullProperty(reasoning, "effort")) {
+			reasoning.addProperty("effort", reasoningEffort.getApiValue());
+		}
 	}
 
 	private JsonArray buildIncrementalInputItems(ChatConversation chat, String previousResponseId) {

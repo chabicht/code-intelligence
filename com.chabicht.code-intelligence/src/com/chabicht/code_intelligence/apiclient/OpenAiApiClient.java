@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_EFFORT;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -200,6 +202,7 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		req.addProperty("stream", true);
 
 		Map<ChatOption, Object> options = chat.getOptions();
+		applyReasoningEffort(req, options);
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
 			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			if (apiConnection.isLegacyFormat()) {
@@ -347,6 +350,17 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 	private void removeStrictFlag(JsonObject toolDefinitionsOpenAi) {
 		for (JsonElement el : toolDefinitionsOpenAi.get("tools").getAsJsonArray()) {
 			el.getAsJsonObject().get("function").getAsJsonObject().remove("strict");
+		}
+	}
+
+	private void applyReasoningEffort(JsonObject req, Map<ChatOption, Object> options) {
+		if (hasNonNullProperty(req, "reasoning_effort")) {
+			return;
+		}
+
+		Object effortOption = options.get(REASONING_EFFORT);
+		if (effortOption instanceof ReasoningEffort reasoningEffort && reasoningEffort.getApiValue() != null) {
+			req.addProperty("reasoning_effort", reasoningEffort.getApiValue());
 		}
 	}
 

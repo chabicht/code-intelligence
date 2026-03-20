@@ -1,6 +1,7 @@
 package com.chabicht.code_intelligence.chat;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_EFFORT;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
@@ -1591,6 +1592,7 @@ public class ChatView extends ViewPart {
 
 			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+			conversation.getOptions().put(REASONING_EFFORT, settings.getReasoningEffort());
 			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 			conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 
@@ -1748,6 +1750,7 @@ public class ChatView extends ViewPart {
 		// with conversations saved before new options were added)
 		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+		conversation.getOptions().put(REASONING_EFFORT, settings.getReasoningEffort());
 		conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 		conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 	}

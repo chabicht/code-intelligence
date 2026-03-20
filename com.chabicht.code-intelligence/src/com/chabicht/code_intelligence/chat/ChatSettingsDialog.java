@@ -1,7 +1,5 @@
 package com.chabicht.code_intelligence.chat;
 
-import static com.chabicht.code_intelligence.chat.ChatSettings.supportsReasoning;
-
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +41,8 @@ import org.eclipse.swt.widgets.Text;
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 import com.chabicht.code_intelligence.apiclient.AiModel;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningControlMode;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
@@ -55,9 +55,16 @@ public class ChatSettingsDialog extends Dialog {
 	private final ChatSettings settings;
 
 	private final WritableList<PromptTemplate> systemPrompts = new WritableList<>();
+	private Composite dialogAreaComposite;
+	private Group grpReasoning;
 	private ComboViewer cvSystemPrompt;
 	private Text txtModel;
+	private Label lblReasoningBudgetTokens;
 	private Text txtReasoningBudgetTokens;
+	private Label lblReasoningEffort;
+	private Label lblReasoningTogglePlaceholder;
+	private ComboViewer cvReasoningEffort;
+	private Label lblReasoningHint;
 	private Button btnReasoningEnabled;
 	private Text txtChatCompletionMaxTokens;
 	private Button btnToolsEnabled;
@@ -84,19 +91,19 @@ public class ChatSettingsDialog extends Dialog {
 		layout.marginWidth = convertHorizontalDLUsToPixels(IDialogConstants.HORIZONTAL_MARGIN);
 		layout.verticalSpacing = convertVerticalDLUsToPixels(IDialogConstants.VERTICAL_SPACING);
 		layout.horizontalSpacing = convertHorizontalDLUsToPixels(IDialogConstants.HORIZONTAL_SPACING);
-		Composite composite = new Composite(parent, SWT.NONE);
-		composite.setLayout(layout);
-		composite.setLayoutData(new GridData(GridData.FILL_BOTH));
-		applyDialogFont(composite);
+		dialogAreaComposite = new Composite(parent, SWT.NONE);
+		dialogAreaComposite.setLayout(layout);
+		dialogAreaComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
+		applyDialogFont(dialogAreaComposite);
 
-		Label lblModel = new Label(composite, SWT.NONE);
+		Label lblModel = new Label(dialogAreaComposite, SWT.NONE);
 		lblModel.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
 		lblModel.setText("Model:");
 
-		txtModel = new Text(composite, SWT.BORDER);
+		txtModel = new Text(dialogAreaComposite, SWT.BORDER);
 		txtModel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
 
-		Button btnChange = new Button(composite, SWT.NONE);
+		Button btnChange = new Button(dialogAreaComposite, SWT.NONE);
 		btnChange.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
@@ -125,22 +132,22 @@ public class ChatSettingsDialog extends Dialog {
 		});
 		btnChange.setText("Change...");
 
-		Label lblChatCompletionMaxTokens = new Label(composite, SWT.NONE);
+		Label lblChatCompletionMaxTokens = new Label(dialogAreaComposite, SWT.NONE);
 		lblChatCompletionMaxTokens.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
 		lblChatCompletionMaxTokens.setText("Max. response tokens:");
 
-		txtChatCompletionMaxTokens = new Text(composite, SWT.BORDER);
+		txtChatCompletionMaxTokens = new Text(dialogAreaComposite, SWT.BORDER);
 		txtChatCompletionMaxTokens.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 
-		Label lblSystemPrompt = new Label(composite, SWT.NONE);
+		Label lblSystemPrompt = new Label(dialogAreaComposite, SWT.NONE);
 		lblSystemPrompt.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
 		lblSystemPrompt.setText("System prompt:");
 
-		cvSystemPrompt = new ComboViewer(composite, SWT.NONE);
+		cvSystemPrompt = new ComboViewer(dialogAreaComposite, SWT.NONE);
 		Combo cbSystemPrompt = cvSystemPrompt.getCombo();
 		cbSystemPrompt.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1));
 
-		Group grpReasoning = new Group(composite, SWT.NONE);
+		grpReasoning = new Group(dialogAreaComposite, SWT.NONE);
 		grpReasoning.setLayout(new GridLayout(2, false));
 		GridData gd_grpReasoning = new GridData(SWT.FILL, SWT.CENTER, false, false, 3, 1);
 		gd_grpReasoning.widthHint = 75;
@@ -148,20 +155,44 @@ public class ChatSettingsDialog extends Dialog {
 		grpReasoning.setText("Reasoning");
 
 		btnReasoningEnabled = new Button(grpReasoning, SWT.CHECK);
+		btnReasoningEnabled.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1));
 		btnReasoningEnabled.setText("enabled");
-		new Label(grpReasoning, SWT.NONE);
+		lblReasoningTogglePlaceholder = new Label(grpReasoning, SWT.NONE);
+		lblReasoningTogglePlaceholder.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
 
-		Label lblBudgetTokens = new Label(grpReasoning, SWT.NONE);
-		lblBudgetTokens.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
-		lblBudgetTokens.setText("Budget tokens:");
+		lblReasoningBudgetTokens = new Label(grpReasoning, SWT.NONE);
+		lblReasoningBudgetTokens.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
+		lblReasoningBudgetTokens.setText("Budget tokens:");
 
 		txtReasoningBudgetTokens = new Text(grpReasoning, SWT.BORDER);
 		txtReasoningBudgetTokens.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
 
+		lblReasoningEffort = new Label(grpReasoning, SWT.NONE);
+		lblReasoningEffort.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false, 1, 1));
+		lblReasoningEffort.setText("Effort:");
+
+		cvReasoningEffort = new ComboViewer(grpReasoning, SWT.READ_ONLY);
+		cvReasoningEffort.getCombo().setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 1, 1));
+		cvReasoningEffort.setContentProvider(ArrayContentProvider.getInstance());
+		cvReasoningEffort.setLabelProvider(new LabelProvider() {
+			@Override
+			public String getText(Object element) {
+				return ((ReasoningEffort) element).getDisplayName();
+			}
+		});
+		cvReasoningEffort.setInput(ReasoningEffort.values());
+
+		lblReasoningHint = new Label(grpReasoning, SWT.WRAP);
+		GridData gdReasoningHint = new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1);
+		gdReasoningHint.widthHint = 320;
+		lblReasoningHint.setLayoutData(gdReasoningHint);
+		lblReasoningHint.setText(
+				"Model default omits the parameter. None sends reasoning=none. Explicit effort support depends on the selected provider and model.");
+
 		// Tool Configuration Group
-		Group grpTools = new Group(composite, SWT.NONE);
+		Group grpTools = new Group(dialogAreaComposite, SWT.NONE);
 		grpTools.setLayout(new GridLayout(2, false)); // Changed to 2 columns for profile combo
-		GridData gd_grpTools = new GridData(SWT.FILL, SWT.FILL, true, true, 3, 1);
+		GridData gd_grpTools = new GridData(SWT.FILL, SWT.TOP, true, false, 3, 1);
 		grpTools.setLayoutData(gd_grpTools);
 		grpTools.setText("Tools");
 
@@ -201,7 +232,21 @@ public class ChatSettingsDialog extends Dialog {
 		init();
 		m_bindingContext = initDataBindings();
 
-		return composite;
+		return dialogAreaComposite;
+	}
+
+	@Override
+	public void create() {
+		super.create();
+		Shell shell = getShell();
+		if (shell != null && !shell.isDisposed()) {
+			shell.getDisplay().asyncExec(() -> {
+				if (shell.isDisposed()) {
+					return;
+				}
+				relayoutDialog();
+			});
+		}
 	}
 
 	private void init() {
@@ -217,6 +262,7 @@ public class ChatSettingsDialog extends Dialog {
 				updateReasoningEnablement(newString);
 			}
 		});
+		settings.addPropertyChangeListener("reasoningEnabled", e -> updateReasoningEnablement(settings.getModel()));
 		updateReasoningEnablement(settings.getModel());
 
 		btnToolsEnabled.setSelection(settings.isToolsEnabled());
@@ -232,17 +278,71 @@ public class ChatSettingsDialog extends Dialog {
 				cvToolProfile.getCombo().setEnabled(btnToolsEnabled.getSelection());
 			}
 		});
+		btnReasoningEnabled.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				updateReasoningEnablement(settings.getModel());
+			}
+		});
 	}
 
 	private void updateReasoningEnablement(String modelId) {
 		Display.getDefault().syncExec(() -> {
-			boolean supportsReasoning = supportsReasoning(modelId);
-//			if (!supportsReasoning) {
-//				btnReasoningEnabled.setSelection(false);
-//			}
-			btnReasoningEnabled.setEnabled(supportsReasoning);
-			txtReasoningBudgetTokens.setEnabled(supportsReasoning);
+			ReasoningControlMode reasoningMode = ChatSettings.getReasoningControlMode(modelId);
+			boolean supportsReasoning = reasoningMode != ReasoningControlMode.NONE;
+			boolean reasoningInputsEnabled = reasoningMode == ReasoningControlMode.EFFORT
+					? supportsReasoning
+					: supportsReasoning && settings.isReasoningEnabled();
+			updateReasoningControl(btnReasoningEnabled, null, reasoningMode == ReasoningControlMode.TOKEN_BUDGET,
+					supportsReasoning);
+			toggleVisibility(lblReasoningTogglePlaceholder, reasoningMode == ReasoningControlMode.TOKEN_BUDGET);
+			updateReasoningControl(lblReasoningBudgetTokens, txtReasoningBudgetTokens,
+					reasoningMode == ReasoningControlMode.TOKEN_BUDGET, reasoningInputsEnabled);
+			updateReasoningControl(lblReasoningEffort, cvReasoningEffort.getCombo(),
+					reasoningMode == ReasoningControlMode.EFFORT, reasoningInputsEnabled);
+			updateReasoningHint(reasoningMode == ReasoningControlMode.EFFORT);
+			relayoutDialog();
 		});
+	}
+
+	private void relayoutDialog() {
+		if (grpReasoning != null && !grpReasoning.isDisposed()) {
+			grpReasoning.layout(true, true);
+		}
+		if (dialogAreaComposite != null && !dialogAreaComposite.isDisposed()) {
+			dialogAreaComposite.layout(true, true);
+		}
+		Shell shell = getShell();
+		if (shell != null && !shell.isDisposed()) {
+			shell.layout(true, true);
+			if (shell.isVisible()) {
+				Point currentSize = shell.getSize();
+				Point preferredSize = shell.computeSize(currentSize.x, SWT.DEFAULT, true);
+				shell.setSize(currentSize.x, preferredSize.y);
+			}
+		}
+	}
+
+	private void updateReasoningControl(Control label, Control input, boolean visible, boolean enabled) {
+		toggleVisibility(label, visible);
+		if (label instanceof Button button) {
+			button.setEnabled(visible && enabled);
+		}
+		if (input != null) {
+			toggleVisibility(input, visible);
+			input.setEnabled(visible && enabled);
+		}
+	}
+
+	private void updateReasoningHint(boolean visible) {
+		toggleVisibility(lblReasoningHint, visible);
+	}
+
+	private void toggleVisibility(Control control, boolean visible) {
+		control.setVisible(visible);
+		if (control.getLayoutData() instanceof GridData gridData) {
+			gridData.exclude = !visible;
+		}
 	}
 
 	private static PromptTemplate createNoTemplateSelection() {
@@ -294,6 +394,9 @@ public class ChatSettingsDialog extends Dialog {
 				reasoningBudgetTokensSettingsObserveValue,
 				new UpdateValueStrategy().setConverter(StringToNumberConverter.toInteger(true)),
 				new UpdateValueStrategy().setConverter(NumberToStringConverter.fromInteger(true)));
+		IObservableValue observeReasoningEffortSelection = ViewerProperties.singleSelection().observe(cvReasoningEffort);
+		IObservableValue reasoningEffortSettingsObserveValue = BeanProperties.value("reasoningEffort").observe(settings);
+		bindingContext.bindValue(observeReasoningEffortSelection, reasoningEffortSettingsObserveValue, null, null);
 
 		IObservableValue observeTextTxtChatCompletionMaxTokensObserveWidget = WidgetProperties.text(SWT.Modify)
 				.observe(txtChatCompletionMaxTokens);

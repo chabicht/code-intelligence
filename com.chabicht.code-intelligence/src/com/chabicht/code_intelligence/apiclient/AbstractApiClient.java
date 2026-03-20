@@ -35,18 +35,28 @@ public class AbstractApiClient {
 	}
 
 	protected JsonObject getOrAddJsonObject(JsonObject req, String propertyName) {
-		JsonObject res = req.getAsJsonObject(propertyName);
-		if (res == null) {
-			res = new JsonObject();
-			req.add(propertyName, res);
+		if (req == null || propertyName == null) {
+			return new JsonObject();
 		}
+
+		if (hasNonNullProperty(req, propertyName) && req.get(propertyName).isJsonObject()) {
+			return req.getAsJsonObject(propertyName);
+		}
+
+		JsonObject res = new JsonObject();
+		req.add(propertyName, res);
 		return res;
 	}
 
 	protected void setPropertyIfNotPresent(JsonObject object, String propertyName, Number number) {
-		if (!object.has(propertyName)) {
+		if (!hasNonNullProperty(object, propertyName)) {
 			object.addProperty(propertyName, number);
 		}
+	}
+
+	protected boolean hasNonNullProperty(JsonObject object, String propertyName) {
+		return object != null && propertyName != null && object.has(propertyName)
+				&& !object.get(propertyName).isJsonNull();
 	}
 
 	protected void patchMissingProperties(JsonObject target, JsonObject patch) {

@@ -1,17 +1,23 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_EFFORT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.model.ChatConversation;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
@@ -22,6 +28,76 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 public class OpenAiResponsesFunctionBatchTest {
+
+	@Test
+	void applyReasoningOptionsAddsEffortObjectWhenExplicitEffortIsSelected() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = new JsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+		options.put(REASONING_EFFORT, ReasoningEffort.HIGH);
+
+		invokeApplyReasoningOptions(client, request, options);
+
+		assertEquals("high", request.getAsJsonObject("reasoning").get("effort").getAsString());
+	}
+
+	@Test
+	void applyReasoningOptionsOverridesNullPresetValue() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = JsonParser.parseString("""
+				{
+				  "reasoning": null
+				}
+		""").getAsJsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+		options.put(REASONING_EFFORT, ReasoningEffort.LOW);
+
+		invokeApplyReasoningOptions(client, request, options);
+
+		assertEquals("low", request.getAsJsonObject("reasoning").get("effort").getAsString());
+	}
+
+	@Test
+	void applyReasoningOptionsLeavesExplicitPresetEffortUntouched() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = JsonParser.parseString("""
+				{
+				  "reasoning": {
+				    "effort": "medium"
+				  }
+				}
+		""").getAsJsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+		options.put(REASONING_EFFORT, ReasoningEffort.HIGH);
+
+		invokeApplyReasoningOptions(client, request, options);
+
+		assertEquals("medium", request.getAsJsonObject("reasoning").get("effort").getAsString());
+	}
+
+	@Test
+	void applyReasoningOptionsOmitsObjectForModelDefault() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = new JsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+		options.put(REASONING_EFFORT, ReasoningEffort.DEFAULT);
+
+		invokeApplyReasoningOptions(client, request, options);
+
+		assertFalse(request.has("reasoning"));
+	}
+
+	@Test
+	void applyReasoningOptionsSendNoneForExplicitNone() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = new JsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+		options.put(REASONING_EFFORT, ReasoningEffort.NONE);
+
+		invokeApplyReasoningOptions(client, request, options);
+
+		assertEquals("none", request.getAsJsonObject("reasoning").get("effort").getAsString());
+	}
 
 	@Test
 	void buildInputItemsForConversationIncludesAllBatchFunctionOutputs() throws Exception {
@@ -185,6 +261,14 @@ public class OpenAiResponsesFunctionBatchTest {
 			throws Exception {
 		String type = payload.get("type").getAsString();
 		handleStreamingEvent.invoke(client, type, payload, assistantMessage, chat, accumulator);
+	}
+
+	private void invokeApplyReasoningOptions(OpenAiResponsesApiClient client, JsonObject request,
+			Map<ChatOption, Object> options) throws Exception {
+		Method method = OpenAiResponsesApiClient.class.getDeclaredMethod("applyReasoningOptions", JsonObject.class,
+				Map.class);
+		method.setAccessible(true);
+		method.invoke(client, request, options);
 	}
 
 	private List<String> collectFunctionCallOutputIds(JsonArray input) {

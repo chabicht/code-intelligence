@@ -1,32 +1,61 @@
 package com.chabicht.code_intelligence.chat;
 
-import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
+
+import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.Bean;
 import com.chabicht.code_intelligence.Tuple;
+import com.chabicht.code_intelligence.apiclient.AiApiConnection;
+import com.chabicht.code_intelligence.apiclient.ConnectionFactory;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatSettings extends Bean {
-	private static final BigDecimal VAL_2_5 = new BigDecimal("2.5");
+	public static enum ReasoningControlMode {
+		NONE, TOKEN_BUDGET, EFFORT;
+	}
 
-	private static final Pattern CLAUDE_4_PATTERN = Pattern.compile("claude-[^-]+-4");
+	public static enum ReasoningEffort {
+		DEFAULT("Model default", null), NONE("None", "none"), MINIMAL("Minimal", "minimal"), LOW("Low", "low"),
+		MEDIUM("Medium", "medium"), HIGH("High", "high"), XHIGH("XHigh", "xhigh");
+
+		private final String displayName;
+		private final String apiValue;
+
+		private ReasoningEffort(String displayName, String apiValue) {
+			this.displayName = displayName;
+			this.apiValue = apiValue;
+		}
+
+		public String getDisplayName() {
+			return displayName;
+		}
+
+		public String getApiValue() {
+			return apiValue;
+		}
+	}
 
 	private String model;
 	private PromptTemplate promptTemplate;
 	private boolean reasoningEnabled = true;
-	private int maxResponseTokens = Activator.getDefault().getMaxChatTokens();
+	private int maxResponseTokens = getDefaultMaxChatTokens();
 	private int reasoningTokens = 8192;
+	private ReasoningEffort reasoningEffort = ReasoningEffort.DEFAULT;
 	private boolean toolsEnabled = true;
 	private ToolProfile toolProfile = loadDefaultToolProfile();
 	private Map<String, Boolean> toolEnabledStates = new HashMap<>();
+
+	private static int getDefaultMaxChatTokens() {
+		Activator activator = Activator.getDefault();
+		return activator != null ? activator.getMaxChatTokens() : 8192;
+	}
 
 	private static ToolProfile loadDefaultToolProfile() {
 		try {
@@ -89,6 +118,19 @@ public class ChatSettings extends Bean {
 				this.reasoningTokens = reasoningTokens);
 	}
 
+	public ReasoningEffort getReasoningEffort() {
+		return reasoningEffort;
+	}
+
+	public void setReasoningEffort(ReasoningEffort reasoningEffort) {
+		propertyChangeSupport.firePropertyChange("reasoningEffort", this.reasoningEffort,
+				this.reasoningEffort = reasoningEffort != null ? reasoningEffort : ReasoningEffort.DEFAULT);
+	}
+
+	public boolean hasExplicitReasoningEffort() {
+		return reasoningEffort != null && reasoningEffort.getApiValue() != null;
+	}
+
 	public boolean isToolsEnabled() {
 		return toolsEnabled;
 	}
@@ -123,33 +165,54 @@ public class ChatSettings extends Bean {
 		propertyChangeSupport.firePropertyChange("toolEnabledStates." + toolName, oldValue, enabled);
 	}
 
-	public static boolean supportsReasoning(String modelId) {
-		return modelId != null && (modelId.contains("claude-3-7") || CLAUDE_4_PATTERN.matcher(modelId).find()
-				|| isReasoningGemini(modelId));
-	}
-
-	public static boolean isReasoningGemini(String modelId) {
-		Optional<Tuple<String, String>> tuple = ModelUtil.getProviderModelTuple(modelId);
-		String modelName = tuple.isPresent() ? tuple.get().getSecond() : "";
-		boolean isGemini = modelName.startsWith("models/gemini-");
-
-		if (!isGemini) {
-			return false;
+	public static ReasoningControlMode getReasoningControlMode(AiApiConnection.ApiType apiType) {
+		if (apiType == null) {
+			return ReasoningControlMode.NONE;
 		}
 
-		BigDecimal version = Optional.of(modelName.substring("models/gemini-".length()).replaceAll("[^0-9.]*$", ""))
-				.map(str -> {
-					try {
-						return new BigDecimal(str);
-					} catch (NumberFormatException e) {
-						return BigDecimal.ZERO;
-					}
-				}).orElse(BigDecimal.ZERO);
+		switch (apiType) {
+		case OPENAI:
+		case OPENAI_RESPONSES:
+			return ReasoningControlMode.EFFORT;
+		case ANTHROPIC:
+		case GEMINI:
+			return ReasoningControlMode.TOKEN_BUDGET;
+		default:
+			return ReasoningControlMode.NONE;
+		}
+	}
 
-		return version.compareTo(VAL_2_5) >= 0;
+	public static ReasoningControlMode getReasoningControlMode(String modelId) {
+		Optional<Tuple<String, String>> tuple = ModelUtil.getProviderModelTuple(modelId);
+		if (tuple.isEmpty()) {
+			return ReasoningControlMode.NONE;
+		}
+
+		String connectionName = tuple.get().getFirst();
+		for (AiApiConnection connection : ConnectionFactory.getApis()) {
+			if (StringUtils.equals(connection.getName(), connectionName)) {
+				return getReasoningControlMode(connection.getType());
+			}
+		}
+		return ReasoningControlMode.NONE;
+	}
+
+	public static boolean supportsReasoning(String modelId) {
+		return getReasoningControlMode(modelId) != ReasoningControlMode.NONE;
+	}
+
+	public ReasoningControlMode getReasoningControlMode() {
+		return getReasoningControlMode(model);
 	}
 
 	public boolean isReasoningSupportedAndEnabled() {
-		return supportsReasoning(model) && isReasoningEnabled();
+		switch (getReasoningControlMode()) {
+		case TOKEN_BUDGET:
+			return isReasoningEnabled();
+		case EFFORT:
+			return hasExplicitReasoningEffort();
+		default:
+			return false;
+		}
 	}
 }
