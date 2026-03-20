@@ -15,17 +15,6 @@ In the dialog, click on *Add...* and enter the new repository information. For *
 
 # Usage
 
-## Completion
-
-The completion feature is integrated in the JDT completion proposal mechanism.  
-So when you invoke it by e.g. pressing *Ctrl + Space*, an AI completion is triggered by default.
-
-![Screenshot: invocation of the plugin](images/example-vanilla.png)
-
-What also works really well is adding a `// TODO` comment above where you want an ai completion.
-
-![Screenshot: invocation of the plugin with a TODO comment](images/example-todo-prompt.png)
-
 ## Chat
 
 You can open a (for now rudimentary) chat view. Go to *Window* -> *Show View* -> *Other...* and select the *Code Intelligence Chat* view.
@@ -44,6 +33,17 @@ You also can right-click on several Java code items such as files, classes, fiel
 ![Screenshot: Adding search results as context](images/add-context-search.png)
 
 It's important to be careful with the amount of context you add. Depending on the model used too much information can easily overwhelm the model or become expensive in terms of API fees.
+
+## Completion
+
+The completion feature is integrated in the JDT completion proposal mechanism.  
+So when you invoke it by e.g. pressing *Ctrl + Space*, an AI completion is triggered by default.
+
+![Screenshot: invocation of the plugin](images/example-vanilla.png)
+
+What also works really well is adding a `// TODO` comment above where you want an ai completion.
+
+![Screenshot: invocation of the plugin with a TODO comment](images/example-todo-prompt.png)
 
 # Configuration
 
