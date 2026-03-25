@@ -5,6 +5,8 @@ import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.databinding.observable.list.WritableList;
+import org.eclipse.jface.dialogs.IMessageProvider;
+import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.preference.PreferencePage;
 import org.eclipse.jface.resource.FontDescriptor;
@@ -35,6 +37,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 	private WritableList<AiApiConnection> connections;
 	private WritableList<PromptTemplate> templates;
+	private PreferenceValidationSupport.ValidationResult currentValidationResult = PreferenceValidationSupport.ValidationResult
+			.ok();
 
 	// UI Controls
 	private ApiConnectionComposite apiConnectionComp;
@@ -80,7 +84,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 		// API Connections
 		createSeparator(main);
-		apiConnectionComp = new ApiConnectionComposite(main, SWT.NONE, connections);
+		apiConnectionComp = new ApiConnectionComposite(main, SWT.NONE, connections, this::validate);
 		GridData gdApi = new GridData(SWT.FILL, SWT.FILL, true, false, 3, 1);
 		apiConnectionComp.setLayoutData(gdApi);
 
@@ -164,6 +168,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 			connections.addAll(Activator.getDefault().loadApiConnections());
 			if (apiConnectionComp != null)
 				apiConnectionComp.refresh();
+			validate();
 		}));
 	}
 
@@ -202,7 +207,11 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 			ModelSelectionDialog dialog = new ModelSelectionDialog(getShell(), models);
 			if (dialog.open() == ModelSelectionDialog.OK) {
 				AiModel model = dialog.getSelectedModel();
-				text.setText(model.getApiConnection().getName() + "/" + model.getId());
+				if (model != null) {
+					text.setText(PreferenceValidationSupport
+							.normalizeConfiguredModel(model.getApiConnection().getName() + "/" + model.getId()));
+					validate();
+				}
 			}
 		}));
 
@@ -261,9 +270,18 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 	@Override
 	public boolean performOk() {
+		validate();
+		if (currentValidationResult.isError()) {
+			return false;
+		}
+		if (currentValidationResult.isWarning() && !confirmSaveDespiteWarnings()) {
+			return false;
+		}
+
 		IPreferenceStore store = getPreferenceStore();
 
-		store.setValue(PreferenceConstants.COMPLETION_MODEL_NAME, txtCompletionModel.getText());
+		store.setValue(PreferenceConstants.COMPLETION_MODEL_NAME,
+				PreferenceValidationSupport.normalizeConfiguredModel(txtCompletionModel.getText()));
 		store.setValue(PreferenceConstants.COMPLETION_MAX_RESPONSE_TOKENS,
 				Integer.parseInt(txtCompletionMaxTokens.getText()));
 		store.setValue(PreferenceConstants.COMPLETION_CONTEXT_LINES_BEFORE,
@@ -271,7 +289,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		store.setValue(PreferenceConstants.COMPLETION_CONTEXT_LINES_AFTER,
 				Integer.parseInt(txtCompletionContextAfter.getText()));
 
-		store.setValue(PreferenceConstants.CHAT_MODEL_NAME, txtChatModel.getText());
+		store.setValue(PreferenceConstants.CHAT_MODEL_NAME,
+				PreferenceValidationSupport.normalizeConfiguredModel(txtChatModel.getText()));
 		store.setValue(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS, Integer.parseInt(txtChatMaxTokens.getText()));
 		store.setValue(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT, Integer.parseInt(txtChatHistorySize.getText()));
 
@@ -317,94 +336,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 	}
 
 	private void validate() {
-		setErrorMessage(null);
-		setValid(true);
-
-		if (!validateModel(txtCompletionModel.getText(), "Completion Model"))
-			return;
-		if (!validateModel(txtChatModel.getText(), "Chat Model"))
-			return;
-
-		if (!validateInt(txtCompletionMaxTokens.getText(), "Completion Max Tokens"))
-			return;
-		if (!validateInt(txtCompletionContextBefore.getText(), "Completion Context Before"))
-			return;
-		if (!validateInt(txtCompletionContextAfter.getText(), "Completion Context After"))
-			return;
-		if (!validateInt(txtChatMaxTokens.getText(), "Chat Max Tokens"))
-			return;
-		if (!validateInt(txtChatHistorySize.getText(), "Chat History Size"))
-			return;
-	}
-
-	private boolean validateInt(String value, String fieldName) {
-		try {
-			Integer.parseInt(value);
-			return true;
-		} catch (NumberFormatException e) {
-			setErrorMessage(fieldName + " must be a valid integer");
-			setValid(false);
-			return false;
-		}
-	}
-
-	private boolean validateModel(String value, String fieldName) {
-		if (value == null || value.trim().isEmpty()) {
-			setErrorMessage(fieldName + " must be specified");
-			setValid(false);
-			return false;
-		}
-
-		String[] parts = value.split("/", 2);
-		if (parts.length != 2) {
-			setErrorMessage("Invalid format for " + fieldName + ". Expected: connectionName/modelId");
-			setValid(false);
-			return false;
-		}
-
-		String connectionName = StringUtils.trim(parts[0]);
-		String modelId = StringUtils.trim(parts[1]);
-
-		AiApiConnection targetConnection = findConnectionByName(connectionName);
-
-		if (targetConnection == null) {
-			setErrorMessage("Connection '" + connectionName + "' not found for " + fieldName);
-			setValid(false);
-			return false;
-		}
-
-		if (!targetConnection.isEnabled()) {
-			setErrorMessage("Connection '" + connectionName + "' is disabled");
-			setValid(false);
-			return false;
-		}
-
-		try {
-			List<AiModel> models = targetConnection.getApiClient().getModels();
-			boolean modelExists = models.stream().anyMatch(m -> m.getId().equals(modelId));
-
-			if (!modelExists) {
-				setErrorMessage("Model '" + modelId + "' not found in connection '" + connectionName + "'");
-				setValid(false);
-				return false;
-			}
-		} catch (RuntimeException e) {
-			setErrorMessage("Error validating " + fieldName + ": " + e.getMessage());
-			setValid(false);
-			return false;
-		}
-
-		return true;
-	}
-
-	private AiApiConnection findConnectionByName(String connectionName) {
-		for (AiApiConnection conn : connections) {
-			if (StringUtils.equals(StringUtils.stripToEmpty(conn.getName()),
-					StringUtils.stripToEmpty(connectionName))) {
-				return conn;
-			}
-		}
-		return null;
+		currentValidationResult = validatePreferencePage();
+		applyValidationResult(currentValidationResult);
 	}
 
 	private List<AiModel> loadAvailableModels() {
@@ -422,5 +355,61 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 			}
 		}
 		return models;
+	}
+
+	private PreferenceValidationSupport.ValidationResult validatePreferencePage() {
+		PreferenceValidationSupport.ValidationResult validationResult = PreferenceValidationSupport.ValidationResult.ok();
+
+		validationResult = mergeValidationResult(validationResult,
+				PreferenceValidationSupport.validateModel(txtCompletionModel.getText(), "Completion Model", connections));
+		validationResult = mergeValidationResult(validationResult,
+				PreferenceValidationSupport.validateModel(txtChatModel.getText(), "Chat Model", connections));
+		validationResult = mergeValidationResult(validationResult, PreferenceValidationSupport
+				.validateInt(txtCompletionMaxTokens.getText(), "Completion Max Tokens"));
+		validationResult = mergeValidationResult(validationResult, PreferenceValidationSupport
+				.validateInt(txtCompletionContextBefore.getText(), "Completion Context Before"));
+		validationResult = mergeValidationResult(validationResult, PreferenceValidationSupport
+				.validateInt(txtCompletionContextAfter.getText(), "Completion Context After"));
+		validationResult = mergeValidationResult(validationResult,
+				PreferenceValidationSupport.validateInt(txtChatMaxTokens.getText(), "Chat Max Tokens"));
+		validationResult = mergeValidationResult(validationResult,
+				PreferenceValidationSupport.validateInt(txtChatHistorySize.getText(), "Chat History Size"));
+
+		return validationResult;
+	}
+
+	private PreferenceValidationSupport.ValidationResult mergeValidationResult(
+			PreferenceValidationSupport.ValidationResult current,
+			PreferenceValidationSupport.ValidationResult candidate) {
+		if (current.isError()) {
+			return current;
+		}
+		if (candidate.isError()) {
+			return candidate;
+		}
+		if (current.isOk() && candidate.isWarning()) {
+			return candidate;
+		}
+		return current;
+	}
+
+	private void applyValidationResult(PreferenceValidationSupport.ValidationResult validationResult) {
+		setErrorMessage(null);
+		setMessage(null);
+		setValid(true);
+
+		if (validationResult.isError()) {
+			setErrorMessage(validationResult.message());
+			setValid(false);
+		} else if (validationResult.isWarning()) {
+			setMessage(validationResult.message(), IMessageProvider.WARNING);
+		}
+	}
+
+	private boolean confirmSaveDespiteWarnings() {
+		return MessageDialog.openQuestion(getShell(), "Save Invalid Preferences",
+				"The Code Intelligence preferences contain invalid values.\n\n"
+						+ currentValidationResult.message()
+						+ "\n\nDo you want to save anyway?");
 	}
 }

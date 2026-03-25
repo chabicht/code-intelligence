@@ -1,7 +1,6 @@
 package com.chabicht.code_intelligence.apiclient;
 
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -18,9 +17,9 @@ public class ConnectionFactory {
 	public static AiModelConnection forCompletions() {
 		String completionModelName = Activator.getDefault().getPreferenceStore()
 				.getString(PreferenceConstants.COMPLETION_MODEL_NAME);
-		int firstSlashIndex = completionModelName.indexOf('/');
-		String completionConnectionName = completionModelName.substring(0, firstSlashIndex);
-		String modelName = completionModelName.substring(firstSlashIndex + 1);
+		Tuple<String, String> configuredModel = requireConfiguredModel(completionModelName, "completion");
+		String completionConnectionName = configuredModel.getFirst();
+		String modelName = configuredModel.getSecond();
 
 		for (AiApiConnection conn : getApis()) {
 			if (conn.getName().equals(completionConnectionName)) {
@@ -28,7 +27,8 @@ public class ConnectionFactory {
 			}
 		}
 
-		throw new IllegalStateException("No connection found for completion model. Check your preferences.");
+		throw new IllegalStateException(
+				"No connection found for completion model '" + completionModelName + "'. Check your preferences.");
 	}
 
 	public static AiModelConnection forChat(String chatModelId) {
@@ -36,19 +36,23 @@ public class ConnectionFactory {
 			chatModelId = Activator.getDefault().getPreferenceStore().getString(PreferenceConstants.CHAT_MODEL_NAME);
 		}
 
-		Optional<Tuple<String, String>> tOpt = ModelUtil.getProviderModelTuple(chatModelId);
-		if (tOpt.isPresent()) {
-			Tuple<String, String> t = tOpt.get();
-			String completionConnectionName = t.getFirst();
-			String modelName = t.getSecond();
+		Tuple<String, String> configuredModel = requireConfiguredModel(chatModelId, "chat");
+		String completionConnectionName = configuredModel.getFirst();
+		String modelName = configuredModel.getSecond();
 
-			for (AiApiConnection conn : getApis()) {
-				if (conn.getName().equals(completionConnectionName)) {
-					return new AiModelConnection(conn, modelName);
-				}
+		for (AiApiConnection conn : getApis()) {
+			if (conn.getName().equals(completionConnectionName)) {
+				return new AiModelConnection(conn, modelName);
 			}
 		}
 
-		throw new IllegalStateException("No connection found for chat model. Check your preferences.");
+		throw new IllegalStateException("No connection found for chat model '" + chatModelId + "'. Check your preferences.");
+	}
+
+	private static Tuple<String, String> requireConfiguredModel(String configuredModel, String fieldName) {
+		return ModelUtil.getProviderModelTuple(configuredModel)
+				.orElseThrow(() -> new IllegalStateException("Invalid " + fieldName + " model setting '"
+						+ StringUtils.defaultIfBlank(ModelUtil.normalizeConfiguredModel(configuredModel), "<empty>")
+						+ "'. Expected: connectionName/modelId. Check your preferences."));
 	}
 }

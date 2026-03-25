@@ -23,6 +23,7 @@ import com.chabicht.code_intelligence.apiclient.AiApiConnection;
 
 public class ApiConnectionComposite extends Composite {
 	private List<AiApiConnection> connections;
+	private Runnable onChange;
 
 	private TableViewer tableViewer;
 	private Composite buttonBox;
@@ -31,8 +32,13 @@ public class ApiConnectionComposite extends Composite {
 	private Button editButton;
 
 	public ApiConnectionComposite(Composite parent, int style, List<AiApiConnection> connections) {
+		this(parent, style, connections, null);
+	}
+
+	public ApiConnectionComposite(Composite parent, int style, List<AiApiConnection> connections, Runnable onChange) {
 		super(parent, style);
 		this.connections = connections;
+		this.onChange = onChange;
 		setLayout(new GridLayout(2, false));
 
 		createContent();
@@ -108,6 +114,7 @@ public class ApiConnectionComposite extends Composite {
 		removeButton = createPushButton(box, "Remove", e -> {
 			connections.removeAll(tableViewer.getStructuredSelection().toList());
 			tableViewer.refresh();
+			notifyConnectionsChanged();
 		});
 
 		return box;
@@ -120,6 +127,7 @@ public class ApiConnectionComposite extends Composite {
 			AiApiConnectionEditDialog dialog = new AiApiConnectionEditDialog(getShell(), connection);
 			if (dialog.open() == AiApiConnectionEditDialog.OK) {
 				tableViewer.refresh();
+				notifyConnectionsChanged();
 			}
 		}
 	}
@@ -131,6 +139,7 @@ public class ApiConnectionComposite extends Composite {
 		if (dialog.open() == AiApiConnectionEditDialog.OK) {
 			connections.add(connection);
 			tableViewer.refresh();
+			notifyConnectionsChanged();
 		}
 	}
 
@@ -149,6 +158,12 @@ public class ApiConnectionComposite extends Composite {
 	public void refresh() {
 		if (tableViewer != null && !tableViewer.getTable().isDisposed()) {
 			tableViewer.refresh();
+		}
+	}
+
+	private void notifyConnectionsChanged() {
+		if (onChange != null) {
+			onChange.run();
 		}
 	}
 }
