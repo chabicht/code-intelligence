@@ -1592,7 +1592,7 @@ public class ChatView extends ViewPart {
 
 			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
-			conversation.getOptions().put(REASONING_EFFORT, settings.getReasoningEffort());
+			conversation.getOptions().put(REASONING_EFFORT, settings.getEffectiveReasoningEffort());
 			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 			conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 
@@ -1750,7 +1750,7 @@ public class ChatView extends ViewPart {
 		// with conversations saved before new options were added)
 		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
-		conversation.getOptions().put(REASONING_EFFORT, settings.getReasoningEffort());
+		conversation.getOptions().put(REASONING_EFFORT, settings.getEffectiveReasoningEffort());
 		conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
 		conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
 	}

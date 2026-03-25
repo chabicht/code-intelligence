@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.apiclient;
 
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_EFFORT;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
@@ -16,12 +17,16 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.ChatSettings;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningControlMode;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -48,8 +53,11 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	private static final int DEFAULT_CONTEXT_SIZE = 8192;
 	private static final String COMPLETION = "completion";
 	private static final String CHAT = "chat";
+	private static final int[] MIN_THINKING_API_VERSION = new int[] { 0, 9, 0 };
 
 	private CompletableFuture<Void> asyncRequest;
+	private volatile Boolean thinkingRequestSupported;
+	private final Map<String, Boolean> modelThinkingSupport = new ConcurrentHashMap<>();
 
 	public OllamaApiClient(AiApiConnection apiConnection) {
 		super(apiConnection);
@@ -69,6 +77,15 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		return apiConnection;
 	}
 
+	private HttpRequest.Builder createRequestBuilder(String relPath) {
+		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10))
+				.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath));
+		if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
+			requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
+		}
+		return requestBuilder;
+	}
+
 	@SuppressWarnings("unchecked")
 	private <T extends JsonElement> T performGet(Class<T> clazz, String relPath) {
 		int statusCode = -1;
@@ -76,8 +93,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
-			HttpRequest request = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath)).GET().build();
+			HttpRequest request = createRequestBuilder(relPath).GET().build();
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
@@ -99,9 +115,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		try {
 			HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 					.connectTimeout(Duration.ofSeconds(5)).followRedirects(Redirect.ALWAYS).build();
-			HttpRequest request = HttpRequest.newBuilder()
-					.uri(URI.create(apiConnection.getBaseUri() + "/").resolve(relPath))
-					.POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
+			HttpRequest request = createRequestBuilder(relPath).POST(HttpRequest.BodyPublishers.ofString(requestBodyString))
 					.header("Content-Type", "application/json").build();
 
 			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -174,13 +188,14 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		JsonObject req = createFromPresets(PromptType.CHAT);
 		req.addProperty("model", modelName);
 		req.addProperty("stream", true);
-		req.add("messages", messagesJson);
 
 		Map<ChatOption, Object> chatOptions = chat.getOptions();
+		applyReasoningEffort(req, modelName, chatOptions);
 		if (chatOptions.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(chatOptions.get(TOOLS_ENABLED))) {
 			ToolProfile profile = (ToolProfile) chatOptions.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOllama(profile));
 		}
+		req.add("messages", messagesJson);
 
 		JsonObject options = getOrAddJsonObject(req, "options");
 		// setPropertyIfNotPresent(options, NUM_CTX, DEFAULT_CONTEXT_SIZE);
@@ -193,15 +208,8 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		String requestBody = gson.toJson(req);
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.ALWAYS).build();
-
-		URI endpoint = URI.create(apiConnection.getBaseUri() + "/").resolve("api/chat");
-		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofMinutes(10)).uri(endpoint)
-				.POST(HttpRequest.BodyPublishers.ofString(requestBody)).header("Content-Type", "application/json");
-
-		if (StringUtils.isNotBlank(apiConnection.getApiKey())) {
-			requestBuilder.header("Authorization", "Bearer " + apiConnection.getApiKey());
-		}
-		HttpRequest request = requestBuilder.build();
+		HttpRequest request = createRequestBuilder("api/chat").POST(HttpRequest.BodyPublishers.ofString(requestBody))
+				.header("Content-Type", "application/json").build();
 
 		final AtomicBoolean responseFinished = new AtomicBoolean(false);
 		final AtomicBoolean thinkingStarted = new AtomicBoolean(false);
@@ -281,6 +289,124 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 			return null;
 
 		});
+	}
+
+	private void applyReasoningEffort(JsonObject req, String modelName, Map<ChatOption, Object> options) {
+		if (hasNonNullProperty(req, "think") || options == null) {
+			return;
+		}
+
+		Object effortOption = options.get(REASONING_EFFORT);
+		if (!(effortOption instanceof ReasoningEffort reasoningEffort)) {
+			return;
+		}
+
+		reasoningEffort = ChatSettings.normalizeReasoningEffort(ReasoningControlMode.OLLAMA_EFFORT, reasoningEffort);
+		if (reasoningEffort == ReasoningEffort.DEFAULT || !supportsThinkingRequests(modelName)) {
+			return;
+		}
+
+		switch (reasoningEffort) {
+		case NONE:
+			req.addProperty("think", false);
+			break;
+		case LOW:
+		case MEDIUM:
+		case HIGH:
+			req.addProperty("think", reasoningEffort.getApiValue());
+			break;
+		default:
+			break;
+		}
+	}
+
+	private boolean supportsThinkingRequests(String modelName) {
+		if (StringUtils.isBlank(modelName) || !isThinkingRequestSupported()) {
+			return false;
+		}
+
+		return modelThinkingSupport.computeIfAbsent(modelName, this::probeModelThinkingSupport);
+	}
+
+	private boolean isThinkingRequestSupported() {
+		Boolean cached = thinkingRequestSupported;
+		if (cached != null) {
+			return cached.booleanValue();
+		}
+
+		synchronized (this) {
+			if (thinkingRequestSupported == null) {
+				thinkingRequestSupported = Boolean.valueOf(probeThinkingRequestSupport());
+			}
+			return thinkingRequestSupported.booleanValue();
+		}
+	}
+
+	private boolean probeThinkingRequestSupport() {
+		try {
+			JsonObject versionResponse = performGet(JsonObject.class, "api/version");
+			if (!hasNonNullProperty(versionResponse, "version")) {
+				return false;
+			}
+			return isVersionAtLeast(versionResponse.get("version").getAsString(), MIN_THINKING_API_VERSION);
+		} catch (RuntimeException e) {
+			Activator.logError("Unable to determine Ollama reasoning API support from /api/version", e);
+			return false;
+		}
+	}
+
+	private boolean probeModelThinkingSupport(String modelName) {
+		try {
+			JsonObject request = new JsonObject();
+			request.addProperty("model", modelName);
+			JsonObject showResponse = performPost(JsonObject.class, "api/show", request);
+			if (showResponse.has("capabilities") && showResponse.get("capabilities").isJsonArray()) {
+				for (JsonElement capability : showResponse.getAsJsonArray("capabilities")) {
+					if (StringUtils.equalsIgnoreCase(capability.getAsString(), "thinking")) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			// Some servers expose think without model capabilities metadata. In that case,
+			// fall back to the version gate above instead of disabling the feature entirely.
+			return true;
+		} catch (RuntimeException e) {
+			Activator.logError("Unable to determine Ollama model reasoning support from /api/show for " + modelName,
+					e);
+			return false;
+		}
+	}
+
+	private boolean isVersionAtLeast(String version, int[] minimumVersion) {
+		int[] currentVersion = parseVersion(version);
+		for (int i = 0; i < minimumVersion.length; i++) {
+			if (currentVersion[i] > minimumVersion[i]) {
+				return true;
+			}
+			if (currentVersion[i] < minimumVersion[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private int[] parseVersion(String version) {
+		int[] parsedVersion = new int[] { 0, 0, 0 };
+		String normalizedVersion = StringUtils.removeStartIgnoreCase(StringUtils.defaultString(version).trim(), "v");
+		String[] parts = normalizedVersion.split("[^0-9]+");
+		int targetIndex = 0;
+		for (String part : parts) {
+			if (StringUtils.isBlank(part)) {
+				continue;
+			}
+			parsedVersion[targetIndex++] = Integer.parseInt(part);
+			if (targetIndex == parsedVersion.length) {
+				break;
+			}
+		}
+		return parsedVersion;
 	}
 
 	@Override

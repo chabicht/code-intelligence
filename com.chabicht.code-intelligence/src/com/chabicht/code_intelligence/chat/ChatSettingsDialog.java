@@ -177,10 +177,15 @@ public class ChatSettingsDialog extends Dialog {
 		cvReasoningEffort.setLabelProvider(new LabelProvider() {
 			@Override
 			public String getText(Object element) {
-				return ((ReasoningEffort) element).getDisplayName();
+				ReasoningEffort reasoningEffort = (ReasoningEffort) element;
+				if (settings.getReasoningControlMode() == ReasoningControlMode.OLLAMA_EFFORT
+						&& ReasoningEffort.NONE.equals(reasoningEffort)) {
+					return "Off";
+				}
+				return reasoningEffort.getDisplayName();
 			}
 		});
-		cvReasoningEffort.setInput(ReasoningEffort.values());
+		cvReasoningEffort.setInput(ChatSettings.getSupportedReasoningEfforts(settings.getReasoningControlMode()));
 
 		lblReasoningHint = new Label(grpReasoning, SWT.WRAP);
 		GridData gdReasoningHint = new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1);
@@ -290,19 +295,38 @@ public class ChatSettingsDialog extends Dialog {
 		Display.getDefault().syncExec(() -> {
 			ReasoningControlMode reasoningMode = ChatSettings.getReasoningControlMode(modelId);
 			boolean supportsReasoning = reasoningMode != ReasoningControlMode.NONE;
-			boolean reasoningInputsEnabled = reasoningMode == ReasoningControlMode.EFFORT
-					? supportsReasoning
+			boolean usesEffortControl = usesReasoningEffortControl(reasoningMode);
+			boolean reasoningInputsEnabled = usesEffortControl ? supportsReasoning
 					: supportsReasoning && settings.isReasoningEnabled();
+			updateReasoningEffortSelection(reasoningMode);
 			updateReasoningControl(btnReasoningEnabled, null, reasoningMode == ReasoningControlMode.TOKEN_BUDGET,
 					supportsReasoning);
 			toggleVisibility(lblReasoningTogglePlaceholder, reasoningMode == ReasoningControlMode.TOKEN_BUDGET);
 			updateReasoningControl(lblReasoningBudgetTokens, txtReasoningBudgetTokens,
 					reasoningMode == ReasoningControlMode.TOKEN_BUDGET, reasoningInputsEnabled);
 			updateReasoningControl(lblReasoningEffort, cvReasoningEffort.getCombo(),
-					reasoningMode == ReasoningControlMode.EFFORT, reasoningInputsEnabled);
-			updateReasoningHint(reasoningMode == ReasoningControlMode.EFFORT);
+					usesEffortControl, reasoningInputsEnabled);
+			updateReasoningHint(reasoningMode);
 			relayoutDialog();
 		});
+	}
+
+	private boolean usesReasoningEffortControl(ReasoningControlMode reasoningMode) {
+		return reasoningMode == ReasoningControlMode.EFFORT || reasoningMode == ReasoningControlMode.OLLAMA_EFFORT;
+	}
+
+	private void updateReasoningEffortSelection(ReasoningControlMode reasoningMode) {
+		ReasoningEffort[] supportedEfforts = ChatSettings.getSupportedReasoningEfforts(reasoningMode);
+		ReasoningEffort normalizedEffort = ChatSettings.normalizeReasoningEffort(reasoningMode,
+				settings.getReasoningEffort());
+		cvReasoningEffort.setInput(supportedEfforts);
+		cvReasoningEffort.refresh();
+		if (settings.getReasoningEffort() != normalizedEffort) {
+			settings.setReasoningEffort(normalizedEffort);
+		}
+		if (supportedEfforts.length > 0) {
+			cvReasoningEffort.setSelection(new StructuredSelection(normalizedEffort), true);
+		}
 	}
 
 	private void relayoutDialog() {
@@ -334,7 +358,15 @@ public class ChatSettingsDialog extends Dialog {
 		}
 	}
 
-	private void updateReasoningHint(boolean visible) {
+	private void updateReasoningHint(ReasoningControlMode reasoningMode) {
+		boolean visible = usesReasoningEffortControl(reasoningMode);
+		if (reasoningMode == ReasoningControlMode.OLLAMA_EFFORT) {
+			lblReasoningHint.setText(
+					"Model default omits `think`. Off sends `think=false`. Low, Medium, and High send the matching Ollama `think` level when the selected server and model support it.");
+		} else {
+			lblReasoningHint.setText(
+					"Model default omits the parameter. None sends reasoning=none. Explicit effort support depends on the selected provider and model.");
+		}
 		toggleVisibility(lblReasoningHint, visible);
 	}
 

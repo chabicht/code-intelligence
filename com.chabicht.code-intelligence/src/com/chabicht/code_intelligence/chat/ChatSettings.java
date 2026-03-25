@@ -18,7 +18,7 @@ import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class ChatSettings extends Bean {
 	public static enum ReasoningControlMode {
-		NONE, TOKEN_BUDGET, EFFORT;
+		NONE, TOKEN_BUDGET, EFFORT, OLLAMA_EFFORT;
 	}
 
 	public static enum ReasoningEffort {
@@ -51,6 +51,9 @@ public class ChatSettings extends Bean {
 	private boolean toolsEnabled = true;
 	private ToolProfile toolProfile = loadDefaultToolProfile();
 	private Map<String, Boolean> toolEnabledStates = new HashMap<>();
+	private static final ReasoningEffort[] OLLAMA_REASONING_EFFORTS = new ReasoningEffort[] {
+			ReasoningEffort.DEFAULT, ReasoningEffort.NONE, ReasoningEffort.LOW, ReasoningEffort.MEDIUM,
+			ReasoningEffort.HIGH };
 
 	private static int getDefaultMaxChatTokens() {
 		Activator activator = Activator.getDefault();
@@ -128,7 +131,11 @@ public class ChatSettings extends Bean {
 	}
 
 	public boolean hasExplicitReasoningEffort() {
-		return reasoningEffort != null && reasoningEffort.getApiValue() != null;
+		return getEffectiveReasoningEffort().getApiValue() != null;
+	}
+
+	public ReasoningEffort getEffectiveReasoningEffort() {
+		return normalizeReasoningEffort(getReasoningControlMode(), reasoningEffort);
 	}
 
 	public boolean isToolsEnabled() {
@@ -174,6 +181,8 @@ public class ChatSettings extends Bean {
 		case OPENAI:
 		case OPENAI_RESPONSES:
 			return ReasoningControlMode.EFFORT;
+		case OLLAMA:
+			return ReasoningControlMode.OLLAMA_EFFORT;
 		case ANTHROPIC:
 		case GEMINI:
 			return ReasoningControlMode.TOKEN_BUDGET;
@@ -201,6 +210,42 @@ public class ChatSettings extends Bean {
 		return getReasoningControlMode(modelId) != ReasoningControlMode.NONE;
 	}
 
+	public static ReasoningEffort[] getSupportedReasoningEfforts(ReasoningControlMode mode) {
+		if (mode == null) {
+			return new ReasoningEffort[0];
+		}
+
+		switch (mode) {
+		case EFFORT:
+			return ReasoningEffort.values();
+		case OLLAMA_EFFORT:
+			return OLLAMA_REASONING_EFFORTS.clone();
+		default:
+			return new ReasoningEffort[0];
+		}
+	}
+
+	public static ReasoningEffort normalizeReasoningEffort(ReasoningControlMode mode, ReasoningEffort effort) {
+		ReasoningEffort normalized = effort != null ? effort : ReasoningEffort.DEFAULT;
+		if (mode != ReasoningControlMode.OLLAMA_EFFORT) {
+			return normalized;
+		}
+
+		switch (normalized) {
+		case MINIMAL:
+			return ReasoningEffort.LOW;
+		case XHIGH:
+			return ReasoningEffort.HIGH;
+		default:
+			for (ReasoningEffort supported : OLLAMA_REASONING_EFFORTS) {
+				if (supported == normalized) {
+					return normalized;
+				}
+			}
+			return ReasoningEffort.DEFAULT;
+		}
+	}
+
 	public ReasoningControlMode getReasoningControlMode() {
 		return getReasoningControlMode(model);
 	}
@@ -210,6 +255,7 @@ public class ChatSettings extends Bean {
 		case TOKEN_BUDGET:
 			return isReasoningEnabled();
 		case EFFORT:
+		case OLLAMA_EFFORT:
 			return hasExplicitReasoningEffort();
 		default:
 			return false;
