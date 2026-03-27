@@ -118,6 +118,10 @@ The model is identified by `[Connection Name]/[Model ID]`, so assuming your Open
 
 Clicking on *Change...* opens a dialog where you can select a model from the enabled connections.
 
+## Custom request parameters
+
+For provider-specific request JSON such as Ollama `num_ctx`, `top_k`, or `top_p`, see [CUSTOM_PARAMS.md](CUSTOM_PARAMS.md).
+
 ## Prompt Templates
 
 For an intro to writing custom prompts, see [PROMPT-TEMPLATES.md](PROMPT-TEMPLATES.md).
