@@ -181,7 +181,6 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 			try {
 				if (response.statusCode() >= 200 && response.statusCode() < 300) {
 					AtomicReference<String> currentEvent = new AtomicReference<>("");
-					AtomicBoolean thinkingStarted = new AtomicBoolean(false);
 
 					response.body().forEach(line -> {
 						if (line == null || line.isEmpty()) {
@@ -217,23 +216,15 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 											String deltaType = delta.get("type").getAsString();
 
 											if (deltaType.equals("text_delta")) {
-												if (thinkingStarted.get()) {
-													assistantMessage
-															.setContent(assistantMessage.getContent() + "\n</think>\n");
-													thinkingStarted.set(false);
+												if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+													assistantMessage.setThinkingComplete(true);
 												}
 												String text = delta.get("text").getAsString();
 												assistantMessage.setContent(assistantMessage.getContent() + text);
 												chat.notifyMessageUpdated(assistantMessage);
 											} else if (deltaType.equals("thinking_delta")) {
-												if (!thinkingStarted.get()) {
-													assistantMessage
-															.setContent(assistantMessage.getContent() + "\n<think>\n");
-													thinkingStarted.set(true);
-												}
 												// Handle thinking delta
 												String thinking = delta.get("thinking").getAsString();
-												assistantMessage.setContent(assistantMessage.getContent() + thinking);
 												assistantMessage.setThinkingContent(
 														(assistantMessage.getThinkingContent() == null ? ""
 																: assistantMessage.getThinkingContent()) + thinking);
@@ -272,11 +263,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 												}
 												activeToolUses.put(index, new ToolUseInfo(id, name, initialInputJson));
 											} else if (blockType.equals("thinking")) {
-												if (!thinkingStarted.get()) {
-													assistantMessage
-															.setContent(assistantMessage.getContent() + "\n<think>\n");
-													thinkingStarted.set(true);
-												}
+												// Thinking block started
 											}
 										}
 										break;
@@ -657,6 +644,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 	private void finalizeAssistantMessage(ChatMessage assistantMessage, ChatConversation chat,
 			AtomicBoolean responseFinished) {
 		if (assistantMessage != null && !responseFinished.get()) {
+			if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+				assistantMessage.setThinkingComplete(true);
+			}
 			if (assistantMessage.getFunctionCallBatch().isPresent()) {
 				chat.notifyFunctionCalled(assistantMessage);
 			}

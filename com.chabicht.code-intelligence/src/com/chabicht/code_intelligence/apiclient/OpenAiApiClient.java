@@ -245,7 +245,6 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 		// line-by-line.
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
 			try {
-				AtomicBoolean reasoningStarted = new AtomicBoolean(false);
 				if (response.statusCode() >= 200 && response.statusCode() < 300) {
 					response.body().forEach(line -> {
 						// Each chunk from the API is prefixed with "data: ".
@@ -268,17 +267,14 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 										// content.
 										if (delta.has("content") && !delta.get("content").isJsonNull()) {
 											chunk = delta.get("content").getAsString();
-											if (reasoningStarted.get()) {
-												chunk = "</think>\n" + chunk;
-												reasoningStarted.set(false);
+											if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+												assistantMessage.setThinkingComplete(true);
 											}
 										} else if (delta.has("reasoning_content")
 												&& !delta.get("reasoning_content").isJsonNull()) {
-											chunk = delta.get("reasoning_content").getAsString();
-											if (!reasoningStarted.get()) {
-												chunk = "<think>\n" + chunk;
-												reasoningStarted.set(true);
-											}
+											String thinkingChunk = delta.get("reasoning_content").getAsString();
+											assistantMessage.setThinkingContent((assistantMessage.getThinkingContent() == null ? "" : assistantMessage.getThinkingContent()) + thinkingChunk);
+											chat.notifyMessageUpdated(assistantMessage);
 										} else {
 											chunk = "";
 										}
@@ -330,6 +326,9 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 					finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 				}
 
+				if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+					assistantMessage.setThinkingComplete(true);
+				}
 				chat.notifyChatResponseFinished(assistantMessage);
 				asyncRequest = null;
 			}
@@ -341,6 +340,9 @@ public class OpenAiApiClient extends AbstractApiClient implements IAiApiClient {
 				finalizeToolCalls(activeToolCalls, assistantMessage, chat);
 			}
 
+			if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+				assistantMessage.setThinkingComplete(true);
+			}
 			chat.notifyChatResponseFinished(assistantMessage);
 			asyncRequest = null;
 			return null;

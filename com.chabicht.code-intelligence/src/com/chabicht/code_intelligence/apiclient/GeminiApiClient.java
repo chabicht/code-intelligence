@@ -121,10 +121,8 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 		HttpRequest request = buildHttpRequest(modelName + ":streamGenerateContent?alt=sse&", requestBody);
 
 		AtomicBoolean responseFinished = new AtomicBoolean(false);
-		AtomicBoolean thinkingStarted = new AtomicBoolean(false);
 		AtomicBoolean functionCallEventSent = new AtomicBoolean(false);
 		FunctionCallBatch functionCallBatch = new FunctionCallBatch();
-
 		asyncRequest = HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofLines())
 				.thenAccept(response -> {
 					if (response.statusCode() >= 200 && response.statusCode() < 300) {
@@ -140,7 +138,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 									JsonArray candidates = jsonChunk.getAsJsonArray("candidates");
 									if (candidates != null && !candidates.isEmpty()) {
 										JsonObject candidate = candidates.get(0).getAsJsonObject();
-										parseCandidateContentParts(chat, assistantMessage, candidate, thinkingStarted,
+										parseCandidateContentParts(chat, assistantMessage, candidate,
 												functionCallBatch);
 
 											if (candidate.has("finishReason")) {
@@ -148,9 +146,8 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 												if ("MALFORMED_FUNCTION_CALL".equals(reason)) {
 													Activator.logError("Error " + reason + " in API response.\n");
 												}
-												if (thinkingStarted.get()) {
-													assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
-													thinkingStarted.set(false);
+												if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+													assistantMessage.setThinkingComplete(true);
 												}
 												int parsedCallCount = countBatchCalls(functionCallBatch);
 												if (parsedCallCount > 0) {
@@ -161,6 +158,9 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 														functionCallEventSent.set(true);
 													}
 												}
+												if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+													assistantMessage.setThinkingComplete(true);
+												}
 												chat.notifyChatResponseFinished(assistantMessage);
 												responseFinished.set(true);
 												asyncRequest = null;
@@ -170,6 +170,9 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 									Activator.logError("Exception processing streaming chat chunk: " + data, e);
 									if (asyncRequest != null) {
 										if (!responseFinished.get()) {
+											if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+												assistantMessage.setThinkingComplete(true);
+											}
 											chat.notifyChatResponseFinished(assistantMessage);
 											responseFinished.set(true);
 										}
@@ -184,6 +187,9 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 								+ "\n\nRequest JSON:\n" + requestBody);
 						if (asyncRequest != null) {
 							if (!responseFinished.get()) {
+								if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+									assistantMessage.setThinkingComplete(true);
+								}
 								chat.notifyChatResponseFinished(assistantMessage);
 								responseFinished.set(true);
 							}
@@ -194,6 +200,9 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 					Activator.logError("Exception during streaming chat request", e);
 					if (asyncRequest != null) {
 						if (!responseFinished.get()) {
+							if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+								assistantMessage.setThinkingComplete(true);
+							}
 							chat.notifyChatResponseFinished(assistantMessage);
 							responseFinished.set(true);
 						}
@@ -433,7 +442,7 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	private void parseCandidateContentParts(ChatConversation chat, ChatMessage assistantMessage, JsonObject candidate,
-			AtomicBoolean thinkingStarted, FunctionCallBatch functionCallBatch) {
+			FunctionCallBatch functionCallBatch) {
 		JsonObject content = candidate.getAsJsonObject("content");
 		if (content == null || !content.has("parts")) {
 			return;
@@ -454,18 +463,14 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 				String chunk = part.get("text").getAsString();
 				boolean isThoughtPart = part.has("thought") && part.get("thought").getAsBoolean();
 				if (isThoughtPart) {
-					if (!thinkingStarted.get()) {
-						assistantMessage.setContent(assistantMessage.getContent() + "\n<think>\n");
-						thinkingStarted.set(true);
-					}
 					assistantMessage.setThinkingContent(
 							(assistantMessage.getThinkingContent() == null ? "" : assistantMessage.getThinkingContent()) + chunk);
-				} else if (thinkingStarted.get()) {
-					assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
-					thinkingStarted.set(false);
+				} else {
+					if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+						assistantMessage.setThinkingComplete(true);
+					}
+					assistantMessage.setContent(assistantMessage.getContent() + chunk);
 				}
-
-				assistantMessage.setContent(assistantMessage.getContent() + chunk);
 				if (chat != null) {
 					chat.notifyMessageUpdated(assistantMessage);
 				}

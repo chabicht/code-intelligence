@@ -262,7 +262,8 @@ public class ChatView extends ViewPart {
 			if (message.getRole() == Role.TOOL_SUMMARY) { // Add this new block
 				return toolSummaryToHtml(message);
 			}
-			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message.getContent());
+			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
+
 
 			String thinkHtml = "";
 			if (StringUtils.isNotBlank(thoughtsAndMessage.getThoughts())) {
@@ -532,6 +533,7 @@ public class ChatView extends ViewPart {
 			}
 
 			return new MessageRenderSnapshot(message.getId(), message.getRole(), StringUtils.defaultString(message.getContent()),
+					message.getThinkingContent(), message.isThinkingComplete(),
 					copyFunctionCallBatch(message.getFunctionCallBatch()), attachments);
 		}
 
@@ -662,14 +664,18 @@ public class ChatView extends ViewPart {
 		private final UUID id;
 		private final Role role;
 		private final String content;
+		private final String thinkingContent;
+		private final boolean isThinkingComplete;
 		private final Optional<FunctionCallBatch> functionCallBatch;
 		private final List<AttachmentRenderSnapshot> attachments;
 
-		private MessageRenderSnapshot(UUID id, Role role, String content, Optional<FunctionCallBatch> functionCallBatch,
+		private MessageRenderSnapshot(UUID id, Role role, String content, String thinkingContent, boolean isThinkingComplete, Optional<FunctionCallBatch> functionCallBatch,
 				List<AttachmentRenderSnapshot> attachments) {
 			this.id = id;
 			this.role = role;
 			this.content = content;
+			this.thinkingContent = thinkingContent;
+			this.isThinkingComplete = isThinkingComplete;
 			this.functionCallBatch = functionCallBatch == null ? Optional.empty() : functionCallBatch;
 			this.attachments = attachments == null ? new ArrayList<>() : attachments;
 		}
@@ -684,6 +690,14 @@ public class ChatView extends ViewPart {
 
 		public String getContent() {
 			return content;
+		}
+
+		public String getThinkingContent() {
+			return thinkingContent;
+		}
+
+		public boolean isThinkingComplete() {
+			return isThinkingComplete;
 		}
 
 		public Optional<FunctionCallBatch> getFunctionCallBatch() {
@@ -2111,8 +2125,20 @@ public class ChatView extends ViewPart {
 	}
 
 	private MessageContentWithReasoning splitThoughtsFromMessage(ChatMessage message) {
+		if (StringUtils.isNotBlank(message.getThinkingContent())) {
+			return new MessageContentWithReasoning(message.getThinkingContent(), StringUtils.defaultString(message.getContent()), message.isThinkingComplete());
+		}
 		return splitThoughtsFromMessage(message.getContent());
 	}
+
+	private MessageContentWithReasoning splitThoughtsFromMessage(MessageRenderSnapshot message) {
+		if (StringUtils.isNotBlank(message.getThinkingContent())) {
+			return new MessageContentWithReasoning(message.getThinkingContent(), StringUtils.defaultString(message.getContent()), message.isThinkingComplete());
+		}
+		return splitThoughtsFromMessage(message.getContent());
+	}
+
+
 
 	private MessageContentWithReasoning splitThoughtsFromMessage(String content) {
 		content = StringUtils.stripToEmpty(content);

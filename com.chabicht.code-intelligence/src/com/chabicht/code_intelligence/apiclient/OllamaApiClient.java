@@ -30,8 +30,8 @@ import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
-import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
+import com.chabicht.code_intelligence.model.ChatConversation.ChatOption;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
@@ -206,13 +206,13 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		chat.addMessage(assistantMessage, true);
 
 		String requestBody = gson.toJson(req);
+		Activator.logInfo("Client: " + requestBody);
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.ALWAYS).build();
 		HttpRequest request = createRequestBuilder("api/chat").POST(HttpRequest.BodyPublishers.ofString(requestBody))
 				.header("Content-Type", "application/json").build();
 
 		final AtomicBoolean responseFinished = new AtomicBoolean(false);
-		final AtomicBoolean thinkingStarted = new AtomicBoolean(false);
 		final Map<Integer, FunctionCall> pendingToolCalls = new TreeMap<>();
 
 		asyncRequest = client.sendAsync(request, HttpResponse.BodyHandlers.ofLines()).thenAccept(response -> {
@@ -221,6 +221,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 					response.body().forEach(line -> {
 						if (line != null && !line.trim().isEmpty()) {
 							try {
+								Activator.logInfo("Ollama: " + line);
 								JsonObject jsonChunk = JsonParser.parseString(line).getAsJsonObject();
 								if (jsonChunk.has("message")) {
 									JsonObject messageObj = jsonChunk.getAsJsonObject("message");
@@ -234,12 +235,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 									// Handle thinking content
 									if (messageObj.has("thinking")
 											&& !StringUtils.isEmpty(messageObj.get("thinking").getAsString())) {
-										if (!thinkingStarted.get()) {
-											assistantMessage.setContent(assistantMessage.getContent() + "\n<think>\n");
-											thinkingStarted.set(true);
-										}
 										String thinking = messageObj.get("thinking").getAsString();
-										assistantMessage.setContent(assistantMessage.getContent() + thinking);
 										assistantMessage
 												.setThinkingContent((assistantMessage.getThinkingContent() == null ? ""
 														: assistantMessage.getThinkingContent()) + thinking);
@@ -249,9 +245,8 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 									// Handle content
 									if (messageObj.has("content")
 											&& !StringUtils.isEmpty(messageObj.get("content").getAsString())) {
-										if (thinkingStarted.get()) {
-											assistantMessage.setContent(assistantMessage.getContent() + "\n</think>\n");
-											thinkingStarted.set(false);
+										if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+											assistantMessage.setThinkingComplete(true);
 										}
 										String chunk = messageObj.get("content").getAsString();
 										assistantMessage.setContent(assistantMessage.getContent() + chunk);
@@ -448,6 +443,9 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 			JsonObject jsonMsg = new JsonObject();
 			jsonMsg.addProperty("role", message.getRole().toString().toLowerCase());
 			jsonMsg.addProperty("content", compileMessageContent(message));
+			if (StringUtils.isNotBlank(message.getThinkingContent())) {
+				jsonMsg.addProperty("thinking", message.getThinkingContent());
+			}
 			appendAssistantToolCalls(jsonMsg, message);
 			messagesJson.add(jsonMsg);
 			appendToolResultMessages(messagesJson, message);
@@ -644,6 +642,9 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 	private void finalizeAssistantMessage(ChatMessage assistantMessage, ChatConversation chat,
 			AtomicBoolean responseFinished) {
 		if (assistantMessage != null && !responseFinished.get()) {
+			if (assistantMessage.getThinkingContent() != null && !assistantMessage.isThinkingComplete()) {
+				assistantMessage.setThinkingComplete(true);
+			}
 			if (assistantMessage.getFunctionCallBatch().isPresent()) {
 				chat.notifyFunctionCalled(assistantMessage);
 			}
