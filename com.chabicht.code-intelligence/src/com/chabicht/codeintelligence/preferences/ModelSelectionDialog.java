@@ -1,6 +1,10 @@
 package com.chabicht.codeintelligence.preferences;
 
+import static com.chabicht.code_intelligence.util.ModelUtil.normalizeConfiguredModel;
+
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.databinding.DataBindingContext;
@@ -15,14 +19,17 @@ import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
+import org.eclipse.jface.viewers.StructuredSelection;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.jface.viewers.Viewer;
+import org.eclipse.jface.viewers.ViewerComparator;
 import org.eclipse.jface.viewers.ViewerFilter;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.KeyEvent;
 import org.eclipse.swt.events.KeyListener;
 import org.eclipse.swt.events.SelectionListener;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
@@ -31,14 +38,19 @@ import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Table;
 import org.eclipse.swt.widgets.TableColumn;
+import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.swt.widgets.Text;
 
+import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.apiclient.AiModel;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 
 public class ModelSelectionDialog extends Dialog {
+	private static final int FAVORITE_COLUMN_INDEX = 0;
+
 	private Table table;
 	private WritableList<AiModel> models;
+	private final Set<String> favoriteModels;
 	private UIModel uiModel = new UIModel();
 	private TableViewer tableViewer;
 	private DataBindingContext bindingContext;
@@ -48,9 +60,37 @@ public class ModelSelectionDialog extends Dialog {
 	public ModelSelectionDialog(Shell parentShell, List<AiModel> models) {
 		super(parentShell);
 		this.models = new WritableList<>(models, AiModel.class);
+		this.favoriteModels = new TreeSet<>(Activator.getDefault().getFavoriteModels());
+	}
+
+	private boolean isFavorite(AiModel model) {
+		return favoriteModels.contains(toConfiguredModelKey(model));
+	}
+
+	private void toggleFavorite(AiModel model) {
+		String configuredModelKey = toConfiguredModelKey(model);
+		if (StringUtils.isBlank(configuredModelKey)) {
+			return;
+		}
+
+		boolean favorite = !favoriteModels.contains(configuredModelKey);
+		if (favorite) {
+			favoriteModels.add(configuredModelKey);
+		} else {
+			favoriteModels.remove(configuredModelKey);
+		}
+		Activator.getDefault().setFavoriteModel(configuredModelKey, favorite);
+	}
+
+	private String toConfiguredModelKey(AiModel model) {
+		if (model == null || model.getApiConnection() == null) {
+			return "";
+		}
+		return normalizeConfiguredModel(model.getApiConnection().getName() + "/" + model.getId());
 	}
 
 	private static class ModelFilter extends ViewerFilter {
+
 		private String filterText = "";
 
 		public ModelFilter(String filterText) {
@@ -164,6 +204,20 @@ public class ModelSelectionDialog extends Dialog {
 		table.setLayoutData(gd_table);
 		table.setHeaderVisible(true);
 
+		TableViewerColumn favoriteColumn = new TableViewerColumn(tableViewer, SWT.CENTER);
+		TableColumn tblclmnFavorite = favoriteColumn.getColumn();
+		tblclmnFavorite.setWidth(50);
+		tblclmnFavorite.setText("★");
+		tblclmnFavorite
+				.setToolTipText("Double-click to toggle favorite state.\nFavorites are shown first in the list.");
+		favoriteColumn.setLabelProvider(new ColumnLabelProvider() {
+			@Override
+			public String getText(Object element) {
+				return isFavorite((AiModel) element) ? "★" : "☆";
+			}
+		});
+
+
 		TableViewerColumn tableViewerColumn = new TableViewerColumn(tableViewer, SWT.NONE);
 		TableColumn tblclmnConnection = tableViewerColumn.getColumn();
 		tblclmnConnection.setWidth(200);
@@ -173,7 +227,6 @@ public class ModelSelectionDialog extends Dialog {
 			public String getText(Object element) {
 				return ((AiModel) element).getApiConnection().getName();
 			}
-
 		});
 
 		TableViewerColumn tableViewerColumn_1 = new TableViewerColumn(tableViewer, SWT.NONE);
@@ -198,13 +251,68 @@ public class ModelSelectionDialog extends Dialog {
 			}
 		});
 
-		tableViewer.addDoubleClickListener(e -> {
+		table.addListener(SWT.MouseDoubleClick, event -> {
+			Point point = new Point(event.x, event.y);
+			TableItem item = table.getItem(point);
+			if (item == null) {
+				return;
+			}
+			if (!(item.getData() instanceof AiModel model)) {
+				return;
+			}
+
+			int clickedColumn = -1;
+			for (int i = 0; i < table.getColumnCount(); i++) {
+				if (item.getBounds(i).contains(point)) {
+					clickedColumn = i;
+					break;
+				}
+			}
+			if (clickedColumn == FAVORITE_COLUMN_INDEX) {
+				toggleFavorite(model);
+				tableViewer.update(model, null);
+				tableViewer.setSelection(new StructuredSelection(model), true);
+				table.setFocus();
+				table.showSelection();
+
+				return;
+			}
+
 			okPressed();
 		});
+
+		tableViewer.setComparator(new ViewerComparator() {
+			@Override
+			public int compare(Viewer viewer, Object e1, Object e2) {
+				AiModel model1 = (AiModel) e1;
+				AiModel model2 = (AiModel) e2;
+
+				boolean favorite1 = isFavorite(model1);
+				boolean favorite2 = isFavorite(model2);
+				if (favorite1 != favorite2) {
+					return favorite1 ? -1 : 1;
+				}
+
+				int result = StringUtils.compareIgnoreCase(model1.getApiConnection().getName(),
+						model2.getApiConnection().getName());
+				if (result != 0) {
+					return result;
+				}
+
+				result = StringUtils.compareIgnoreCase(model1.getName(), model2.getName());
+				if (result != 0) {
+					return result;
+				}
+
+				return StringUtils.compareIgnoreCase(model1.getId(), model2.getId());
+			}
+		});
+
 
 		tableViewer.setContentProvider(new ObservableListContentProvider<AiModel>());
 		initDataBindings();
 		tableViewer.setInput(models);
+
 
 		return composite;
 	}

@@ -26,6 +26,7 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 		store.setDefault(PreferenceConstants.COMPLETION_CONTEXT_LINES_AFTER, 10);
 		store.setDefault(PreferenceConstants.CHAT_MAX_RESPONSE_TOKENS, 8192);
 		store.setDefault(PreferenceConstants.CHAT_HISTORY_SIZE_LIMIT, 50);
+		store.setDefault(PreferenceConstants.FAVORITE_MODELS, "[]");
 
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_ENABLED, false);
 		store.setDefault(PreferenceConstants.CHAT_TOOL_PROFILE, ToolProfile.ALL.name());
@@ -35,6 +36,7 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 		}
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED, true);
 		store.setDefault(PreferenceConstants.CHAT_SUBMIT_ON_ENTER, false);
+
 	}
 
 }

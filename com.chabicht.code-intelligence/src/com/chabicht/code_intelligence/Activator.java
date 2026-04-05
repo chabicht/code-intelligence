@@ -1,5 +1,7 @@
 package com.chabicht.code_intelligence;
 
+import static com.chabicht.code_intelligence.util.ModelUtil.normalizeConfiguredModel;
+
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.io.BufferedReader;
@@ -14,8 +16,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
@@ -222,7 +227,64 @@ public class Activator extends AbstractUIPlugin {
 		}
 	}
 
+	public Set<String> getFavoriteModels() {
+		String favoriteModelsJson = getPreferenceStore().getString(PreferenceConstants.FAVORITE_MODELS);
+		if (StringUtils.isBlank(favoriteModelsJson)) {
+			return new TreeSet<>();
+		}
+
+		try {
+			Type favoriteModelsType = new TypeToken<Set<String>>() {
+			}.getType();
+			Set<String> favoriteModels = createGson().fromJson(favoriteModelsJson, favoriteModelsType);
+			TreeSet<String> normalizedFavorites = new TreeSet<>();
+			if (favoriteModels != null) {
+				for (String favoriteModel : favoriteModels) {
+					String normalizedFavoriteModel = normalizeConfiguredModel(favoriteModel);
+					if (StringUtils.isNotBlank(normalizedFavoriteModel)) {
+						normalizedFavorites.add(normalizedFavoriteModel);
+					}
+				}
+			}
+			return normalizedFavorites;
+		} catch (RuntimeException e) {
+			logWarn("Failed to parse favorite models preference. Using empty favorites set.");
+			return new TreeSet<>();
+		}
+	}
+
+	public void setFavoriteModel(String configuredModel, boolean favorite) {
+		String normalizedConfiguredModel = normalizeConfiguredModel(configuredModel);
+		if (StringUtils.isBlank(normalizedConfiguredModel)) {
+			return;
+		}
+
+		Set<String> favoriteModels = getFavoriteModels();
+		if (favorite) {
+			favoriteModels.add(normalizedConfiguredModel);
+		} else {
+			favoriteModels.remove(normalizedConfiguredModel);
+		}
+		saveFavoriteModels(favoriteModels);
+	}
+
+	private void saveFavoriteModels(Set<String> favorites) {
+		TreeSet<String> normalizedFavorites = new TreeSet<>();
+		if (favorites != null) {
+			for (String favoriteModel : favorites) {
+				String normalizedFavoriteModel = normalizeConfiguredModel(favoriteModel);
+				if (StringUtils.isNotBlank(normalizedFavoriteModel)) {
+					normalizedFavorites.add(normalizedFavoriteModel);
+				}
+			}
+		}
+
+		getPreferenceStore().setValue(PreferenceConstants.FAVORITE_MODELS, createGson().toJson(normalizedFavorites));
+	}
+
 	private <T> List<T> readFile(String filename, TypeToken<List<T>> token) {
+
+
 		try {
 			File parentDirectory = getConfigLocationAsFile();
 			File file = new File(parentDirectory, filename);
