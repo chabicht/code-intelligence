@@ -25,7 +25,6 @@ import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.osgi.service.datalocation.Location;
-import org.eclipse.swt.widgets.Display;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
@@ -128,7 +127,7 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	public void saveApiConnections(List<AiApiConnection> apiConnections) {
-		writeFileAsync(API_CONNECTIONS_FILE, apiConnections);
+		writeFile(API_CONNECTIONS_FILE, apiConnections);
 	}
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
@@ -139,7 +138,7 @@ public class Activator extends AbstractUIPlugin {
 	}
 
 	public void savePromptTemplates(List<PromptTemplate> promptTemplates) {
-		writeFileAsync(PROMPT_TEMPLATES_FILE, promptTemplates);
+		writeFile(PROMPT_TEMPLATES_FILE, promptTemplates);
 	}
 
 	public List<ChatHistoryEntry> loadChatHistory() {
@@ -155,64 +154,9 @@ public class Activator extends AbstractUIPlugin {
 		if (limit > 0 && history.size() > limit) {
 			history = history.subList(0, limit);
 		}
-		writeFileAsync(CHAT_HISTORY_FILE, history);
-	}
-	
-	static interface IFileReadCallback<T> {
-		void onSuccess(List<T> list);
-		void onError(String message, Throwable t);
+		writeFile(CHAT_HISTORY_FILE, history);
 	}
 
-	/**
-	 * Asynchronously read a list from a file
-	 * @param filename the name of the file to read
-	 * @param token the type token for deserialization
-	 * @param callback the callback to be invoked with the result
-	 */
-	public <T> void readFileAsync(String filename, TypeToken<List<T>> token, IFileReadCallback<T> callback) {
-		Display.getDefault().asyncExec(() -> {
-			try {
-				File parentDirectory = getConfigLocationAsFile();
-				File file = new File(parentDirectory, filename);
-
-				if (!file.exists()) {
-					callback.onError("File " + filename + " doesn't exist", null);
-				} else {
-					try (BufferedReader reader = new BufferedReader(new FileReader(file), 1 << 11)) {
-						Type listType = token.getType();
-						List<T> res = createGson().fromJson(reader, listType);
-
-						callback.onSuccess(res);
-					}
-				}
-			} catch (Exception e) {
-				callback.onError("File reading " + filename + " got errors", e);
-				Activator.logError("Error reading file " + filename);
-			}
-		});
-	}
-
-	/**
-	 * Asynchronously write a list to a file
-	 * @param filename the name of the file to write
-	 * @param items the list of items to write
-	 */
-	public <T> void writeFileAsync(String filename, List<T> items) {
-		Display.getDefault().asyncExec(() -> {
-			try {
-				File parentDirectory = getConfigLocationAsFile();
-				File file = new File(parentDirectory, filename);
-
-				try (BufferedWriter writer = new BufferedWriter(new FileWriter(file), 1 << 11)) {
-					createGson().toJson(items, writer);
-				}
-			} catch (IOException | JsonIOException e) {
-				throw new RuntimeException(e);
-			}
-
-		});
-	}
-	
 	public void addOrUpdateChatHistory(ChatConversation conversation) {
 		if (conversation == null) {
 			return;
@@ -357,6 +301,19 @@ public class Activator extends AbstractUIPlugin {
 			}
 		} catch (JsonSyntaxException e) {
 			return Collections.emptyList();
+		} catch (IOException | JsonIOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	private <T> void writeFile(String filename, List<T> items) {
+		try {
+			File parentDirectory = getConfigLocationAsFile();
+			File file = new File(parentDirectory, filename);
+
+			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file), 1 << 18)) {
+				createGson().toJson(items, writer);
+			}
 		} catch (IOException | JsonIOException e) {
 			throw new RuntimeException(e);
 		}
