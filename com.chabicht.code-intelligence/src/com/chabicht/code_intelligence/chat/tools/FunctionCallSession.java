@@ -341,7 +341,7 @@ public class FunctionCallSession {
 			populateErrorResult(result, "Invalid function call payload: missing function name.");
 			return result;
 		}
-
+		Activator.logInfo("Calling tool " + functionName);
 		try {
 			switch (functionName) {
 			case "apply_change":
@@ -907,7 +907,7 @@ public class FunctionCallSession {
 		java.util.Collections.sort(modifiedFiles, (o1, o2) -> {
 			String s1 = o1 == null ? "" : o1.getFullPath().toString();
 			String s2 = o2 == null ? "" : o2.getFullPath().toString();
-			return StringUtils.compare(s1, s2);
+			return StringUtils.compare(s1, s2, true);
 		});
 		java.util.Collections.sort(createdFiles);
 
