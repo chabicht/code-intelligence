@@ -48,6 +48,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 	private Text txtCompletionMaxTokens;
 	private Text txtCompletionContextBefore;
 	private Text txtCompletionContextAfter;
+	private Text txtMaxFilesSearchText;
 
 	private Text txtChatModel;
 	private Text txtChatMaxTokens;
@@ -128,6 +129,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 						""");
 
 		createManageToolsButton(main);
+		txtMaxFilesSearchText = createNumberTextField(main, "Maximum number of files in search text results:");
 
 		// Prompt Templates
 		createSeparator(main);
@@ -152,6 +154,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		txtCompletionContextAfter.addFocusListener(validationListener);
 		txtChatMaxTokens.addFocusListener(validationListener);
 		txtChatHistorySize.addFocusListener(validationListener);
+		txtMaxFilesSearchText.addFocusListener(validationListener);
 
 		return main;
 	}
@@ -264,6 +267,9 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		chkChatSubmitOnEnter.setSelection(store.getBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER));
 
 		chkDebugLogPrompts.setSelection(store.getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
+		
+		txtMaxFilesSearchText
+				.setText(Integer.toString(store.getInt(PreferenceConstants.MAX_FILES_SEARCH_TEXT)));
 
 		validate();
 	}
@@ -288,6 +294,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 				Integer.parseInt(txtCompletionContextBefore.getText()));
 		store.setValue(PreferenceConstants.COMPLETION_CONTEXT_LINES_AFTER,
 				Integer.parseInt(txtCompletionContextAfter.getText()));
+		store.setValue(PreferenceConstants.MAX_FILES_SEARCH_TEXT,
+				Integer.parseInt(txtMaxFilesSearchText.getText()));
 
 		store.setValue(PreferenceConstants.CHAT_MODEL_NAME,
 				PreferenceValidationSupport.normalizeConfiguredModel(txtChatModel.getText()));
@@ -330,6 +338,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		chkChatSubmitOnEnter.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER));
 
 		chkDebugLogPrompts.setSelection(store.getDefaultBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
+		
+		txtMaxFilesSearchText.setText(Integer.toString(store.getDefaultInt(PreferenceConstants.MAX_FILES_SEARCH_TEXT)));
 
 		validate();
 		super.performDefaults();
@@ -370,6 +380,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 				.validateInt(txtCompletionContextBefore.getText(), "Completion Context Before"));
 		validationResult = mergeValidationResult(validationResult, PreferenceValidationSupport
 				.validateInt(txtCompletionContextAfter.getText(), "Completion Context After"));
+		validationResult = mergeValidationResult(validationResult, PreferenceValidationSupport
+				.validateInt(txtMaxFilesSearchText.getText(), "Max Files in Search Text"));
 		validationResult = mergeValidationResult(validationResult,
 				PreferenceValidationSupport.validateInt(txtChatMaxTokens.getText(), "Chat Max Tokens"));
 		validationResult = mergeValidationResult(validationResult,

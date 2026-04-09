@@ -25,4 +25,6 @@ public class PreferenceConstants {
 	public static final String FAVORITE_MODELS = "favoriteModels";
 
 	public static final String CONNECTION_SETUP_WIZARD_PROPOSED = "connectionSetupWizardProposed";
+	
+	public static final String MAX_FILES_SEARCH_TEXT = "maxFilesSearchText";
 }

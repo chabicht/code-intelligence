@@ -37,6 +37,7 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED, true);
 		store.setDefault(PreferenceConstants.CHAT_SUBMIT_ON_ENTER, false);
 
+		store.setDefault(PreferenceConstants.MAX_FILES_SEARCH_TEXT, 100);
 	}
 
 }
