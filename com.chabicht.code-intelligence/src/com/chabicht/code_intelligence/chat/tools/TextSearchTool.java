@@ -14,6 +14,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.internal.ui.util.PatternConstructor;
+import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IRegion;
@@ -25,6 +26,7 @@ import org.eclipse.search.ui.text.TextSearchQueryProvider;
 
 import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.util.Log; // Assuming you have a Log utility like in ApplyPatchTool
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class TextSearchTool {
 
@@ -118,10 +120,12 @@ public class TextSearchTool {
         TextSearchScope scope = TextSearchScope.newSearchScope(resources, compile, true);
 
 		Map<IFile, IDocument> documentMap = new HashMap<>();
+		IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
+		int maxFiles = prefs.getInt(PreferenceConstants.MAX_FILES_SEARCH_TEXT);
         TextSearchRequestor requestor = new TextSearchRequestor() {
             @Override
             public boolean acceptFile(IFile file) throws CoreException {
-                return items.size() < 100;
+                return items.size() < maxFiles;
             }
 
             @Override
