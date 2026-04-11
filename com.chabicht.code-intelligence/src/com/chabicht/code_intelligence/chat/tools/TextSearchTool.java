@@ -121,12 +121,17 @@ public class TextSearchTool {
 
 		Map<IFile, IDocument> documentMap = new HashMap<>();
 		IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
-		int maxFiles = prefs.getInt(PreferenceConstants.MAX_FILES_SEARCH_TEXT);
+		int maxFiles = prefs.getInt(PreferenceConstants.MAX_FILES_SEARCH_RESULTS);
+		java.util.concurrent.atomic.AtomicBoolean limitReached = new java.util.concurrent.atomic.AtomicBoolean(false);
         TextSearchRequestor requestor = new TextSearchRequestor() {
-            @Override
-            public boolean acceptFile(IFile file) throws CoreException {
-                return items.size() < maxFiles;
-            }
+			@Override
+			public boolean acceptFile(IFile file) throws CoreException {
+				if (maxFiles >= 0 && items.size() >= maxFiles) {
+					limitReached.set(true);
+					return false;
+				}
+				return true;
+			}
 
             @Override
             public boolean acceptPatternMatch(TextSearchMatchAccess m) 
@@ -175,7 +180,11 @@ public class TextSearchTool {
 				Activator.logError("Error searching", search.getException());
 				result = new SearchExecutionResult(false, "Search completed with errors: " + search.getException().getMessage(), items);
 			} else {
-		        result = new SearchExecutionResult(true, "Search completed successfully. " + items.size() + " results found.", items);
+				String message = "Search completed successfully. " + items.size() + " results found.";
+				if (limitReached.get()) {
+					message += " (Limit reached, some results may be omitted)";
+				}
+		        result = new SearchExecutionResult(true, message, items);
 			}
 		} finally {
 			resourceAccess.disconnectAllDocuments(documentMap);

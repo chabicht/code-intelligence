@@ -10,8 +10,10 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceVisitor;
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.jface.preference.IPreferenceStore;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class FindFilesTool {
 
@@ -23,7 +25,11 @@ public class FindFilesTool {
 
 	public FindFilesResult findFiles(String regexPattern, List<String> projectNames, boolean isCaseSensitive) {
 		List<String> foundFiles = new ArrayList<>();
+		java.util.concurrent.atomic.AtomicBoolean limitReached = new java.util.concurrent.atomic.AtomicBoolean(false);
 		try {
+			IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
+			int maxFiles = prefs.getInt(PreferenceConstants.MAX_FILES_SEARCH_RESULTS);
+
 			int flags = isCaseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
 			Pattern pattern = Pattern.compile(regexPattern, flags);
 
@@ -41,6 +47,10 @@ public class FindFilesTool {
 					project.accept(new IResourceVisitor() {
 						@Override
 						public boolean visit(IResource resource) throws CoreException {
+							if (maxFiles >= 0 && foundFiles.size() >= maxFiles) {
+								limitReached.set(true);
+								return false;
+							}
 							if (resource.getType() == IResource.FILE) {
 								String fullPath = resource.getFullPath().toString();
 								if (pattern.matcher(fullPath).find()) {
@@ -52,7 +62,11 @@ public class FindFilesTool {
 					});
 				}
 			}
-			return new FindFilesResult(true, "Search completed. Found " + foundFiles.size() + " files.", foundFiles);
+			String message = "Search completed. Found " + foundFiles.size() + " files.";
+			if (limitReached.get()) {
+				message += " (Limit reached, some results may be omitted)";
+			}
+			return new FindFilesResult(true, message, foundFiles);
 
 		} catch (PatternSyntaxException e) {
 			Activator.logError("Invalid regex pattern in find_files: " + regexPattern, e);

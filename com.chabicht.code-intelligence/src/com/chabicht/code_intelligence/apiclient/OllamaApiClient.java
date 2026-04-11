@@ -206,7 +206,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 		chat.addMessage(assistantMessage, true);
 
 		String requestBody = gson.toJson(req);
-		Activator.logInfo("Client: " + requestBody);
+		// Activator.logInfo("Client: " + requestBody);
 		HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.ALWAYS).build();
 		HttpRequest request = createRequestBuilder("api/chat").POST(HttpRequest.BodyPublishers.ofString(requestBody))
@@ -221,7 +221,7 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 					response.body().forEach(line -> {
 						if (line != null && !line.trim().isEmpty()) {
 							try {
-								Activator.logInfo("Ollama: " + line);
+								// Activator.logInfo("Ollama: " + line);
 								JsonObject jsonChunk = JsonParser.parseString(line).getAsJsonObject();
 								if (jsonChunk.has("message")) {
 									JsonObject messageObj = jsonChunk.getAsJsonObject("message");

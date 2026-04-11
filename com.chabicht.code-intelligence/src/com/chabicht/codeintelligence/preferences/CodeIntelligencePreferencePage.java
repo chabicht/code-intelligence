@@ -129,7 +129,10 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 						""");
 
 		createManageToolsButton(main);
-		txtMaxFilesSearchText = createNumberTextField(main, "Maximum number of files in search text results:");
+		txtMaxFilesSearchText = createNumberTextField(main, "Maximum number of files in search results (-1 for unlimited):");
+
+
+
 
 		// Prompt Templates
 		createSeparator(main);
@@ -269,7 +272,9 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		chkDebugLogPrompts.setSelection(store.getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
 		
 		txtMaxFilesSearchText
-				.setText(Integer.toString(store.getInt(PreferenceConstants.MAX_FILES_SEARCH_TEXT)));
+				.setText(Integer.toString(store.getInt(PreferenceConstants.MAX_FILES_SEARCH_RESULTS)));
+
+
 
 		validate();
 	}
@@ -294,8 +299,10 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 				Integer.parseInt(txtCompletionContextBefore.getText()));
 		store.setValue(PreferenceConstants.COMPLETION_CONTEXT_LINES_AFTER,
 				Integer.parseInt(txtCompletionContextAfter.getText()));
-		store.setValue(PreferenceConstants.MAX_FILES_SEARCH_TEXT,
+		store.setValue(PreferenceConstants.MAX_FILES_SEARCH_RESULTS,
 				Integer.parseInt(txtMaxFilesSearchText.getText()));
+
+
 
 		store.setValue(PreferenceConstants.CHAT_MODEL_NAME,
 				PreferenceValidationSupport.normalizeConfiguredModel(txtChatModel.getText()));
@@ -339,7 +346,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 		chkDebugLogPrompts.setSelection(store.getDefaultBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
 		
-		txtMaxFilesSearchText.setText(Integer.toString(store.getDefaultInt(PreferenceConstants.MAX_FILES_SEARCH_TEXT)));
+		txtMaxFilesSearchText.setText(Integer.toString(store.getDefaultInt(PreferenceConstants.MAX_FILES_SEARCH_RESULTS)));
 
 		validate();
 		super.performDefaults();
