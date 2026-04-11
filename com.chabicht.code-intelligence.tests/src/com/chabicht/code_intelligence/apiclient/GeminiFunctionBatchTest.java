@@ -56,9 +56,9 @@ public class GeminiFunctionBatchTest {
 				""").getAsJsonObject();
 
 		Method parseMethod = GeminiApiClient.class.getDeclaredMethod("parseCandidateContentParts", ChatConversation.class,
-				ChatMessage.class, JsonObject.class, AtomicBoolean.class, FunctionCallBatch.class);
+				ChatMessage.class, JsonObject.class, FunctionCallBatch.class);
 		parseMethod.setAccessible(true);
-		parseMethod.invoke(client, chat, assistantMessage, candidate, thinkingStarted, batch);
+		parseMethod.invoke(client, chat, assistantMessage, candidate, batch);
 
 			assertEquals(2, batch.getItems().size(), "All function calls from one candidate should be captured");
 			assertEquals("find_files", batch.getItems().get(0).getCall().getFunctionName());
