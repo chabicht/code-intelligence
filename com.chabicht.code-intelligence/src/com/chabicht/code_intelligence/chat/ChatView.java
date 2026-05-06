@@ -25,6 +25,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -156,6 +157,8 @@ public class ChatView extends ViewPart {
 	private final ChatSettings settings = new ChatSettings();
 	private final ScheduledExecutorService messageRenderExecutor = Executors.newSingleThreadScheduledExecutor();
 	private final Map<UUID, PendingMessageUpdate> pendingMessageUpdates = new ConcurrentHashMap<>();
+	private final AtomicLong chatSessionGeneration = new AtomicLong();
+	private volatile boolean disposed;
 
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
 
@@ -402,11 +405,14 @@ public class ChatView extends ViewPart {
 		}
 
 		private String renderToolActionHtml(MessageRenderSnapshot message, String title, String alt, String label) {
+			boolean disabled = isChatFlowBusy();
+			String effectiveTitle = disabled ? "Tool execution is currently busy" : title;
+			String disabledAttribute = disabled ? " disabled" : "";
 			String actionButtonHtml = String.format(
-					"<button class=\"tool-action-button\" title=\"%s\" onclick=\"reexecuteFunctionCallJs('%s', this)\">"
+					"<button class=\"tool-action-button\" title=\"%s\" onclick=\"reexecuteFunctionCallJs('%s', this)\"%s>"
 							+ "<img src=\"data:image/svg+xml;base64,%s\" alt=\"%s\" style=\"width:16px; height:16px; vertical-align: middle;\"> %s"
 							+ "</button>",
-					StringEscapeUtils.escapeHtml4(title), message.getId(), getReexecuteIconBase64(),
+					StringEscapeUtils.escapeHtml4(effectiveTitle), message.getId(), disabledAttribute, getReexecuteIconBase64(),
 					StringEscapeUtils.escapeHtml4(alt), StringEscapeUtils.escapeHtml4(label));
 			return "<div class=\"tool-actions\">" + actionButtonHtml + "</div>";
 		}
@@ -598,47 +604,79 @@ public class ChatView extends ViewPart {
 		@Override
 		public void onChatResponseFinished(ChatMessage message) {
 			queueMessageUpdate(message, true);
-			Display.getDefault().asyncExec(() -> {
-				BatchExecutionReport batchReport = functionCallSession.executePendingBatchesSequentially();
-				boolean hasExecutedToolCalls = batchReport.getCallsExecuted() > 0;
-				logDebugBatchExecutionReport(batchReport);
 
-				for (ChatMessage updatedMessage : batchReport.getUpdatedMessages()) {
-					updatedMessage.setMetadata("tool_execution_state", "completed");
-					onMessageUpdated(updatedMessage);
-				}
+			final long generation = chatSessionGeneration.get();
+			final ChatConversation callbackConversation = conversation;
+			final FunctionCallSession callbackSession = functionCallSession;
+			final AiModelConnection callbackConnection = connection;
 
-				if (!hasExecutedToolCalls) {
-					// Set text to "▶️"
-					btnSend.setText("\u25B6");
-
-					connection = null;
-
-					if (isDebugPromptLoggingEnabled()) {
-						Activator.logInfo(conversation.toString());
-					}
-
-					applyPendingChanges();
-
-					addConversationToHistory();
-				} else {
-					boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
-							.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
-					if (applyChangesImmediately && functionCallSession.hasPendingChanges()) {
-						ChangeApplicationResult res = functionCallSession.applyPendingChanges();
-						if (res != ChangeApplicationResult.SUCCESS) {
-							abortChat();
+			callbackSession.executePendingBatchesSequentiallyInBackground()
+					.thenAccept(batchReport -> Display.getDefault().asyncExec(() -> {
+						if (!isCurrentChatSession(generation, callbackConversation, callbackSession)) {
 							return;
 						}
-					}
-					logDebugContinuationRequestBuilt(batchReport);
-					sendFunctionResult();
-				}
 
-				Display.getDefault().asyncExec(() -> {
-					chat.markMessageFinished(message.getId());
-				});
-			});
+						if (batchReport.isCanceled()) {
+							callbackSession.clearPendingChanges();
+							btnSend.setText("\u25B6");
+							if (connection == callbackConnection) {
+								connection = null;
+							}
+							chat.markMessageFinished(message.getId());
+							addConversationToHistory();
+							return;
+						}
+
+						boolean hasExecutedToolCalls = batchReport.getCallsExecuted() > 0;
+						logDebugBatchExecutionReport(batchReport);
+
+						for (ChatMessage updatedMessage : batchReport.getUpdatedMessages()) {
+							updatedMessage.setMetadata("tool_execution_state", "completed");
+							onMessageUpdated(updatedMessage);
+						}
+
+						if (!hasExecutedToolCalls) {
+							// Set text to "▶️"
+							btnSend.setText("\u25B6");
+
+							if (connection == callbackConnection) {
+								connection = null;
+							}
+
+							if (isDebugPromptLoggingEnabled()) {
+								Activator.logInfo(callbackConversation.toString());
+							}
+
+							applyPendingChanges(callbackSession, callbackConversation);
+
+							addConversationToHistory();
+						} else {
+							boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
+									.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
+							if (applyChangesImmediately && callbackSession.hasPendingChanges()) {
+								ChangeApplicationResult res = callbackSession.applyPendingChanges();
+								if (res != ChangeApplicationResult.SUCCESS) {
+									abortChat();
+									return;
+								}
+							}
+							logDebugContinuationRequestBuilt(batchReport);
+							sendFunctionResult(callbackConversation, callbackConnection);
+						}
+
+						chat.markMessageFinished(message.getId());
+					}))
+					.exceptionally(t -> {
+						Activator.logError("Tool execution failed", t);
+						Display.getDefault().asyncExec(() -> {
+							if (!isCurrentChatSession(generation, callbackConversation, callbackSession)) {
+								return;
+							}
+							abortChat();
+							chat.markMessageFinished(message.getId());
+						});
+						return null;
+					});
 		}
 	};
 
@@ -773,21 +811,53 @@ public class ChatView extends ViewPart {
 			return;
 		}
 
-		Log.logInfo("ChatView: Re-executing tool batch for message UUID: " + messageUuidString);
-		functionCallSession.clearPendingChanges();
-		BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
-		messageToReexecute.setMetadata("tool_execution_state", "completed");
-		logDebugBatchExecutionReport(report);
+		if (isChatFlowBusy()) {
+			Log.logInfo("ChatView: Ignoring re-execute request because chat/tool execution is already running.");
+			return;
+		}
 
+		Log.logInfo("ChatView: Re-executing tool batch for message UUID: " + messageUuidString);
+		final long generation = chatSessionGeneration.get();
+		final ChatConversation callbackConversation = conversation;
+		final FunctionCallSession callbackSession = functionCallSession;
+
+		callbackSession.clearPendingChanges();
+		messageToReexecute.setMetadata("tool_execution_state", "queued");
+		runOnUiThread(() -> btnSend.setText("\u23F9"));
 		if (chatListener != null) {
 			chatListener.onMessageUpdated(messageToReexecute);
-		} else {
-			Log.logError("ChatView: chatListener is null, cannot update message view for batch re-execute.");
 		}
 
-		if (functionCallSession.hasPendingChanges()) {
-			functionCallSession.applyPendingChanges();
-		}
+		callbackSession.executeBatchInBackground(messageToReexecute)
+				.thenAccept(report -> runOnUiThread(() -> {
+					if (!isCurrentChatSession(generation, callbackConversation, callbackSession)) {
+						return;
+					}
+					if (!report.isCanceled()) {
+						messageToReexecute.setMetadata("tool_execution_state", "completed");
+					}
+					logDebugBatchExecutionReport(report);
+
+					if (chatListener != null) {
+						chatListener.onMessageUpdated(messageToReexecute);
+					} else {
+						Log.logError("ChatView: chatListener is null, cannot update message view for batch re-execute.");
+					}
+
+					if (!report.isCanceled() && callbackSession.hasPendingChanges()) {
+						callbackSession.applyPendingChanges();
+					}
+					btnSend.setText("\u25B6");
+				}))
+				.exceptionally(t -> {
+					Log.logError("ChatView: Failed to re-execute tool batch.", t);
+					runOnUiThread(() -> {
+						if (isCurrentChatSession(generation, callbackConversation, callbackSession)) {
+							btnSend.setText("\u25B6");
+						}
+					});
+					return null;
+				});
 	}
 
 	private void reexecuteToolSummary(String summaryMessageUuidString) {
@@ -806,35 +876,75 @@ public class ChatView extends ViewPart {
 			return;
 		}
 
+		if (isChatFlowBusy()) {
+			Log.logInfo("ChatView: Ignoring summary re-execute request because chat/tool execution is already running.");
+			return;
+		}
+
+		final long generation = chatSessionGeneration.get();
+		final ChatConversation callbackConversation = conversation;
+		final FunctionCallSession callbackSession = functionCallSession;
+
 		// 1. IMPORTANT: Clear any changes from the previous run.
-		functionCallSession.clearPendingChanges();
+		callbackSession.clearPendingChanges();
 
 		List<UUID> idsToReexecute = summaryMessage.getSummarizedToolCallIds();
 		Log.logInfo("Re-executing tool summary for " + idsToReexecute.size() + " tool calls.");
 
-		// 2. Re-process each tool call in the sequence
+		List<ChatMessage> messagesToReexecute = new ArrayList<>();
 		for (UUID messageId : idsToReexecute) {
-			ChatMessage messageToReexecute = conversation.getMessages().stream()
+			ChatMessage messageToReexecute = callbackConversation.getMessages().stream()
 					.filter(m -> m.getId().equals(messageId)).findFirst().orElse(null);
-
-				if (messageToReexecute != null && messageToReexecute.getFunctionCallBatch().isPresent()) {
-					BatchExecutionReport report = functionCallSession.executeBatch(messageToReexecute);
-					messageToReexecute.setMetadata("tool_execution_state", "completed");
-					logDebugBatchExecutionReport(report);
-					if (chatListener != null) {
-						chatListener.onMessageUpdated(messageToReexecute);
-					}
+			if (messageToReexecute != null && messageToReexecute.getFunctionCallBatch().isPresent()) {
+				messageToReexecute.setMetadata("tool_execution_state", "queued");
+				messagesToReexecute.add(messageToReexecute);
+				if (chatListener != null) {
+					chatListener.onMessageUpdated(messageToReexecute);
 				}
 			}
-
-		// 3. After all calls are re-processed, apply the newly accumulated changes.
-		// This will open the refactoring wizard with the new set of changes.
-		if (functionCallSession.hasPendingChanges()) {
-			functionCallSession.applyPendingChanges();
-		} else {
-			Log.logInfo("Re-execution finished, but no pending changes were generated.");
-			// Optionally, add a message to the chat informing the user.
 		}
+
+		if (messagesToReexecute.isEmpty()) {
+			Log.logInfo("Re-execution skipped because no referenced tool call batches could be found.");
+			return;
+		}
+
+		runOnUiThread(() -> btnSend.setText("\u23F9"));
+		callbackSession.executeBatchesInBackground(messagesToReexecute)
+				.thenAccept(report -> runOnUiThread(() -> {
+					if (!isCurrentChatSession(generation, callbackConversation, callbackSession)) {
+						return;
+					}
+					logDebugBatchExecutionReport(report);
+					for (ChatMessage updatedMessage : report.getUpdatedMessages()) {
+						updatedMessage.setMetadata("tool_execution_state", "completed");
+						if (chatListener != null) {
+							chatListener.onMessageUpdated(updatedMessage);
+						}
+					}
+
+					if (report.isCanceled()) {
+						for (ChatMessage message : messagesToReexecute) {
+							if (chatListener != null) {
+								chatListener.onMessageUpdated(message);
+							}
+						}
+					} else if (callbackSession.hasPendingChanges()) {
+						callbackSession.applyPendingChanges();
+					} else {
+						Log.logInfo("Re-execution finished, but no pending changes were generated.");
+					}
+					btnSend.setText("\u25B6");
+				}))
+				.exceptionally(t -> {
+					Log.logError("ChatView: Failed to re-execute tool summary.", t);
+					runOnUiThread(() -> {
+						if (isCurrentChatSession(generation, callbackConversation, callbackSession)) {
+							btnSend.setText("\u25B6");
+						}
+					});
+					return null;
+				});
 	}
 
 	private void clearAllPendingChanges() {
@@ -844,12 +954,17 @@ public class ChatView extends ViewPart {
 		}
 	}
 
-	private void sendFunctionResult() {
-		if (connection != null && connection.isChatPending()) {
-			connection.abortChat();
+	private void sendFunctionResult(ChatConversation conversationToContinue, AiModelConnection connectionToUse) {
+		if (connectionToUse == null || conversationToContinue == null) {
+			Log.logError("ChatView: Cannot send function result continuation because connection or conversation is null.");
+			return;
 		}
 
-		connection.chat(conversation, settings.getMaxResponseTokens());
+		if (connectionToUse.isChatPending()) {
+			connectionToUse.abortChat();
+		}
+
+		connectionToUse.chat(conversationToContinue, settings.getMaxResponseTokens());
 	}
 
 	private void logDebugBatchQueuedInView(ChatMessage message) {
@@ -1578,53 +1693,96 @@ public class ChatView extends ViewPart {
 		}
 	}
 
+	private boolean isChatFlowBusy() {
+		return (connection != null && connection.isChatPending())
+				|| (functionCallSession != null && functionCallSession.isToolExecutionRunning());
+	}
+
 	private void sendMessageOrAbortChat() {
+		if (isChatFlowBusy()) {
+			boolean toolExecutionWasRunning = functionCallSession != null && functionCallSession.isToolExecutionRunning();
+			abortChat();
+
+			// Preserve the old behavior for aborting model responses, but do not apply
+			// changes immediately while a tool job is being canceled. The job may not have
+			// observed cancellation yet, so applying here would race with pending changes
+			// still being produced by the background job.
+			if (!toolExecutionWasRunning) {
+				applyPendingChanges();
+			}
+			return;
+		}
+
 		if (connection == null) {
 			connection = ConnectionFactory.forChat(settings.getModel());
 		}
-		if (connection.isChatPending()) {
-			abortChat();
 
-			// apply pending changes, if any were added so far.
-			// this will also add a message summarizing the changes.
-			applyPendingChanges();
+		ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
+
+		String consoleSelection = ConsolePageParticipant.getSelectedText();
+		if (StringUtils.isNotBlank(consoleSelection)) {
+			Point selectionRange = Optional.ofNullable(ConsolePageParticipant.getSelectionRange()).orElse(new Point(0, 0));
+			String consoleName = Optional.ofNullable(ConsolePageParticipant.getConsoleName()).orElse("Console Log");
+			externallyAddedContext.add(new MessageContext(consoleName, RangeType.OFFSET, selectionRange.x,
+					selectionRange.x + selectionRange.y, consoleSelection));
+		}
+
+		externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx));
+		externallyAddedContext.clear();
+		addSelectionAsContext(chatMessage);
+
+		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
+		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
+		conversation.getOptions().put(REASONING_EFFORT, settings.getEffectiveReasoningEffort());
+		conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
+		conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
+
+		conversation.addMessage(chatMessage, true);
+		connection.chat(conversation, settings.getMaxResponseTokens());
+		userInput.set("");
+
+		// Set text to "⏹️"
+		btnSend.setText("\u23F9");
+	}
+
+
+	private void runOnUiThread(Runnable runnable) {
+		Display display = Display.getDefault();
+		if (display == null || display.isDisposed() || runnable == null) {
+			return;
+		}
+		if (Display.getCurrent() == display) {
+			runnable.run();
 		} else {
-			ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
-
-			String consoleSelection = ConsolePageParticipant.getSelectedText();
-			if (StringUtils.isNotBlank(consoleSelection)) {
-				Point selectionRange = Optional.ofNullable(ConsolePageParticipant.getSelectionRange())
-						.orElse(new Point(0, 0));
-				String consoleName = Optional.ofNullable(ConsolePageParticipant.getConsoleName()).orElse("Console Log");
-				externallyAddedContext.add(new MessageContext(consoleName, RangeType.OFFSET, selectionRange.x,
-						selectionRange.x + selectionRange.y, consoleSelection));
-			}
-
-			externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx));
-			externallyAddedContext.clear();
-			addSelectionAsContext(chatMessage);
-
-			conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
-			conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
-			conversation.getOptions().put(REASONING_EFFORT, settings.getEffectiveReasoningEffort());
-			conversation.getOptions().put(TOOLS_ENABLED, settings.isToolsEnabled());
-			conversation.getOptions().put(TOOL_PROFILE, settings.getToolProfile());
-
-			conversation.addMessage(chatMessage, true);
-			connection.chat(conversation, settings.getMaxResponseTokens());
-			userInput.set("");
-
-			// Set text to "⏹️"
-			btnSend.setText("\u23F9");
+			display.asyncExec(runnable);
 		}
 	}
+
+	private boolean isCurrentChatSession(long generation, ChatConversation expectedConversation,
+			FunctionCallSession expectedSession) {
+		return !disposed && chatSessionGeneration.get() == generation && conversation == expectedConversation
+		&& functionCallSession == expectedSession && chat != null && !chat.isDisposed();
+	}
+
+	private void resetToolSessionForNewConversation() {
+		FunctionCallSession oldSession = functionCallSession;
+		if (oldSession != null) {
+			oldSession.cancelToolExecution();
+			if (!oldSession.isToolExecutionRunning()) {
+				oldSession.clearPendingChanges();
+			}
+		}
+		functionCallSession = new FunctionCallSession();
+	}
+
 
 	private void abortChat() {
 		if (connection != null) {
 			connection.abortChat();
 		}
+		functionCallSession.cancelToolExecution();
 
-		Display.getDefault().syncExec(() -> {
+		runOnUiThread(() -> {
 			chat.markAllMessagesFinished();
 
 			// Set text to "▶️"
@@ -1638,32 +1796,43 @@ public class ChatView extends ViewPart {
 
 	public void editChat(String messageUuidString) {
 		Display.getDefault().syncExec(() -> {
-			// Treat the conversation as new history-wise.
-			conversation.setConversationId(null);
+			if (isChatFlowBusy()) {
+				Log.logInfo("ChatView: Ignoring edit request because chat/tool execution is already running.");
+				return;
+			}
 
 			UUID messageUuid = UUID.fromString(messageUuidString);
-			if (connection == null || !connection.isChatPending()) {
-				getExternallyAddedContext().clear();
-				ChatConversation oldConvo = conversation;
+			getExternallyAddedContext().clear();
 
-				List<ChatMessage> messages = oldConvo.getMessages();
-				ChatMessage msgToEdit = null;
-				for (int i = messages.size() - 1; i >= 0; i--) {
-					ChatMessage msg = messages.get(i);
-					if (msgToEdit == null) {
-						messages.remove(i);
-					}
-					if (messageUuid.equals(msg.getId())) {
-						msgToEdit = msg;
-						break;
-					}
+			ChatConversation oldConvo = conversation;
+			List<ChatMessage> messages = oldConvo.getMessages();
+
+			int editIndex = -1;
+			for (int i = messages.size() - 1; i >= 0; i--) {
+				if (messageUuid.equals(messages.get(i).getId())) {
+					editIndex = i;
+					break;
 				}
-
-				replaceChat(oldConvo);
-
-				userInput.set(msgToEdit.getContent());
-				getExternallyAddedContext().addAll(msgToEdit.getContext());
 			}
+
+			if (editIndex < 0) {
+				Log.logError("ChatView: Cannot edit message. Message not found for UUID: " + messageUuidString);
+				return;
+			}
+
+			ChatMessage msgToEdit = messages.get(editIndex);
+
+			// Treat the conversation as new history-wise, but only after we know the edit is valid.
+			conversation.setConversationId(null);
+
+			for (int i = messages.size() - 1; i >= editIndex; i--) {
+				messages.remove(i);
+			}
+
+			replaceChat(oldConvo);
+
+			userInput.set(msgToEdit.getContent());
+			getExternallyAddedContext().addAll(msgToEdit.getContext());
 		});
 	}
 
@@ -1723,16 +1892,18 @@ public class ChatView extends ViewPart {
 	}
 
 	private void clearChatInternal(ChatConversation replacement) {
+		chatSessionGeneration.incrementAndGet();
+
 		if (connection != null) {
 			connection.abortChat();
 			connection = null;
 		}
+		resetToolSessionForNewConversation();
 		conversation.removeListener(chatListener);
 		conversation = replacement;
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
 		pendingMessageUpdates.clear();
-		clearAllPendingChanges();
 		chat.reset();
 		userInput.set("");
 
@@ -2175,6 +2346,20 @@ public class ChatView extends ViewPart {
 
 	@Override
 	public void dispose() {
+		disposed = true;
+		chatSessionGeneration.incrementAndGet();
+
+		if (connection != null) {
+			connection.abortChat();
+			connection = null;
+		}
+		if (functionCallSession != null) {
+			functionCallSession.cancelToolExecution();
+			if (!functionCallSession.isToolExecutionRunning()) {
+				functionCallSession.clearPendingChanges();
+			}
+		}
+
 		pendingMessageUpdates.clear();
 		messageRenderExecutor.shutdownNow();
 		executorService.shutdownNow();
@@ -2192,17 +2377,25 @@ public class ChatView extends ViewPart {
 	}
 
 	private void applyPendingChanges() {
+		applyPendingChanges(functionCallSession, conversation);
+	}
+
+	private void applyPendingChanges(FunctionCallSession session, ChatConversation targetConversation) {
+		if (session == null || targetConversation == null) {
+			return;
+		}
+
 		// Apply pending changes after all function calls are done.
-		if (functionCallSession.hasPendingChanges()) {
+		if (session.hasPendingChanges()) {
 			// 1. Identify the sequence of tool calls that just finished.
-			Set<UUID> messagesWithPendingChanges = new HashSet<>(functionCallSession.getMessagesWithPendingChanges());
+			Set<UUID> messagesWithPendingChanges = new HashSet<>(session.getMessagesWithPendingChanges());
 			List<ChatMessage> toolCallSequence = new ArrayList<>();
-			conversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
+			targetConversation.getMessages().stream().filter(m -> messagesWithPendingChanges.contains(m.getId()))
 					.forEach(toolCallSequence::add);
 
 			// 2. Create the new TOOL_SUMMARY message
 			// Get the detailed summary from the session
-			String summaryContent = functionCallSession.getPendingChangesSummary();
+			String summaryContent = session.getPendingChangesSummary();
 			ChatMessage summaryMessage = new ChatMessage(Role.TOOL_SUMMARY, summaryContent);
 
 			// 3. Populate the summary message with the IDs of the calls
@@ -2213,10 +2406,10 @@ public class ChatView extends ViewPart {
 			}
 
 			// 4. Add the summary message to the conversation
-			conversation.addMessage(summaryMessage, false); // false because it's a final message
+			targetConversation.addMessage(summaryMessage, false); // false because it's a final message
 
 			// 5. Trigger the refactoring dialog as before
-			functionCallSession.applyPendingChanges();
+			session.applyPendingChanges();
 		}
 	}
 

@@ -106,6 +106,10 @@
 							"is_whole_word": {
 								"type": "boolean",
 								"description": "Optional. True to match whole words only. Defaults to false if not provided."
+							},
+							"include_derived_resources": {
+								"type": "boolean",
+								"description": "Optional. True to include Eclipse derived resources and default excluded root-level build/vendor directories such as bin, target, build, out, dist, node_modules, and .gradle. Defaults to false."
 							}
 						},
 						"required": [
@@ -134,6 +138,10 @@
 							"is_case_sensitive": {
 								"type": "boolean",
 								"description": "Optional. True for a case-sensitive search. Defaults to false if not provided."
+							},
+							"include_derived_resources": {
+								"type": "boolean",
+								"description": "Optional. True to include Eclipse derived resources and default excluded root-level build/vendor directories such as bin, target, build, out, dist, node_modules, and .gradle. Defaults to false."
 							}
 						},
 						"required": [
