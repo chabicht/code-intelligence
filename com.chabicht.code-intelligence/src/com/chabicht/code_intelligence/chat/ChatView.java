@@ -833,9 +833,7 @@ public class ChatView extends ViewPart {
 					if (!isCurrentChatSession(generation, callbackConversation, callbackSession)) {
 						return;
 					}
-					if (!report.isCanceled()) {
-						messageToReexecute.setMetadata("tool_execution_state", "completed");
-					}
+					messageToReexecute.setMetadata("tool_execution_state", "completed");
 					logDebugBatchExecutionReport(report);
 
 					if (chatListener != null) {
@@ -1761,7 +1759,7 @@ public class ChatView extends ViewPart {
 	private boolean isCurrentChatSession(long generation, ChatConversation expectedConversation,
 			FunctionCallSession expectedSession) {
 		return !disposed && chatSessionGeneration.get() == generation && conversation == expectedConversation
-		&& functionCallSession == expectedSession && chat != null && !chat.isDisposed();
+				&& functionCallSession == expectedSession && chat != null && !chat.isDisposed();
 	}
 
 	private void resetToolSessionForNewConversation() {
@@ -1774,7 +1772,6 @@ public class ChatView extends ViewPart {
 		}
 		functionCallSession = new FunctionCallSession();
 	}
-
 
 	private void abortChat() {
 		if (connection != null) {

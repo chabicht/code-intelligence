@@ -346,13 +346,13 @@ public class FunctionCallSession {
 				}
 			}
 
-				int batchCallsExecuted = 0;
-				int batchCallsFailed = 0;
-				for (int i = 0; i < items.size(); i++) {
-					if (monitor.isCanceled()) {
-						report.setCanceled(true);
-						break;
-					}
+			int batchCallsExecuted = 0;
+			int batchCallsFailed = 0;
+			for (int i = 0; i < items.size(); i++) {
+				if (monitor.isCanceled()) {
+					report.setCanceled(true);
+					break;
+				}
 				FunctionCallItem item = items.get(i);
 				if (item == null || item.getCall() == null) {
 					continue;
@@ -363,15 +363,15 @@ public class FunctionCallSession {
 				batch.setResultForCall(i, result);
 				callsExecuted++;
 				batchCallsExecuted++;
-					if (isErrorResult(result)) {
-						callsFailed++;
-						batchCallsFailed++;
-					}
-					if (monitor.isCanceled()) {
-						report.setCanceled(true);
-						break;
-					}
+				if (isErrorResult(result)) {
+					callsFailed++;
+					batchCallsFailed++;
 				}
+				if (monitor.isCanceled()) {
+					report.setCanceled(true);
+					break;
+				}
+			}
 
 			if (report.isCanceled()) {
 				batch.setExecutionComplete(false);
