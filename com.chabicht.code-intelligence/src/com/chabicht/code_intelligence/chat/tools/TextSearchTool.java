@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -11,6 +12,8 @@ import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.internal.ui.util.PatternConstructor;
@@ -29,6 +32,16 @@ import com.chabicht.code_intelligence.util.Log; // Assuming you have a Log utili
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
 
 public class TextSearchTool {
+
+	private static final Set<String> DEFAULT_EXCLUDED_ROOT_DIRS = Set.of(
+			"bin",
+			"target",
+			"build",
+			"out",
+			"dist",
+			"node_modules",
+			".git",
+			".gradle", ".svn");
 
 	private final IResourceAccess resourceAccess;
 
@@ -94,6 +107,26 @@ public class TextSearchTool {
 
 	public SearchExecutionResult performSearch(String searchText, boolean isRegEx, boolean isCaseSensitive,
 			boolean isWholeWord, List<String> fileNamePatterns) {
+		return performSearch(searchText, isRegEx, isCaseSensitive, isWholeWord, fileNamePatterns,
+				false, new NullProgressMonitor());
+	}
+
+	public SearchExecutionResult performSearch(String searchText, boolean isRegEx, boolean isCaseSensitive,
+			boolean isWholeWord, List<String> fileNamePatterns, boolean includeDerivedResources) {
+		return performSearch(searchText, isRegEx, isCaseSensitive, isWholeWord, fileNamePatterns,
+				includeDerivedResources, new NullProgressMonitor());
+	}
+
+	public SearchExecutionResult performSearch(String searchText, boolean isRegEx, boolean isCaseSensitive,
+			boolean isWholeWord, List<String> fileNamePatterns, IProgressMonitor monitor) {
+		return performSearch(searchText, isRegEx, isCaseSensitive, isWholeWord, fileNamePatterns,
+				false, monitor);
+	}
+
+	public SearchExecutionResult performSearch(String searchText, boolean isRegEx, boolean isCaseSensitive,
+			boolean isWholeWord, List<String> fileNamePatterns, boolean includeDerivedResources,
+			IProgressMonitor monitor) {
+		final IProgressMonitor searchMonitor = monitor != null ? monitor : new NullProgressMonitor();
 		TextSearchQueryProvider provider = TextSearchQueryProvider.getPreferred();
 		if (provider == null) {
 			// Log.logError("No preferred TextSearchQueryProvider found."); // No need to
@@ -117,7 +150,7 @@ public class TextSearchTool {
         String[] filePatternArray= filtered.toArray(new String[0]);
         Pattern compile = PatternConstructor.createPattern(filePatternArray, true, false);
         IResource[] resources = new IResource[] { ResourcesPlugin.getWorkspace().getRoot() };
-        TextSearchScope scope = TextSearchScope.newSearchScope(resources, compile, true);
+        TextSearchScope scope = TextSearchScope.newSearchScope(resources, compile, includeDerivedResources);
 
 		Map<IFile, IDocument> documentMap = new HashMap<>();
 		IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
@@ -126,6 +159,13 @@ public class TextSearchTool {
         TextSearchRequestor requestor = new TextSearchRequestor() {
 			@Override
 			public boolean acceptFile(IFile file) throws CoreException {
+				if (searchMonitor.isCanceled()) {
+					return false;
+				}
+				if (!includeDerivedResources
+						&& (file.isDerived(IResource.CHECK_ANCESTORS) || isInDefaultExcludedRootDir(file))) {
+					return false;
+				}
 				if (maxFiles >= 0 && items.size() >= maxFiles) {
 					limitReached.set(true);
 					return false;
@@ -136,6 +176,9 @@ public class TextSearchTool {
             @Override
             public boolean acceptPatternMatch(TextSearchMatchAccess m) 
                     throws CoreException {
+				if (searchMonitor.isCanceled()) {
+					return false;
+				}
 //                System.out.println("Found in: " + m.getFile().getFullPath() + 
 //                    " offset=" + m.getMatchOffset() + " len=" + m.getMatchLength());
 				IFile file = m.getFile();
@@ -175,8 +218,10 @@ public class TextSearchTool {
         TextSearchEngine engine = TextSearchEngine.create();
         SearchExecutionResult result;
         try {
-			IStatus search = engine.search(scope, requestor, searchPattern, new NullProgressMonitor());
-			if (search.getException() != null) {
+			IStatus search = engine.search(scope, requestor, searchPattern, searchMonitor);
+			if (searchMonitor.isCanceled()) {
+				result = new SearchExecutionResult(false, "Search canceled.", items);
+			} else if (search.getException() != null) {
 				Activator.logError("Error searching", search.getException());
 				result = new SearchExecutionResult(false, "Search completed with errors: " + search.getException().getMessage(), items);
 			} else {
@@ -190,6 +235,15 @@ public class TextSearchTool {
 			resourceAccess.disconnectAllDocuments(documentMap);
 		}
         return result;
+	}
+
+	private boolean isInDefaultExcludedRootDir(IFile file) {
+		IPath projectRelativePath = file.getProjectRelativePath();
+		if (projectRelativePath == null || projectRelativePath.segmentCount() < 2) {
+			return false;
+		}
+
+		return DEFAULT_EXCLUDED_ROOT_DIRS.contains(projectRelativePath.segment(0));
 	}
 
 	private List<String> filter(List<String> fileNamePatterns) {

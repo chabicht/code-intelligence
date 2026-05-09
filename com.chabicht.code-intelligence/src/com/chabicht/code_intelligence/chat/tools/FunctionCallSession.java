@@ -7,11 +7,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.Status;
+import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
@@ -54,6 +60,7 @@ public class FunctionCallSession {
 		private int callsExecuted;
 		private int callsFailed;
 		private final List<ChatMessage> updatedMessages = new ArrayList<>();
+		private boolean canceled;
 
 		public int getBatchesExecuted() {
 			return batchesExecuted;
@@ -79,6 +86,14 @@ public class FunctionCallSession {
 			this.callsFailed = callsFailed;
 		}
 
+		public boolean isCanceled() {
+			return canceled;
+		}
+
+		public void setCanceled(boolean canceled) {
+			this.canceled = canceled;
+		}
+
 		public List<ChatMessage> getUpdatedMessages() {
 			return updatedMessages;
 		}
@@ -101,6 +116,8 @@ public class FunctionCallSession {
 	private final Map<String, Change> pendingCreateFileChanges = new HashMap<>();
 	private final List<UUID> messagesWithPendingChanges = new ArrayList<>();
 	private final List<ChatMessage> pendingBatchMessages = new ArrayList<>();
+	private final Object executionLock = new Object();
+	private Job currentExecutionJob;
 
 	public FunctionCallSession() {
 		// Create the real resource access
@@ -181,27 +198,116 @@ public class FunctionCallSession {
 	}
 
 	public BatchExecutionReport executePendingBatchesSequentially() {
+		return executePendingBatchesSequentially(new NullProgressMonitor());
+	}
+
+	public BatchExecutionReport executePendingBatchesSequentially(IProgressMonitor monitor) {
 		if (pendingBatchMessages.isEmpty()) {
 			return new BatchExecutionReport();
 		}
 
 		List<ChatMessage> batchesToExecute = new ArrayList<>(pendingBatchMessages);
 		pendingBatchMessages.clear();
-		return executeBatchesSequentially(batchesToExecute);
+		return executeBatchesSequentially(batchesToExecute, monitor);
 	}
 
 	public BatchExecutionReport executeBatch(ChatMessage assistantMessage) {
+		return executeBatch(assistantMessage, new NullProgressMonitor());
+	}
+
+	public BatchExecutionReport executeBatch(ChatMessage assistantMessage, IProgressMonitor monitor) {
 		if (assistantMessage == null || assistantMessage.getFunctionCallBatch().isEmpty()) {
 			return new BatchExecutionReport();
 		}
 
 		List<ChatMessage> batchesToExecute = new ArrayList<>();
 		batchesToExecute.add(assistantMessage);
-		return executeBatchesSequentially(batchesToExecute);
+		return executeBatchesSequentially(batchesToExecute, monitor);
 	}
 
-	private BatchExecutionReport executeBatchesSequentially(List<ChatMessage> batchesToExecute) {
+	public CompletableFuture<BatchExecutionReport> executePendingBatchesSequentiallyInBackground() {
+		return scheduleBatchExecution("Executing AI tool calls", this::executePendingBatchesSequentially);
+	}
+
+	public CompletableFuture<BatchExecutionReport> executeBatchInBackground(ChatMessage assistantMessage) {
+		return scheduleBatchExecution("Re-executing AI tool call batch", monitor -> executeBatch(assistantMessage, monitor));
+	}
+
+	public CompletableFuture<BatchExecutionReport> executeBatchesInBackground(List<ChatMessage> assistantMessages) {
+		List<ChatMessage> batchesToExecute = assistantMessages != null ? new ArrayList<>(assistantMessages) : new ArrayList<>();
+		return scheduleBatchExecution("Re-executing AI tool call batches",
+				monitor -> executeBatchesSequentially(batchesToExecute, monitor));
+	}
+
+	private CompletableFuture<BatchExecutionReport> scheduleBatchExecution(String jobName,
+			Function<IProgressMonitor, BatchExecutionReport> execution) {
+		CompletableFuture<BatchExecutionReport> future = new CompletableFuture<>();
+
+		synchronized (executionLock) {
+			if (currentExecutionJob != null) {
+				future.completeExceptionally(new IllegalStateException("Tool execution is already running."));
+				return future;
+			}
+
+			Job job = new Job(jobName) {
+				@Override
+				protected IStatus run(IProgressMonitor monitor) {
+					try {
+						BatchExecutionReport report = execution.apply(monitor);
+						if (monitor.isCanceled()) {
+							report.setCanceled(true);
+						}
+						if (report.isCanceled()) {
+							clearPendingChanges();
+						}
+						future.complete(report);
+						return report.isCanceled() ? Status.CANCEL_STATUS : Status.OK_STATUS;
+					} catch (Throwable t) {
+						clearPendingChanges();
+						Activator.logError("Error executing AI tool calls", t);
+						future.completeExceptionally(t);
+						return new Status(IStatus.ERROR, Activator.PLUGIN_ID, "Error executing AI tool calls", t);
+					} finally {
+						synchronized (executionLock) {
+							if (currentExecutionJob == this) {
+								currentExecutionJob = null;
+							}
+						}
+					}
+				}
+			};
+
+			currentExecutionJob = job;
+			job.setPriority(Job.LONG);
+			job.setUser(false);
+			job.schedule();
+		}
+
+		return future;
+	}
+
+	public boolean isToolExecutionRunning() {
+		synchronized (executionLock) {
+			return currentExecutionJob != null;
+		}
+	}
+
+	public void cancelToolExecution() {
+		Job jobToCancel;
+		synchronized (executionLock) {
+			jobToCancel = currentExecutionJob;
+		}
+		if (jobToCancel != null) {
+			jobToCancel.cancel();
+		}
+	}
+
+	private BatchExecutionReport executeBatchesSequentially(List<ChatMessage> batchesToExecute,
+			IProgressMonitor monitor) {
 		BatchExecutionReport report = new BatchExecutionReport();
+		if (monitor == null) {
+			monitor = new NullProgressMonitor();
+		}
 		if (batchesToExecute == null || batchesToExecute.isEmpty()) {
 			return report;
 		}
@@ -215,6 +321,10 @@ public class FunctionCallSession {
 		int callsFailed = 0;
 
 		for (ChatMessage assistantMessage : batchesToExecute) {
+			if (monitor.isCanceled()) {
+				report.setCanceled(true);
+				break;
+			}
 			if (assistantMessage == null || assistantMessage.getFunctionCallBatch().isEmpty()) {
 				continue;
 			}
@@ -236,24 +346,37 @@ public class FunctionCallSession {
 				}
 			}
 
-				int batchCallsExecuted = 0;
-				int batchCallsFailed = 0;
-				for (int i = 0; i < items.size(); i++) {
+			int batchCallsExecuted = 0;
+			int batchCallsFailed = 0;
+			for (int i = 0; i < items.size(); i++) {
+				if (monitor.isCanceled()) {
+					report.setCanceled(true);
+					break;
+				}
 				FunctionCallItem item = items.get(i);
 				if (item == null || item.getCall() == null) {
 					continue;
 				}
 				FunctionCall call = item.getCall();
-				FunctionResult result = executeFunctionCall(assistantMessage.getId(), call);
+				FunctionResult result = executeFunctionCall(assistantMessage.getId(), call, monitor);
 				item.setResult(result);
 				batch.setResultForCall(i, result);
 				callsExecuted++;
 				batchCallsExecuted++;
-					if (isErrorResult(result)) {
-						callsFailed++;
-						batchCallsFailed++;
-					}
+				if (isErrorResult(result)) {
+					callsFailed++;
+					batchCallsFailed++;
 				}
+				if (monitor.isCanceled()) {
+					report.setCanceled(true);
+					break;
+				}
+			}
+
+			if (report.isCanceled()) {
+				batch.setExecutionComplete(false);
+				break;
+			}
 
 			batch.setExecutionComplete(true);
 			batchesExecuted++;
@@ -331,7 +454,7 @@ public class FunctionCallSession {
 				&& activator.getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
 	}
 
-	private FunctionResult executeFunctionCall(UUID messageId, FunctionCall call) {
+	private FunctionResult executeFunctionCall(UUID messageId, FunctionCall call, IProgressMonitor monitor) {
 		String functionName = call != null ? call.getFunctionName() : null;
 		String argsJson = call != null ? call.getArgsJson() : "{}";
 		FunctionResult result = new FunctionResult(call != null ? call.getId() : null,
@@ -351,10 +474,10 @@ public class FunctionCallSession {
 				handleApplyPatch(messageId, call, result, argsJson);
 				break;
 			case "perform_text_search":
-				handlePerformSearch(call, result, argsJson, false);
+				handlePerformSearch(call, result, argsJson, false, monitor);
 				break;
 			case "perform_regex_search":
-				handlePerformSearch(call, result, argsJson, true);
+				handlePerformSearch(call, result, argsJson, true, monitor);
 				break;
 			case "read_file_content":
 				handleReadFileContent(call, result, argsJson);
@@ -542,7 +665,7 @@ public class FunctionCallSession {
 	}
 
 	private void handlePerformSearch(FunctionCall call, FunctionResult result, String functionArgsJson,
-			boolean isRegEx) {
+			boolean isRegEx, IProgressMonitor monitor) {
 		try {
 			// Parse the JSON arguments directly into a JsonObject
 			JsonObject args = gson.fromJson(functionArgsJson, JsonObject.class);
@@ -570,6 +693,9 @@ public class FunctionCallSession {
 			boolean isCaseSensitive = args.has("is_case_sensitive") ? args.get("is_case_sensitive").getAsBoolean()
 					: false;
 			boolean isWholeWord = args.has("is_whole_word") ? args.get("is_whole_word").getAsBoolean() : false;
+			boolean includeDerivedResources = args.has("include_derived_resources")
+					? args.get("include_derived_resources").getAsBoolean()
+					: false;
 
 			// Basic validation
 			if (searchText == null) {
@@ -585,7 +711,7 @@ public class FunctionCallSession {
 			}
 
 			TextSearchTool.SearchExecutionResult searchExecResult = searchTool.performSearch(searchText, isRegEx,
-					isCaseSensitive, isWholeWord, fileNamePatterns);
+					isCaseSensitive, isWholeWord, fileNamePatterns, includeDerivedResources, monitor);
 
 			call.addPrettyParam(searchParamName, searchText, isRegEx); // Mark as code if regex
 			if (fileNamePatterns != null) {
@@ -597,6 +723,7 @@ public class FunctionCallSession {
 			if (!isRegEx) {
 				call.addPrettyParam("is_whole_word", String.valueOf(isWholeWord), false);
 			}
+			call.addPrettyParam("include_derived_resources", String.valueOf(includeDerivedResources), false);
 
 			JsonObject jsonResult = new JsonObject();
 			if (searchExecResult.isSuccess()) {
