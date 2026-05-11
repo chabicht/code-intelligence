@@ -1,6 +1,7 @@
 package com.chabicht.code_intelligence.apiclient;
 
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_BUDGET_TOKENS;
+import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_EFFORT;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.REASONING_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOLS_ENABLED;
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
@@ -15,6 +16,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 
 import com.chabicht.code_intelligence.Activator;
+import com.chabicht.code_intelligence.chat.ChatSettings.ReasoningEffort;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
 import com.chabicht.code_intelligence.model.ChatConversation;
@@ -50,6 +53,9 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 	private CompletableFuture<Void> asyncRequest;
 
 	private static final String ANTHROPIC_VERSION = "2023-06-01";
+
+	// Valid effort values accepted by the Anthropic effort parameter.
+	private static final Set<String> ANTHROPIC_EFFORT_API_VALUES = Set.of("low", "medium", "high", "xhigh", "max");
 
 	public AnthropicApiClient(AiApiConnection apiConnection) {
 		super(apiConnection);
@@ -107,6 +113,12 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		req.addProperty("model", modelName);
 		req.addProperty("max_tokens", Activator.getDefault().getMaxCompletionTokens());
 
+		if (!AnthropicModelCapabilities.forModelId(modelName).isAllowSamplingParams()) {
+			req.remove("temperature");
+			req.remove("top_p");
+			req.remove("top_k");
+		}
+
 		JsonArray messages = new JsonArray();
 		JsonObject userMessage = new JsonObject();
 		userMessage.addProperty("role", "user");
@@ -146,16 +158,43 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		// Add messages array
 		req.add("messages", createMessagesArray(chat));
 
-		// Set max tokens
-		if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
+		// Set thinking mode and max tokens depending on model capabilities.
+		AnthropicModelCapabilities caps = AnthropicModelCapabilities.forModelId(modelName);
+		if (caps.isUseAdaptiveThinkingAndEffort()) {
+			// Opus 4.6, Opus 4.7+, Sonnet 4.6: adaptive thinking + output_config.effort
+			req.addProperty("max_tokens", maxResponseTokens);
+			Object effortOption = options.get(REASONING_EFFORT);
+			if (effortOption instanceof ReasoningEffort reasoningEffort
+					&& reasoningEffort.getApiValue() != null
+					&& ANTHROPIC_EFFORT_API_VALUES.contains(reasoningEffort.getApiValue())) {
+				JsonObject thinking = new JsonObject();
+				thinking.addProperty("type", "adaptive");
+				if (!caps.isAllowSamplingParams()) {
+					// Opus 4.7+: thinking content is omitted by default — opt in to match 4.6 behavior.
+					thinking.addProperty("display", "summarized");
+				}
+				req.add("thinking", thinking);
+
+				JsonObject outputConfig = new JsonObject();
+				outputConfig.addProperty("effort", reasoningEffort.getApiValue());
+				req.add("output_config", outputConfig);
+			}
+		} else if (options.containsKey(REASONING_ENABLED) && Boolean.TRUE.equals(options.get(REASONING_ENABLED))) {
+			// Legacy path: Opus 4.5 and earlier — manual thinking with budget_tokens.
 			int reasoningBudgetTokens = (int) options.get(REASONING_BUDGET_TOKENS);
 			req.addProperty("max_tokens", maxResponseTokens + reasoningBudgetTokens);
 			JsonObject thinking = new JsonObject();
+			thinking.addProperty("type", "enabled");
+			thinking.addProperty("budget_tokens", reasoningBudgetTokens);
 			req.add("thinking", thinking);
-			thinking.add("type", new JsonPrimitive("enabled"));
-			thinking.add("budget_tokens", new JsonPrimitive(reasoningBudgetTokens));
 		} else {
 			req.addProperty("max_tokens", maxResponseTokens);
+		}
+
+		if (!caps.isAllowSamplingParams()) {
+			req.remove("temperature");
+			req.remove("top_p");
+			req.remove("top_k");
 		}
 
 		// Create assistant message that will be populated with the response

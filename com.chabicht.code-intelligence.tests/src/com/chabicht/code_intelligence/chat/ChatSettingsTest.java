@@ -29,8 +29,20 @@ public class ChatSettingsTest {
 				new ReasoningEffort[] { ReasoningEffort.DEFAULT, ReasoningEffort.NONE, ReasoningEffort.LOW,
 						ReasoningEffort.MEDIUM, ReasoningEffort.HIGH },
 				ChatSettings.getSupportedReasoningEfforts(ReasoningControlMode.OLLAMA_EFFORT));
-		assertArrayEquals(ReasoningEffort.values(),
+		assertArrayEquals(
+				new ReasoningEffort[] { ReasoningEffort.DEFAULT, ReasoningEffort.NONE, ReasoningEffort.MINIMAL,
+						ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH, ReasoningEffort.XHIGH,
+						ReasoningEffort.MAX },
 				ChatSettings.getSupportedReasoningEfforts(ReasoningControlMode.EFFORT));
+	}
+
+	@Test
+	void getSupportedReasoningEffortsAnthropicEffortExcludesNoneAndMinimal() {
+		assertArrayEquals(
+				new ReasoningEffort[] { ReasoningEffort.DEFAULT, ReasoningEffort.LOW, ReasoningEffort.MEDIUM,
+						ReasoningEffort.HIGH, ReasoningEffort.XHIGH, ReasoningEffort.MAX },
+				ChatSettings.getSupportedReasoningEfforts(ReasoningControlMode.EFFORT,
+						ApiType.ANTHROPIC));
 	}
 
 	@Test
@@ -39,6 +51,8 @@ public class ChatSettingsTest {
 				ChatSettings.normalizeReasoningEffort(ReasoningControlMode.OLLAMA_EFFORT, ReasoningEffort.MINIMAL));
 		assertEquals(ReasoningEffort.HIGH,
 				ChatSettings.normalizeReasoningEffort(ReasoningControlMode.OLLAMA_EFFORT, ReasoningEffort.XHIGH));
+		assertEquals(ReasoningEffort.HIGH,
+				ChatSettings.normalizeReasoningEffort(ReasoningControlMode.OLLAMA_EFFORT, ReasoningEffort.MAX));
 		assertEquals(ReasoningEffort.DEFAULT,
 				ChatSettings.normalizeReasoningEffort(ReasoningControlMode.OLLAMA_EFFORT, null));
 		assertEquals(ReasoningEffort.HIGH,

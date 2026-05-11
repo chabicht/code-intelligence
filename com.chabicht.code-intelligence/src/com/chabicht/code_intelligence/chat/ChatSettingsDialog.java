@@ -316,7 +316,8 @@ public class ChatSettingsDialog extends Dialog {
 	}
 
 	private void updateReasoningEffortSelection(ReasoningControlMode reasoningMode) {
-		ReasoningEffort[] supportedEfforts = ChatSettings.getSupportedReasoningEfforts(reasoningMode);
+		AiApiConnection.ApiType apiType = ChatSettings.getApiType(settings.getModel());
+		ReasoningEffort[] supportedEfforts = ChatSettings.getSupportedReasoningEfforts(reasoningMode, apiType);
 		ReasoningEffort normalizedEffort = ChatSettings.normalizeReasoningEffort(reasoningMode,
 				settings.getReasoningEffort());
 		cvReasoningEffort.setInput(supportedEfforts);
@@ -363,6 +364,10 @@ public class ChatSettingsDialog extends Dialog {
 		if (reasoningMode == ReasoningControlMode.OLLAMA_EFFORT) {
 			lblReasoningHint.setText(
 					"Model default omits `think`. Off sends `think=false`. Low, Medium, and High send the matching Ollama `think` level when the selected server and model support it.");
+		} else if (reasoningMode == ReasoningControlMode.EFFORT
+				&& ChatSettings.getApiType(settings.getModel()) == AiApiConnection.ApiType.ANTHROPIC) {
+			lblReasoningHint.setText(
+					"Effort controls thinking depth and overall token spend. Model default (high) omits the parameter. Use XHigh for agentic/coding tasks; Max only for the most demanding problems.");
 		} else {
 			lblReasoningHint.setText(
 					"Model default omits the parameter. None sends reasoning=none. Explicit effort support depends on the selected provider and model.");
