@@ -23,7 +23,7 @@ public class ChatSettings extends Bean {
 
 	public static enum ReasoningEffort {
 		DEFAULT("Model default", null), NONE("None", "none"), MINIMAL("Minimal", "minimal"), LOW("Low", "low"),
-		MEDIUM("Medium", "medium"), HIGH("High", "high"), XHIGH("XHigh", "xhigh");
+		MEDIUM("Medium", "medium"), HIGH("High", "high"), XHIGH("XHigh", "xhigh"), MAX("Max", "max");
 
 		private final String displayName;
 		private final String apiValue;
@@ -54,6 +54,11 @@ public class ChatSettings extends Bean {
 	private static final ReasoningEffort[] OLLAMA_REASONING_EFFORTS = new ReasoningEffort[] {
 			ReasoningEffort.DEFAULT, ReasoningEffort.NONE, ReasoningEffort.LOW, ReasoningEffort.MEDIUM,
 			ReasoningEffort.HIGH };
+
+	// Opus 4.6, Opus 4.7+, Sonnet 4.6 — no NONE/MINIMAL, adds MAX.
+	private static final ReasoningEffort[] ANTHROPIC_REASONING_EFFORTS = new ReasoningEffort[] {
+			ReasoningEffort.DEFAULT, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH,
+			ReasoningEffort.XHIGH, ReasoningEffort.MAX };
 
 	private static int getDefaultMaxChatTokens() {
 		Activator activator = Activator.getDefault();
@@ -198,12 +203,32 @@ public class ChatSettings extends Bean {
 		}
 
 		String connectionName = tuple.get().getFirst();
+		String modelPart = tuple.get().getSecond();
 		for (AiApiConnection connection : ConnectionFactory.getApis()) {
 			if (StringUtils.equals(connection.getName(), connectionName)) {
+				if (connection.getType() == AiApiConnection.ApiType.ANTHROPIC
+						&& com.chabicht.code_intelligence.apiclient.AnthropicModelCapabilities
+								.forModelId(modelPart).isUseAdaptiveThinkingAndEffort()) {
+					return ReasoningControlMode.EFFORT;
+				}
 				return getReasoningControlMode(connection.getType());
 			}
 		}
 		return ReasoningControlMode.NONE;
+	}
+
+	public static AiApiConnection.ApiType getApiType(String modelId) {
+		Optional<Tuple<String, String>> tuple = ModelUtil.getProviderModelTuple(modelId);
+		if (tuple.isEmpty()) {
+			return null;
+		}
+		String connectionName = tuple.get().getFirst();
+		for (AiApiConnection connection : ConnectionFactory.getApis()) {
+			if (StringUtils.equals(connection.getName(), connectionName)) {
+				return connection.getType();
+			}
+		}
+		return null;
 	}
 
 	public static boolean supportsReasoning(String modelId) {
@@ -211,12 +236,20 @@ public class ChatSettings extends Bean {
 	}
 
 	public static ReasoningEffort[] getSupportedReasoningEfforts(ReasoningControlMode mode) {
+		return getSupportedReasoningEfforts(mode, null);
+	}
+
+	public static ReasoningEffort[] getSupportedReasoningEfforts(ReasoningControlMode mode,
+			AiApiConnection.ApiType apiType) {
 		if (mode == null) {
 			return new ReasoningEffort[0];
 		}
 
 		switch (mode) {
 		case EFFORT:
+			if (apiType == AiApiConnection.ApiType.ANTHROPIC) {
+				return ANTHROPIC_REASONING_EFFORTS.clone();
+			}
 			return ReasoningEffort.values();
 		case OLLAMA_EFFORT:
 			return OLLAMA_REASONING_EFFORTS.clone();
@@ -235,6 +268,7 @@ public class ChatSettings extends Bean {
 		case MINIMAL:
 			return ReasoningEffort.LOW;
 		case XHIGH:
+		case MAX:
 			return ReasoningEffort.HIGH;
 		default:
 			for (ReasoningEffort supported : OLLAMA_REASONING_EFFORTS) {
