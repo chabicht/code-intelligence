@@ -189,6 +189,85 @@ public class ChatConversation {
 		}
 	}
 
+	public static class ImageAttachment {
+		public static final String MEDIA_TYPE_PNG = "image/png";
+		public static final String MEDIA_TYPE_JPEG = "image/jpeg";
+
+		private final UUID uuid;
+		private final String displayName;
+		private final String mediaType;
+		private final String base64Data;
+		private final int width;
+		private final int height;
+		private final long byteSize;
+
+		public ImageAttachment(String displayName, String mediaType, String base64Data, int width, int height,
+				long byteSize) {
+			this(UUID.randomUUID(), displayName, mediaType, base64Data, width, height, byteSize);
+		}
+
+		public ImageAttachment(UUID uuid, String displayName, String mediaType, String base64Data, int width, int height,
+				long byteSize) {
+			if (uuid == null) {
+				throw new IllegalArgumentException("Image attachment UUID must not be null.");
+			}
+			if (StringUtils.isBlank(displayName)) {
+				throw new IllegalArgumentException("Image attachment display name must not be blank.");
+			}
+			if (!MEDIA_TYPE_PNG.equals(mediaType) && !MEDIA_TYPE_JPEG.equals(mediaType)) {
+				throw new IllegalArgumentException("Only PNG and JPEG images are supported.");
+			}
+			if (StringUtils.isBlank(base64Data)) {
+				throw new IllegalArgumentException("Image attachment data must not be blank.");
+			}
+			if (width < 0 || height < 0) {
+				throw new IllegalArgumentException("Image dimensions must not be negative.");
+			}
+			if (byteSize < 0) {
+				throw new IllegalArgumentException("Image byte size must not be negative.");
+			}
+			this.uuid = uuid;
+			this.displayName = displayName;
+			this.mediaType = mediaType;
+			this.base64Data = base64Data;
+			this.width = width;
+			this.height = height;
+			this.byteSize = byteSize;
+		}
+
+		public UUID getUuid() {
+			return uuid;
+		}
+
+		public String getDisplayName() {
+			return displayName;
+		}
+
+		public String getMediaType() {
+			return mediaType;
+		}
+
+		public String getBase64Data() {
+			return base64Data;
+		}
+
+		public int getWidth() {
+			return width;
+		}
+
+		public int getHeight() {
+			return height;
+		}
+
+		public long getByteSize() {
+			return byteSize;
+		}
+
+		public String getDataUrl() {
+			return "data:" + mediaType + ";base64," + base64Data;
+		}
+	}
+
 	/**
 	 * Message in a Chat.
 	 */
@@ -197,6 +276,7 @@ public class ChatConversation {
 		private final Role role;
 		private String content;
 		private final List<MessageContext> context = new ArrayList<>();
+		private List<ImageAttachment> imageAttachments = new ArrayList<>();
 		private final List<UUID> summarizedToolCallIds = new ArrayList<>();
 
 		private Optional<FunctionCallBatch> functionCallBatch = Optional.empty();
@@ -235,6 +315,13 @@ public class ChatConversation {
 
 		public List<MessageContext> getContext() {
 			return context;
+		}
+
+		public List<ImageAttachment> getImageAttachments() {
+			if (imageAttachments == null) {
+				imageAttachments = new ArrayList<>();
+			}
+			return imageAttachments;
 		}
 
 		public List<UUID> getSummarizedToolCallIds() {
