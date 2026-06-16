@@ -35,7 +35,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
-import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -369,7 +368,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		for (int i = startIndex; i < messages.size(); i++) {
 			ChatMessage message = messages.get(i);
 			if (Role.USER.equals(message.getRole())) {
-				input.add(buildUserMessageItem(compileMessageContent(message)));
+				input.add(buildUserMessageItem(message));
 			}
 			appendFunctionCallOutputs(input, message);
 		}
@@ -383,7 +382,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 				continue;
 			}
 			if (Role.USER.equals(message.getRole())) {
-				input.add(buildUserMessageItem(compileMessageContent(message)));
+				input.add(buildUserMessageItem(message));
 			} else if (Role.ASSISTANT.equals(message.getRole())) {
 				String assistantText = StringUtils.trimToEmpty(message.getContent());
 				if (StringUtils.isNotBlank(assistantText)) {
@@ -419,16 +418,19 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		return buildMessageItem("user", text);
 	}
 
+	private JsonObject buildUserMessageItem(ChatMessage message) {
+		JsonObject item = new JsonObject();
+		item.addProperty("type", "message");
+		item.addProperty("role", "user");
+		item.add("content", ChatMessagePayloadUtil.buildResponsesContent(message));
+		return item;
+	}
+
 	private JsonObject buildMessageItem(String role, String text) {
 		JsonObject item = new JsonObject();
 		item.addProperty("type", "message");
 		item.addProperty("role", role);
-		JsonArray content = new JsonArray();
-		JsonObject contentItem = new JsonObject();
-		contentItem.addProperty("type", "input_text");
-		contentItem.addProperty("text", StringUtils.defaultString(text));
-		content.add(contentItem);
-		item.add("content", content);
+		item.add("content", ChatMessagePayloadUtil.buildResponsesContent(text));
 		return item;
 	}
 
@@ -496,21 +498,6 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			}
 		}
 		return null;
-	}
-
-	private String compileMessageContent(ChatMessage message) {
-		StringBuilder contentBuilder = new StringBuilder(256);
-		if (!message.getContext().isEmpty()) {
-			contentBuilder.append("Context information:\n\n");
-			for (MessageContext ctx : message.getContext()) {
-				contentBuilder.append(ctx.compile(true));
-				contentBuilder.append("\n");
-			}
-		}
-		if (message.getContent() != null) {
-			contentBuilder.append(message.getContent());
-		}
-		return contentBuilder.toString();
 	}
 
 	private void handleStreamingEvent(String currentEventName, JsonObject payload, ChatMessage assistantMessage,

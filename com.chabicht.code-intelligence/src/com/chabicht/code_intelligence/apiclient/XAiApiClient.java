@@ -29,7 +29,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
-import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -278,27 +277,12 @@ public class XAiApiClient extends AbstractApiClient implements IAiApiClient {
 
 			JsonObject jsonMsg = new JsonObject();
 			jsonMsg.addProperty("role", message.getRole().toString().toLowerCase());
-			jsonMsg.addProperty("content", compileMessageContent(message));
+			jsonMsg.add("content", ChatMessagePayloadUtil.buildXAiContent(message));
 			appendAssistantToolCalls(jsonMsg, message);
 			messagesJson.add(jsonMsg);
 			appendToolResultMessages(messagesJson, message);
 		}
 		return messagesJson;
-	}
-
-	private String compileMessageContent(ChatMessage message) {
-		StringBuilder contentBuilder = new StringBuilder(256);
-		if (!message.getContext().isEmpty()) {
-			contentBuilder.append("Context information:\n\n");
-		}
-		for (MessageContext ctx : message.getContext()) {
-			contentBuilder.append(ctx.compile());
-			contentBuilder.append("\n");
-		}
-		if (message.getContent() != null) {
-			contentBuilder.append(message.getContent());
-		}
-		return contentBuilder.toString();
 	}
 
 	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {

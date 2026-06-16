@@ -29,7 +29,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
-import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -500,21 +499,8 @@ public class GeminiApiClient extends AbstractApiClient implements IAiApiClient {
 	}
 
 	private void fillTextMessage(JsonObject jsonMsg, ChatConversation.ChatMessage msg) {
-		// Build the full text content including any context information.
-		StringBuilder contentBuilder = new StringBuilder();
-		if (!msg.getContext().isEmpty()) {
-			contentBuilder.append("Context information:\n\n");
-			for (MessageContext ctx : msg.getContext()) {
-				contentBuilder.append(ctx.compile(true));
-				contentBuilder.append("\n");
-			}
-		}
-		contentBuilder.append(msg.getContent());
-
 		JsonArray partsArray = jsonMsg.getAsJsonArray("parts");
-		JsonObject partObj = new JsonObject();
-		partObj.addProperty("text", contentBuilder.toString());
-		partsArray.add(partObj);
+		ChatMessagePayloadUtil.addGeminiTextAndImageParts(partsArray, msg);
 	}
 
 	private JsonObject createMessage(Role role) {
