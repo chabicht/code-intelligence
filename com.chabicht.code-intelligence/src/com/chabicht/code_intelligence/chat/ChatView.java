@@ -1289,7 +1289,6 @@ public class ChatView extends ViewPart {
 			}
 		};
 		tvUserInput.getTextWidget().setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2));
-		installImagePasteSupport(tvUserInput.getTextWidget());
 		installImageDropSupport(tvUserInput.getTextWidget());
 		installImageDropSupport(cmpAttachments);
 
@@ -1539,9 +1538,12 @@ public class ChatView extends ViewPart {
 				.getBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER);
 
 		boolean isEnter = (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR);
+		boolean isV = (event.keyCode == 'v' || event.keyCode == 'V');
 		boolean isShift = (event.stateMask & SWT.SHIFT) != 0;
 		// SWT.MOD1 maps to Command on macOS and Ctrl on Windows/Linux
 		boolean isModifier = (event.stateMask & SWT.MOD1) != 0;
+
+		System.out.println(String.format("Key: %s %s %s", isKeyDown ? "down" : "up", isModifier, isV));
 
 		boolean shouldSubmit = false;
 
@@ -1561,6 +1563,13 @@ public class ChatView extends ViewPart {
 			event.doit = false; // Consume the event to prevent newline insertion
 			if (isKeyDown) {
 				sendMessageOrAbortChat();
+			}
+		}
+
+		if (isModifier && isV && !isKeyDown) {
+			boolean shouldConsumePaste = addClipboardImages();
+			if (shouldConsumePaste) {
+				event.doit = false;
 			}
 		}
 	}
@@ -1596,24 +1605,6 @@ public class ChatView extends ViewPart {
 				}
 			}
 		});
-	}
-
-	private void installImagePasteSupport(StyledText textWidget) {
-		textWidget.addListener(SWT.KeyDown, event -> {
-			if (!isPasteKey(event)) {
-				return;
-			}
-
-			boolean shouldConsumePaste = addClipboardImages();
-			if (shouldConsumePaste) {
-				event.doit = false;
-			}
-		});
-	}
-
-	private boolean isPasteKey(Event event) {
-		return event != null && (event.stateMask & SWT.MOD1) != 0
-				&& (event.keyCode == 'v' || event.keyCode == 'V');
 	}
 
 	private boolean addClipboardImages() {
