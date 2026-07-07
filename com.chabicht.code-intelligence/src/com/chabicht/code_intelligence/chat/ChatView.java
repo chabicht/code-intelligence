@@ -7,9 +7,13 @@ import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.T
 import static com.chabicht.code_intelligence.model.ChatConversation.ChatOption.TOOL_PROFILE;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -64,6 +68,12 @@ import org.eclipse.swt.browser.ProgressEvent;
 import org.eclipse.swt.browser.ProgressListener;
 import org.eclipse.swt.custom.StyledText;
 import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.DND;
+import org.eclipse.swt.dnd.DropTarget;
+import org.eclipse.swt.dnd.DropTargetAdapter;
+import org.eclipse.swt.dnd.DropTargetEvent;
+import org.eclipse.swt.dnd.FileTransfer;
+import org.eclipse.swt.dnd.ImageTransfer;
 import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.events.ControlAdapter;
@@ -74,6 +84,7 @@ import org.eclipse.swt.events.MouseListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Font;
+import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.graphics.ImageData;
 import org.eclipse.swt.graphics.Point;
@@ -122,6 +133,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionParamValue;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
+import com.chabicht.code_intelligence.model.ChatConversation.ImageAttachment;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.RangeType;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
@@ -149,8 +161,10 @@ public class ChatView extends ViewPart {
 	private static final int BUTTON_SIZE = 40;
 	private static final int ATTACHMENT_COMP_HEIGHT = 30;
 	private static final long MESSAGE_UPDATE_THROTTLE_MS = 150L;
+	private static final DateTimeFormatter PASTED_IMAGE_NAME_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
 	private static final WritableList<MessageContext> externallyAddedContext = new WritableList<>();
+	private static final WritableList<ImageAttachment> externallyAddedImages = new WritableList<>();
 
 	private static final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
@@ -158,6 +172,7 @@ public class ChatView extends ViewPart {
 	private final ScheduledExecutorService messageRenderExecutor = Executors.newSingleThreadScheduledExecutor();
 	private final Map<UUID, PendingMessageUpdate> pendingMessageUpdates = new ConcurrentHashMap<>();
 	private final AtomicLong chatSessionGeneration = new AtomicLong();
+	private final ImageAttachmentFactory imageAttachmentFactory = new ImageAttachmentFactory();
 	private volatile boolean disposed;
 
 	LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources());
@@ -173,6 +188,7 @@ public class ChatView extends ViewPart {
 	private Image broomImage;
 	private Image scrollImage;
 	private Image copyImage;
+	private Image imageAttachmentImage;
 	private String paperclipBase64;
 
 	private ChatConversation conversation;
@@ -234,6 +250,13 @@ public class ChatView extends ViewPart {
 			return String.format("<img src=\"%s\" style=\"width: 15px; height: 25px;\"/>", dataUrl);
 		}
 
+		private String getImageAttachmentIconHtml() {
+			String svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#333333\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><circle cx=\"8.5\" cy=\"8.5\" r=\"1.5\"/><path d=\"M21 15l-5-5L5 21\"/></svg>";
+			String dataUrl = "data:image/svg+xml;base64,"
+					+ Base64.getEncoder().encodeToString(svg.getBytes(StandardCharsets.UTF_8));
+			return String.format("<img src=\"%s\" style=\"width: 18px; height: 18px;\"/>", dataUrl);
+		}
+
 		private String buildInitialMessageHtml(MessageRenderSnapshot message) {
 			String combinedHtml = messageContentToHtml(message) + "\n" + attachmentsToHtml(message.getAttachments());
 
@@ -249,14 +272,15 @@ public class ChatView extends ViewPart {
 				return "";
 			}
 
-			String attachmentIcon = getAttachmentIconHtml();
 			StringBuilder attachmentHtml = new StringBuilder();
 			for (AttachmentRenderSnapshot attachment : attachments) {
+				String attachmentIcon = attachment.getKind() == AttachmentKind.IMAGE ? getImageAttachmentIconHtml()
+						: getAttachmentIconHtml();
 				attachmentHtml.append(String.format(
 						"<span id=\"%s\" class=\"attachment-container\">"
 								+ "<span class=\"attachment-icon\">%s</span>"
 								+ "<span class=\"tooltip\">%s</span>" + "</span>",
-						attachment.getUuid(), attachmentIcon, StringEscapeUtils.escapeHtml4(attachment.getLabel())));
+						attachment.getElementId(), attachmentIcon, StringEscapeUtils.escapeHtml4(attachment.getLabel())));
 			}
 			return attachmentHtml.toString();
 		}
@@ -534,7 +558,10 @@ public class ChatView extends ViewPart {
 			List<AttachmentRenderSnapshot> attachments = new ArrayList<>();
 			if (includeAttachments) {
 				for (MessageContext context : message.getContext()) {
-					attachments.add(new AttachmentRenderSnapshot(context.getUuid(), context.getLabel()));
+					attachments.add(AttachmentRenderSnapshot.forContext(context));
+				}
+				for (ImageAttachment image : message.getImageAttachments()) {
+					attachments.add(AttachmentRenderSnapshot.forImage(image));
 				}
 			}
 
@@ -680,21 +707,41 @@ public class ChatView extends ViewPart {
 		}
 	};
 
-	private static final class AttachmentRenderSnapshot {
-		private final UUID uuid;
-		private final String label;
+	private enum AttachmentKind {
+		CONTEXT, IMAGE
+	}
 
-		private AttachmentRenderSnapshot(UUID uuid, String label) {
-			this.uuid = uuid;
+	private static final class AttachmentRenderSnapshot {
+		private final String elementId;
+		private final String label;
+		private final AttachmentKind kind;
+
+		private AttachmentRenderSnapshot(String elementId, String label, AttachmentKind kind) {
+			this.elementId = elementId;
 			this.label = label;
+			this.kind = kind;
 		}
 
-		public UUID getUuid() {
-			return uuid;
+		private static AttachmentRenderSnapshot forContext(MessageContext context) {
+			return new AttachmentRenderSnapshot("attachment:" + context.getUuid(), context.getLabel(),
+					AttachmentKind.CONTEXT);
+		}
+
+		private static AttachmentRenderSnapshot forImage(ImageAttachment image) {
+			String label = image.getDisplayName() + " (" + image.getWidth() + "x" + image.getHeight() + ")";
+			return new AttachmentRenderSnapshot("image:" + image.getUuid(), label, AttachmentKind.IMAGE);
+		}
+
+		public String getElementId() {
+			return elementId;
 		}
 
 		public String getLabel() {
 			return label;
+		}
+
+		public AttachmentKind getKind() {
+			return kind;
 		}
 	}
 
@@ -1056,6 +1103,12 @@ public class ChatView extends ViewPart {
 				try {
 					String combinedMessages = conversation.getMessages().stream().map(ChatMessage::getContent)
 							.collect(Collectors.joining("\n"));
+					String localCaption = buildLocalCaptionFallback(combinedMessages);
+					if (localCaption != null) {
+						conversation.setCaption(localCaption);
+						Activator.getDefault().addOrUpdateChatHistory(conversation);
+						return;
+					}
 
 					String caption = ConnectionFactory.forCompletions().caption(combinedMessages);
 
@@ -1081,6 +1134,18 @@ public class ChatView extends ViewPart {
 		}
 	}
 
+	private String buildLocalCaptionFallback(String combinedMessages) {
+		if (StringUtils.isNotBlank(combinedMessages)) {
+			return null;
+		}
+		for (ChatMessage message : conversation.getMessages()) {
+			for (ImageAttachment image : message.getImageAttachments()) {
+				return StringUtils.abbreviate("Image chat: " + image.getDisplayName(), 80);
+			}
+		}
+		return conversation.getMessages().isEmpty() ? null : "Untitled chat";
+	}
+
 	private boolean isDebugPromptLoggingEnabled() {
 		return Activator.getDefault().getPreferenceStore().getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS);
 	}
@@ -1092,6 +1157,7 @@ public class ChatView extends ViewPart {
 		paperclipImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
 				String.format("/icons/paperclip_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
 		createPaperclipBase64();
+		imageAttachmentImage = createImageAttachmentImage();
 
 		broomImage = resources.create(ImageDescriptor.createFromFile(this.getClass(),
 				String.format("/icons/broom_%s.png", ThemeUtil.isDarkTheme() ? "dark" : "light")));
@@ -1223,6 +1289,8 @@ public class ChatView extends ViewPart {
 			}
 		};
 		tvUserInput.getTextWidget().setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 2));
+		installImageDropSupport(tvUserInput.getTextWidget());
+		installImageDropSupport(cmpAttachments);
 
 		btnSettings = new Button(lowerComposite, SWT.NONE);
 		btnSettings.addSelectionListener(new SelectionAdapter() {
@@ -1470,9 +1538,12 @@ public class ChatView extends ViewPart {
 				.getBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER);
 
 		boolean isEnter = (event.keyCode == SWT.CR || event.keyCode == SWT.KEYPAD_CR);
+		boolean isV = (event.keyCode == 'v' || event.keyCode == 'V');
 		boolean isShift = (event.stateMask & SWT.SHIFT) != 0;
 		// SWT.MOD1 maps to Command on macOS and Ctrl on Windows/Linux
 		boolean isModifier = (event.stateMask & SWT.MOD1) != 0;
+
+		System.out.println(String.format("Key: %s %s %s", isKeyDown ? "down" : "up", isModifier, isV));
 
 		boolean shouldSubmit = false;
 
@@ -1492,6 +1563,13 @@ public class ChatView extends ViewPart {
 			event.doit = false; // Consume the event to prevent newline insertion
 			if (isKeyDown) {
 				sendMessageOrAbortChat();
+			}
+		}
+
+		if (isModifier && isV && !isKeyDown) {
+			boolean shouldConsumePaste = addClipboardImages();
+			if (shouldConsumePaste) {
+				event.doit = false;
 			}
 		}
 	}
@@ -1529,6 +1607,145 @@ public class ChatView extends ViewPart {
 		});
 	}
 
+	private boolean addClipboardImages() {
+		Clipboard clipboard = new Clipboard(Display.getDefault());
+		try {
+			ImageData imageData = (ImageData) clipboard.getContents(ImageTransfer.getInstance());
+			String[] filePaths = (String[]) clipboard.getContents(FileTransfer.getInstance());
+			String clipboardText = (String) clipboard.getContents(TextTransfer.getInstance());
+			boolean shouldPreserveTextPaste = shouldPreserveClipboardText(clipboardText, filePaths);
+			boolean hasImageOrFiles = imageData != null || (filePaths != null && filePaths.length > 0);
+			if (!hasImageOrFiles) {
+				return false;
+			}
+
+			List<String> failures = new ArrayList<>();
+			if (imageData != null) {
+				addPastedImageData(imageData, failures);
+			}
+			addImageFiles(filePaths, failures);
+			showImageIngestionFailures(failures);
+			return !shouldPreserveTextPaste;
+		} finally {
+			clipboard.dispose();
+		}
+	}
+
+	private boolean shouldPreserveClipboardText(String clipboardText, String[] filePaths) {
+		if (StringUtils.isBlank(clipboardText)) {
+			return false;
+		}
+		if (filePaths == null || filePaths.length == 0) {
+			return true;
+		}
+
+		String[] lines = clipboardText.trim().replace("\r\n", "\n").replace('\r', '\n').split("\n");
+		int nonBlankLineCount = 0;
+		int matchingPathCount = 0;
+		for (String line : lines) {
+			String candidate = StringUtils.trimToNull(line);
+			if (candidate == null) {
+				continue;
+			}
+			nonBlankLineCount++;
+			if (matchesClipboardFilePath(candidate, filePaths)) {
+				matchingPathCount++;
+			}
+		}
+		return nonBlankLineCount == 0 || matchingPathCount != nonBlankLineCount;
+	}
+
+	private boolean matchesClipboardFilePath(String candidate, String[] filePaths) {
+		for (String filePath : filePaths) {
+			if (StringUtils.isBlank(filePath)) {
+				continue;
+			}
+			File file = new File(filePath);
+			if (candidate.equals(filePath) || candidate.equals(file.toURI().toString())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void addPastedImageData(ImageData imageData, List<String> failures) {
+		try {
+			addImageAttachment(imageAttachmentFactory.fromImageData(imageData, createPastedImageDisplayName()));
+		} catch (IllegalArgumentException e) {
+			failures.add("Pasted image: " + e.getMessage());
+		}
+	}
+
+	private String createPastedImageDisplayName() {
+		return "pasted-image-" + LocalDateTime.now().format(PASTED_IMAGE_NAME_FORMAT) + ".png";
+	}
+
+	private void installImageDropSupport(Control control) {
+		DropTarget dropTarget = new DropTarget(control, DND.DROP_COPY | DND.DROP_DEFAULT);
+		dropTarget.setTransfer(new Transfer[] { FileTransfer.getInstance() });
+		dropTarget.addDropListener(new DropTargetAdapter() {
+			@Override
+			public void dragEnter(DropTargetEvent event) {
+				updateDropDetail(event);
+			}
+
+			@Override
+			public void dragOperationChanged(DropTargetEvent event) {
+				updateDropDetail(event);
+			}
+
+			@Override
+			public void dragOver(DropTargetEvent event) {
+				updateDropDetail(event);
+			}
+
+			@Override
+			public void drop(DropTargetEvent event) {
+				if (!FileTransfer.getInstance().isSupportedType(event.currentDataType)
+						|| !(event.data instanceof String[] filePaths)) {
+					event.detail = DND.DROP_NONE;
+					return;
+				}
+				List<String> failures = new ArrayList<>();
+				addImageFiles(filePaths, failures);
+				showImageIngestionFailures(failures);
+			}
+		});
+	}
+
+	private void updateDropDetail(DropTargetEvent event) {
+		if (FileTransfer.getInstance().isSupportedType(event.currentDataType)) {
+			event.detail = DND.DROP_COPY;
+		} else {
+			event.detail = DND.DROP_NONE;
+		}
+	}
+
+	private void addImageFiles(String[] filePaths, List<String> failures) {
+		if (filePaths == null) {
+			return;
+		}
+		for (String filePath : filePaths) {
+			if (StringUtils.isBlank(filePath)) {
+				continue;
+			}
+			File file = new File(filePath);
+			try {
+				addImageAttachment(imageAttachmentFactory.fromFile(file));
+			} catch (IllegalArgumentException e) {
+				failures.add(file.getName() + ": " + e.getMessage());
+			}
+		}
+	}
+
+	private void showImageIngestionFailures(List<String> failures) {
+		if (failures == null || failures.isEmpty()) {
+			return;
+		}
+		MessageDialog.openError(getSite().getShell(), "Unsupported Image",
+				"Could not add image attachments:\n\n" + String.join("\n", failures));
+	}
+
 	private void init() {
 		String defaultModel = Activator.getDefault().getPreferenceStore()
 				.getString(PreferenceConstants.CHAT_MODEL_NAME);
@@ -1561,45 +1778,25 @@ public class ChatView extends ViewPart {
 			for (ListDiffEntry<? extends MessageContext> diff : e.diff.getDifferences()) {
 				MessageContext ctx = diff.getElement();
 				if (diff.isAddition()) {
-					Label l = new Label(cmpAttachments, SWT.NONE);
-					l.setToolTipText(ctx.getLabel());
-					l.setData(ctx);
-					l.setImage(paperclipImage);
-					l.setLayoutData(new RowData(15, 25));
-
-					l.addMenuDetectListener(event -> {
-						// Context menu for the message context labels
-						Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
-						MenuItem deleteItem = new MenuItem(contextMenu, SWT.NONE);
-						deleteItem.setText("Delete");
-						deleteItem.addListener(SWT.Selection, evt -> {
-							if (evt.widget == null && evt.widget.isDisposed()) {
-								return;
-							}
-
-							if (evt.widget.getData() instanceof MessageContext context) {
-								externallyAddedContext.remove(context);
-								cmpAttachments.layout();
-							}
-						});
-
-						deleteItem.setData(l.getData());
-						contextMenu.setLocation(event.x, event.y);
-						contextMenu.setVisible(true);
-					});
-
-					l.addMouseListener(MouseListener.mouseDoubleClickAdapter(ev -> {
-						MessageContextDialog dlg = new MessageContextDialog(getSite().getShell(), ctx);
-						dlg.open();
-					}));
-
-					cmpAttachments.layout();
+					addPendingContextChip(ctx);
 				} else {
 					removeAttachmentLabel(ctx);
 				}
 			}
 		};
 		externallyAddedContext.addListChangeListener(listChangeListener);
+
+		IListChangeListener<? super ImageAttachment> imageListChangeListener = e -> {
+			for (ListDiffEntry<? extends ImageAttachment> diff : e.diff.getDifferences()) {
+				ImageAttachment image = diff.getElement();
+				if (diff.isAddition()) {
+					addPendingImageChip(image);
+				} else {
+					removeAttachmentLabel(image);
+				}
+			}
+		};
+		externallyAddedImages.addListChangeListener(imageListChangeListener);
 
 		// Add context menu listener to the attachment composite itself
 		cmpAttachments.addMenuDetectListener(event -> {
@@ -1610,9 +1807,12 @@ public class ChatView extends ViewPart {
 				if (!externallyAddedContext.isEmpty()) {
 					externallyAddedContext.clear();
 				}
+				if (!externallyAddedImages.isEmpty()) {
+					externallyAddedImages.clear();
+				}
 			});
 			// Disable if list is already empty
-			clearAllItem.setEnabled(!externallyAddedContext.isEmpty());
+			clearAllItem.setEnabled(!externallyAddedContext.isEmpty() || !externallyAddedImages.isEmpty());
 
 			contextMenu.setLocation(event.x, event.y);
 			contextMenu.setVisible(true);
@@ -1672,12 +1872,58 @@ public class ChatView extends ViewPart {
 		return changed;
 	}
 
-	private void removeAttachmentLabel(MessageContext ctx) {
+	private void addPendingContextChip(MessageContext ctx) {
+		Label label = new Label(cmpAttachments, SWT.NONE);
+		label.setToolTipText(ctx.getLabel());
+		label.setData(ctx);
+		label.setImage(paperclipImage);
+		label.setLayoutData(new RowData(15, 25));
+		addPendingAttachmentMenu(label);
+		label.addMouseListener(MouseListener.mouseDoubleClickAdapter(ev -> {
+			MessageContextDialog dlg = new MessageContextDialog(getSite().getShell(), ctx);
+			dlg.open();
+		}));
+		cmpAttachments.layout();
+	}
+
+	private void addPendingImageChip(ImageAttachment image) {
+		Label label = new Label(cmpAttachments, SWT.NONE);
+		label.setToolTipText(image.getDisplayName() + " (" + image.getWidth() + "x" + image.getHeight() + ")");
+		label.setData(image);
+		label.setImage(imageAttachmentImage);
+		label.setLayoutData(new RowData(18, 18));
+		addPendingAttachmentMenu(label);
+		label.addMouseListener(MouseListener.mouseDoubleClickAdapter(ev -> openImageAttachmentDialog(image)));
+		cmpAttachments.layout();
+	}
+
+	private void addPendingAttachmentMenu(Label label) {
+		label.addMenuDetectListener(event -> {
+			Menu contextMenu = new Menu(cmpAttachments.getShell(), SWT.POP_UP);
+			MenuItem deleteItem = new MenuItem(contextMenu, SWT.NONE);
+			deleteItem.setText("Delete");
+			deleteItem.addListener(SWT.Selection, evt -> {
+				Object data = label.getData();
+				if (data instanceof MessageContext context) {
+					externallyAddedContext.remove(context);
+					cmpAttachments.layout();
+				} else if (data instanceof ImageAttachment image) {
+					externallyAddedImages.remove(image);
+					cmpAttachments.layout();
+				}
+			});
+
+			contextMenu.setLocation(event.x, event.y);
+			contextMenu.setVisible(true);
+		});
+	}
+
+	private void removeAttachmentLabel(Object attachment) {
 		if (cmpAttachments != null && !cmpAttachments.isDisposed() && cmpAttachments.getChildren() != null) {
 			Control[] children = cmpAttachments.getChildren();
 			for (int i = children.length - 1; i >= 0; i--) {
 				Control child = children[i];
-				if (child.getData() == ctx) {
+				if (child.getData() == attachment) {
 					child.dispose();
 				}
 			}
@@ -1711,10 +1957,6 @@ public class ChatView extends ViewPart {
 			return;
 		}
 
-		if (connection == null) {
-			connection = ConnectionFactory.forChat(settings.getModel());
-		}
-
 		ChatMessage chatMessage = new ChatMessage(Role.USER, userInput.get());
 
 		String consoleSelection = ConsolePageParticipant.getSelectedText();
@@ -1726,8 +1968,19 @@ public class ChatView extends ViewPart {
 		}
 
 		externallyAddedContext.forEach(ctx -> addContextToMessageIfNotDuplicate(chatMessage, ctx));
-		externallyAddedContext.clear();
 		addSelectionAsContext(chatMessage);
+		chatMessage.getImageAttachments().addAll(externallyAddedImages);
+
+		if (!hasMessagePayload(chatMessage)) {
+			return;
+		}
+
+		if (connection == null) {
+			connection = ConnectionFactory.forChat(settings.getModel());
+		}
+
+		externallyAddedContext.clear();
+		externallyAddedImages.clear();
 
 		conversation.getOptions().put(REASONING_ENABLED, settings.isReasoningSupportedAndEnabled());
 		conversation.getOptions().put(REASONING_BUDGET_TOKENS, settings.getReasoningTokens());
@@ -1741,6 +1994,11 @@ public class ChatView extends ViewPart {
 
 		// Set text to "⏹️"
 		btnSend.setText("\u23F9");
+	}
+
+	private boolean hasMessagePayload(ChatMessage chatMessage) {
+		return StringUtils.isNotBlank(chatMessage.getContent()) || !chatMessage.getContext().isEmpty()
+				|| !chatMessage.getImageAttachments().isEmpty();
 	}
 
 
@@ -1800,6 +2058,7 @@ public class ChatView extends ViewPart {
 
 			UUID messageUuid = UUID.fromString(messageUuidString);
 			getExternallyAddedContext().clear();
+			getExternallyAddedImages().clear();
 
 			ChatConversation oldConvo = conversation;
 			List<ChatMessage> messages = oldConvo.getMessages();
@@ -1828,8 +2087,9 @@ public class ChatView extends ViewPart {
 
 			replaceChat(oldConvo);
 
-			userInput.set(msgToEdit.getContent());
+			userInput.set(StringUtils.defaultString(msgToEdit.getContent()));
 			getExternallyAddedContext().addAll(msgToEdit.getContext());
+			getExternallyAddedImages().addAll(msgToEdit.getImageAttachments());
 		});
 	}
 
@@ -1900,6 +2160,7 @@ public class ChatView extends ViewPart {
 		conversation = replacement;
 		conversation.addListener(chatListener);
 		externallyAddedContext.clear();
+		externallyAddedImages.clear();
 		pendingMessageUpdates.clear();
 		chat.reset();
 		userInput.set("");
@@ -1951,6 +2212,10 @@ public class ChatView extends ViewPart {
 		return externallyAddedContext;
 	}
 
+	private static List<ImageAttachment> getExternallyAddedImages() {
+		return externallyAddedImages;
+	}
+
 	public static void addContext(MessageContext newCtx) {
 		boolean isDuplicate = false;
 		for (MessageContext ctx : getExternallyAddedContext()) {
@@ -1958,6 +2223,12 @@ public class ChatView extends ViewPart {
 		}
 		if (!isDuplicate) {
 			getExternallyAddedContext().add(newCtx);
+		}
+	}
+
+	public static void addImageAttachment(ImageAttachment imageAttachment) {
+		if (imageAttachment != null) {
+			getExternallyAddedImages().add(imageAttachment);
 		}
 	}
 
@@ -1982,6 +2253,9 @@ public class ChatView extends ViewPart {
 				} else if (str.startsWith("attachment:")) { // Add this case
 					String attachmentUuid = str.substring("attachment:".length());
 					openAttachmentDialog(attachmentUuid);
+				} else if (str.startsWith("image:")) {
+					String imageUuid = str.substring("image:".length());
+					openImageAttachmentDialog(imageUuid);
 				} else if (str.startsWith("reexecute:")) {
 					String messageUuid = str.substring("reexecute:".length());
 					reexecute(messageUuid);
@@ -1999,6 +2273,18 @@ public class ChatView extends ViewPart {
 		}
 	}
 
+	private void openImageAttachmentDialog(String imageUuid) {
+		ImageAttachment image = findImageAttachmentByUuid(imageUuid);
+		openImageAttachmentDialog(image);
+	}
+
+	private void openImageAttachmentDialog(ImageAttachment image) {
+		if (image != null) {
+			ImageAttachmentDialog dlg = new ImageAttachmentDialog(getSite().getShell(), image);
+			dlg.open();
+		}
+	}
+
 	private MessageContext findContextByUuid(String uuidString) {
 		try {
 			UUID uuid = UUID.fromString(uuidString);
@@ -2006,6 +2292,22 @@ public class ChatView extends ViewPart {
 				for (MessageContext ctx : message.getContext()) {
 					if (uuid.equals(ctx.getUuid())) {
 						return ctx;
+					}
+				}
+			}
+		} catch (IllegalArgumentException e) {
+			Activator.logError("Invalid UUID format: " + uuidString, e);
+		}
+		return null;
+	}
+
+	private ImageAttachment findImageAttachmentByUuid(String uuidString) {
+		try {
+			UUID uuid = UUID.fromString(uuidString);
+			for (ChatMessage message : conversation.getMessages()) {
+				for (ImageAttachment image : message.getImageAttachments()) {
+					if (uuid.equals(image.getUuid())) {
+						return image;
 					}
 				}
 			}
@@ -2029,16 +2331,8 @@ public class ChatView extends ViewPart {
 			Clipboard clipboard = new Clipboard(Display.getDefault());
 			TextTransfer textTransfer = TextTransfer.getInstance();
 
-			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
-			StringBuilder sb = new StringBuilder(thoughtsAndMessage.getMessage());
-
-			if (!message.getContext().isEmpty()) {
-				sb.append("\n\n# Context:\n");
-				sb.append(message.getContext().stream().map(c -> c.compile(true)).collect(Collectors.joining("\n")));
-			}
-			sb.append(message.getToolCallDetailsAsMarkdown());
-
-			clipboard.setContents(new Object[] { sb.toString() }, new Transfer[] { textTransfer });
+			clipboard.setContents(new Object[] { ChatMarkdownExporter.exportMessage(message) },
+					new Transfer[] { textTransfer });
 			clipboard.dispose();
 		}
 	}
@@ -2048,67 +2342,16 @@ public class ChatView extends ViewPart {
 	 * all messages with their roles, content, context, and tool calls.
 	 */
 	public void copyEntireChatToClipboard() {
-		List<ChatMessage> messages = conversation.getMessages();
-
-		if (messages.isEmpty()) {
+		String markdown = ChatMarkdownExporter.exportConversation(conversation, new Date());
+		if (StringUtils.isBlank(markdown)) {
 			// Optionally show a message that there's nothing to copy
 			return;
-		}
-
-		StringBuilder markdown = new StringBuilder();
-		markdown.append("# Chat Conversation\n\n");
-
-		// Add conversation metadata if available
-		if (conversation.getCaption() != null && !conversation.getCaption().isEmpty()) {
-			markdown.append("**Title:** ").append(conversation.getCaption()).append("\n\n");
-		}
-
-		// Add timestamp
-		markdown.append("**Exported:** ").append(new Date()).append("\n\n");
-		markdown.append("---\n\n");
-
-		// Process each message
-		for (int i = 0; i < messages.size(); i++) {
-			ChatMessage message = messages.get(i);
-
-			// Format message based on role
-			String roleHeader = formatRoleHeader(message.getRole());
-			markdown.append("## ").append(roleHeader).append("\n\n");
-
-			// Add message content
-			MessageContentWithReasoning thoughtsAndMessage = splitThoughtsFromMessage(message);
-			String content = thoughtsAndMessage.getMessage();
-
-			if (content != null && !content.trim().isEmpty()) {
-				markdown.append(content).append("\n\n");
-			}
-
-			// Add context if present
-			if (!message.getContext().isEmpty()) {
-				markdown.append("### Context\n\n");
-				for (MessageContext ctx : message.getContext()) {
-					markdown.append("```\n");
-					markdown.append(ctx.compile(true));
-					markdown.append("\n```\n\n");
-				}
-			}
-
-			// Add tool call details
-			String toolCallDetails = message.getToolCallDetailsAsMarkdown();
-			if (toolCallDetails != null && !toolCallDetails.trim().isEmpty()) {
-				markdown.append(toolCallDetails).append("\n");
-			}
-
-			// Add separator between messages (except for the last one)
-			if (i < messages.size() - 1) {
-				markdown.append("---\n\n");
-			}
 		}
 
 		// Copy to clipboard
 		Clipboard clipboard = new Clipboard(Display.getDefault());
 		TextTransfer textTransfer = TextTransfer.getInstance();
-		clipboard.setContents(new Object[] { markdown.toString() }, new Transfer[] { textTransfer });
+		clipboard.setContents(new Object[] { markdown }, new Transfer[] { textTransfer });
 		clipboard.dispose();
 
 		// Optional: Show confirmation message
@@ -2360,7 +2603,28 @@ public class ChatView extends ViewPart {
 		pendingMessageUpdates.clear();
 		messageRenderExecutor.shutdownNow();
 		executorService.shutdownNow();
+		if (imageAttachmentImage != null && !imageAttachmentImage.isDisposed()) {
+			imageAttachmentImage.dispose();
+		}
 		super.dispose();
+	}
+
+	private Image createImageAttachmentImage() {
+		Image image = new Image(Display.getDefault(), 18, 18);
+		GC gc = new GC(image);
+		try {
+			gc.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WIDGET_BACKGROUND));
+			gc.fillRectangle(0, 0, 18, 18);
+			gc.setForeground(Display.getDefault().getSystemColor(SWT.COLOR_WIDGET_FOREGROUND));
+			gc.drawRectangle(1, 1, 15, 15);
+			gc.drawOval(4, 4, 3, 3);
+			gc.drawLine(2, 15, 7, 10);
+			gc.drawLine(7, 10, 11, 13);
+			gc.drawLine(11, 13, 16, 7);
+		} finally {
+			gc.dispose();
+		}
+		return image;
 	}
 
 	private void createPaperclipBase64() {

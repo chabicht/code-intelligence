@@ -36,7 +36,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
-import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -442,7 +441,11 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 
 			JsonObject jsonMsg = new JsonObject();
 			jsonMsg.addProperty("role", message.getRole().toString().toLowerCase());
-			jsonMsg.addProperty("content", compileMessageContent(message));
+			jsonMsg.addProperty("content", ChatMessagePayloadUtil.compileMessageContent(message));
+			JsonArray images = ChatMessagePayloadUtil.buildOllamaImages(message);
+			if (!images.isEmpty()) {
+				jsonMsg.add("images", images);
+			}
 			if (StringUtils.isNotBlank(message.getThinkingContent())) {
 				jsonMsg.addProperty("thinking", message.getThinkingContent());
 			}
@@ -451,21 +454,6 @@ public class OllamaApiClient extends AbstractApiClient implements IAiApiClient {
 			appendToolResultMessages(messagesJson, message);
 		}
 		return messagesJson;
-	}
-
-	private String compileMessageContent(ChatMessage message) {
-		StringBuilder contentBuilder = new StringBuilder(256);
-		if (!message.getContext().isEmpty()) {
-			contentBuilder.append("Context information:\n\n");
-			for (MessageContext ctx : message.getContext()) {
-				contentBuilder.append(ctx.compile(true));
-				contentBuilder.append("\n");
-			}
-		}
-		if (message.getContent() != null) {
-			contentBuilder.append(message.getContent());
-		}
-		return contentBuilder.toString();
 	}
 
 	private void appendAssistantToolCalls(JsonObject jsonMsg, ChatMessage message) {

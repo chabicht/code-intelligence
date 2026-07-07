@@ -773,15 +773,15 @@ function processCodeBlocks(container) {
  
     for (var i = 0; i < attachmentContainers.length; i++) {
       var attachmentContainer = attachmentContainers[i];
-      const attachmentId = attachmentContainer.id; // Get the UUID from the id attribute
+      const attachmentId = attachmentContainer.id;
  
       attachmentContainer.addEventListener('dblclick', function(event) {
 
         // Prevent the event from bubbling up (important!)
         event.stopPropagation();
 
-        // Call the Java callback with the attachment UUID
-        attachmentDoubleClicked("attachment:" + attachmentId); // Consistent naming
+        // Call the Java callback with the explicit attachment token.
+        attachmentDoubleClicked(attachmentId);
       });
     }
   }

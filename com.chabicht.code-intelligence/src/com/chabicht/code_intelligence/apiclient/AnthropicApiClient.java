@@ -36,7 +36,6 @@ import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch.FunctionCallItem;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
-import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.CompletionPrompt;
 import com.chabicht.code_intelligence.model.CompletionResult;
@@ -381,22 +380,12 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				continue;
 			}
 
-			// Build message text with context
-			StringBuilder contentBuilder = new StringBuilder();
-			if (!msg.getContext().isEmpty()) {
-				contentBuilder.append("Context information:\n\n");
-				for (MessageContext ctx : msg.getContext()) {
-					contentBuilder.append(ctx.compile(true));
-					contentBuilder.append("\n");
-				}
-			}
-			contentBuilder.append(msg.getContent());
-
-			String messageContent = contentBuilder.toString();
+			String messageContent = ChatMessagePayloadUtil.compileMessageContent(msg);
 
 			// Skip if both message content and thinking content are blank
 			if (StringUtils.isBlank(messageContent) && StringUtils.isBlank(msg.getThinkingContent())
-					&& msg.getFunctionCallBatch().isEmpty()) {
+					&& msg.getFunctionCallBatch().isEmpty()
+					&& !ChatMessagePayloadUtil.hasImageAttachments(msg)) {
 				continue;
 			}
 
@@ -423,13 +412,7 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 				}
 			}
 
-			// Add text content block if message content is not blank
-			if (StringUtils.isNotBlank(messageContent)) {
-				JsonObject textContent = new JsonObject();
-				textContent.addProperty("type", "text");
-				textContent.addProperty("text", messageContent);
-				contentArray.add(textContent);
-			}
+			ChatMessagePayloadUtil.addAnthropicTextAndImageBlocks(contentArray, msg, messageContent);
 
 			appendAssistantToolUses(contentArray, msg);
 

@@ -10,6 +10,7 @@ import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCall;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionCallBatch;
 import com.chabicht.code_intelligence.model.ChatConversation.FunctionResult;
+import com.chabicht.code_intelligence.model.ChatConversation.ImageAttachment;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.util.GsonUtil;
 import com.google.gson.Gson;
@@ -84,5 +85,37 @@ public class ChatMessageSerializationCompatibilityTest {
 		assertFalse(json.contains("\"functionCall\""), "New serialization should not emit the legacy singular call field");
 		assertFalse(json.contains("\"functionResult\""),
 				"New serialization should not emit the legacy singular result field");
+	}
+
+	@Test
+	void deserializesLegacyMessageWithoutImageAttachmentsToEmptyList() {
+		String json = """
+				{
+				  "role": "USER",
+				  "content": "hello"
+				}
+				""";
+
+		ChatMessage message = gson.fromJson(json, ChatMessage.class);
+
+		assertTrue(message.getImageAttachments().isEmpty());
+	}
+
+	@Test
+	void serializesImageAttachmentsAndDataUrls() {
+		ChatMessage message = new ChatMessage(Role.USER, "describe");
+		message.getImageAttachments().add(new ImageAttachment("sample.png", "image/png", "iVBORw0KGgo=", 3, 2, 8));
+
+		String json = gson.toJson(message);
+		ChatMessage roundTripped = gson.fromJson(json, ChatMessage.class);
+
+		assertEquals(1, roundTripped.getImageAttachments().size());
+		ImageAttachment attachment = roundTripped.getImageAttachments().get(0);
+		assertEquals("sample.png", attachment.getDisplayName());
+		assertEquals("image/png", attachment.getMediaType());
+		assertEquals("data:image/png;base64,iVBORw0KGgo=", attachment.getDataUrl());
+		assertEquals(3, attachment.getWidth());
+		assertEquals(2, attachment.getHeight());
+		assertEquals(8, attachment.getByteSize());
 	}
 }
