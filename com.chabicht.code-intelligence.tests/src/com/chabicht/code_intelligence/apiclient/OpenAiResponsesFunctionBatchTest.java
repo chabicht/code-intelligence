@@ -30,6 +30,66 @@ import com.google.gson.JsonParser;
 public class OpenAiResponsesFunctionBatchTest {
 
 	@Test
+	void applyReasoningSummaryAndReplayOptionsAddsSummaryAndEncryptedInclude() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = new JsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+
+		invokeApplyReasoningSummaryAndReplayOptions(client, request, options);
+
+		assertEquals("auto", request.getAsJsonObject("reasoning").get("summary").getAsString());
+		assertEquals("reasoning.encrypted_content", request.getAsJsonArray("include").get(0).getAsString());
+	}
+
+	@Test
+	void applyReasoningSummaryAndReplayOptionsLeavesExplicitSummaryUntouched() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = JsonParser.parseString("""
+				{
+				  "reasoning": {
+				    "summary": null
+				  }
+				}
+		""").getAsJsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+
+		invokeApplyReasoningSummaryAndReplayOptions(client, request, options);
+
+		assertTrue(request.getAsJsonObject("reasoning").has("summary"));
+		assertTrue(request.getAsJsonObject("reasoning").get("summary").isJsonNull());
+	}
+
+	@Test
+	void applyReasoningSummaryAndReplayOptionsSkipsSummaryForExplicitNoneEffort() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = new JsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+		options.put(REASONING_EFFORT, ReasoningEffort.NONE);
+
+		invokeApplyReasoningSummaryAndReplayOptions(client, request, options);
+
+		assertFalse(request.has("reasoning"));
+		assertEquals("reasoning.encrypted_content", request.getAsJsonArray("include").get(0).getAsString());
+	}
+
+	@Test
+	void applyReasoningSummaryAndReplayOptionsPreservesExistingIncludeEntries() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		JsonObject request = JsonParser.parseString("""
+				{
+				  "include": ["file_search_call.results"]
+				}
+		""").getAsJsonObject();
+		Map<ChatOption, Object> options = new HashMap<>();
+
+		invokeApplyReasoningSummaryAndReplayOptions(client, request, options);
+
+		JsonArray include = request.getAsJsonArray("include");
+		assertEquals("file_search_call.results", include.get(0).getAsString());
+		assertEquals("reasoning.encrypted_content", include.get(1).getAsString());
+	}
+
+	@Test
 	void applyReasoningOptionsAddsEffortObjectWhenExplicitEffortIsSelected() throws Exception {
 		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
 		JsonObject request = new JsonObject();
@@ -131,6 +191,41 @@ public class OpenAiResponsesFunctionBatchTest {
 	}
 
 	@Test
+	void buildInputItemsForConversationReplaysOpenAiItemsBeforeFunctionOutputs() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		ChatConversation chat = new ChatConversation();
+
+		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
+		assistantMessage.setMetadata("openai_response_replay_items_json", """
+				[
+				  {
+				    "type": "reasoning",
+				    "id": "rs_1",
+				    "encrypted_content": "encrypted"
+				  },
+				  {
+				    "type": "function_call",
+				    "id": "fc_item_1",
+				    "call_id": "call-1",
+				    "name": "find_files",
+				    "arguments": "{\\"query\\":\\"*.java\\"}"
+				  }
+				]
+				""");
+		assistantMessage.setFunctionCallBatch(createBatchWithResults());
+		chat.addMessage(assistantMessage, false);
+
+		JsonArray input = invokeBuildInputItemsForConversation(client, chat);
+
+		assertEquals("reasoning", input.get(0).getAsJsonObject().get("type").getAsString());
+		assertEquals("function_call", input.get(1).getAsJsonObject().get("type").getAsString());
+		assertEquals("call-1", input.get(1).getAsJsonObject().get("call_id").getAsString());
+		assertEquals("function_call", input.get(2).getAsJsonObject().get("type").getAsString());
+		assertEquals("call-2", input.get(2).getAsJsonObject().get("call_id").getAsString());
+		assertEquals(List.of("call-1", "call-2"), collectFunctionCallOutputIds(input));
+	}
+
+	@Test
 	void handleStreamingEventAggregatesMultipleFunctionCallsIntoBatch() throws Exception {
 		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
 		ChatConversation chat = new ChatConversation();
@@ -211,6 +306,88 @@ public class OpenAiResponsesFunctionBatchTest {
 		assertEquals("resp_456", assistantMessage.getMetadata("openai_response_id"));
 	}
 
+	@Test
+	void handleStreamingEventAppendsReasoningSummaryToThinkingContent() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		ChatConversation chat = new ChatConversation();
+		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
+
+		Object accumulator = createAccumulator(client);
+		Method handleStreamingEvent = findHandleStreamingEventMethod(accumulator.getClass());
+
+		invokeHandleStreamingEvent(handleStreamingEvent, client, accumulator, assistantMessage, chat, json("""
+				{
+				  "type": "response.reasoning_summary_text.delta",
+				  "delta": "Looking "
+				}
+				"""));
+		invokeHandleStreamingEvent(handleStreamingEvent, client, accumulator, assistantMessage, chat, json("""
+				{
+				  "type": "response.reasoning_summary_text.delta",
+				  "delta": "at the files."
+				}
+				"""));
+		invokeHandleStreamingEvent(handleStreamingEvent, client, accumulator, assistantMessage, chat, json("""
+				{
+				  "type": "response.reasoning_summary_text.done"
+				}
+				"""));
+
+		assertEquals("Looking at the files.", assistantMessage.getThinkingContent());
+		assertTrue(assistantMessage.isThinkingComplete());
+	}
+
+	@Test
+	void handleStreamingEventStoresReasoningAndFunctionCallsForReplay() throws Exception {
+		OpenAiResponsesApiClient client = new OpenAiResponsesApiClient(createConnection());
+		ChatConversation chat = new ChatConversation();
+		ChatMessage assistantMessage = new ChatMessage(Role.ASSISTANT, "");
+
+		Object accumulator = createAccumulator(client);
+		Method handleStreamingEvent = findHandleStreamingEventMethod(accumulator.getClass());
+
+		invokeHandleStreamingEvent(handleStreamingEvent, client, accumulator, assistantMessage, chat, json("""
+				{
+				  "type": "response.output_item.done",
+				  "output_index": 0,
+				  "item": {
+				    "type": "reasoning",
+				    "id": "rs_1",
+				    "encrypted_content": "encrypted"
+				  }
+				}
+				"""));
+		invokeHandleStreamingEvent(handleStreamingEvent, client, accumulator, assistantMessage, chat, json("""
+				{
+				  "type": "response.function_call_arguments.done",
+				  "output_index": 1,
+				  "item": {
+				    "type": "function_call",
+				    "id": "fc_item_1",
+				    "call_id": "call-1",
+				    "name": "find_files",
+				    "arguments": "{\\"query\\":\\"*.java\\"}"
+				  }
+				}
+				"""));
+		invokeHandleStreamingEvent(handleStreamingEvent, client, accumulator, assistantMessage, chat, json("""
+				{
+				  "type": "response.completed",
+				  "response": {
+				    "id": "resp_456"
+				  }
+				}
+				"""));
+
+		JsonArray replayItems = JsonParser
+				.parseString((String) assistantMessage.getMetadata("openai_response_replay_items_json")).getAsJsonArray();
+		assertEquals("reasoning", replayItems.get(0).getAsJsonObject().get("type").getAsString());
+		assertEquals("encrypted", replayItems.get(0).getAsJsonObject().get("encrypted_content").getAsString());
+		assertEquals("function_call", replayItems.get(1).getAsJsonObject().get("type").getAsString());
+		assertEquals("call-1", replayItems.get(1).getAsJsonObject().get("call_id").getAsString());
+		assertTrue(assistantMessage.isThinkingComplete());
+	}
+
 	private FunctionCallBatch createBatchWithResults() {
 		FunctionCall callOne = new FunctionCall("call-1", "find_files", "{\"query\":\"*.java\"}");
 		FunctionResult resultOne = new FunctionResult("call-1", "find_files");
@@ -267,6 +444,14 @@ public class OpenAiResponsesFunctionBatchTest {
 			Map<ChatOption, Object> options) throws Exception {
 		Method method = OpenAiResponsesApiClient.class.getDeclaredMethod("applyReasoningOptions", JsonObject.class,
 				Map.class);
+		method.setAccessible(true);
+		method.invoke(client, request, options);
+	}
+
+	private void invokeApplyReasoningSummaryAndReplayOptions(OpenAiResponsesApiClient client, JsonObject request,
+			Map<ChatOption, Object> options) throws Exception {
+		Method method = OpenAiResponsesApiClient.class.getDeclaredMethod("applyReasoningSummaryAndReplayOptions",
+				JsonObject.class, Map.class);
 		method.setAccessible(true);
 		method.invoke(client, request, options);
 	}

@@ -118,4 +118,18 @@ public class ChatMessageSerializationCompatibilityTest {
 		assertEquals(2, attachment.getHeight());
 		assertEquals(8, attachment.getByteSize());
 	}
+
+	@Test
+	void toStringOmitsBulkyOpenAiReplayMetadata() {
+		ChatMessage message = new ChatMessage(Role.ASSISTANT, "");
+		message.setThinkingContent("summary");
+		message.setMetadata("openai_response_replay_items_json", "[{\"encrypted_content\":\"secret\"}]");
+		message.setMetadata("openai_response_id", "resp_123");
+
+		String diagnostic = message.toString();
+
+		assertTrue(diagnostic.contains("openai_response_id=resp_123"));
+		assertTrue(diagnostic.contains("openai_response_replay_items_json=<omitted>"));
+		assertFalse(diagnostic.contains("secret"));
+	}
 }
