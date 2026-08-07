@@ -652,8 +652,9 @@ public class ChatView extends ViewPart {
 
 										addConversationToHistory();
 									} else {
-										boolean applyChangesImmediately = !Activator.getDefault().getPreferenceStore()
-												.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
+										boolean applyChangesImmediately = FunctionCallSession.isYoloModeEnabled()
+												|| !Activator.getDefault().getPreferenceStore().getBoolean(
+														PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
 										if (applyChangesImmediately && callbackSession.hasPendingChanges()) {
 											ChangeApplicationResult res = callbackSession.applyPendingChanges();
 											if (res != ChangeApplicationResult.SUCCESS) {

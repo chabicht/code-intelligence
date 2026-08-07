@@ -55,6 +55,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 	private Text txtChatHistorySize;
 	private Button chkChatToolsEnabled;
 	private Button chkChatToolsApplyDeferred;
+	private Button chkChatToolsYolo;
 	private Button chkChatSubmitOnEnter;
 
 	private Button chkDebugLogPrompts;
@@ -122,6 +123,14 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 						If enabled, modifications from tool calls are recorded and provided for review in one, big chunk when the model is finished editing.
 						Otherwise, each modification triggers a separate review dialog as soon as the tool is called.
 						""");
+		chkChatToolsYolo = createBooleanField(main, "YOLO mode: apply all changes without asking",
+				"""
+						If enabled, modifications from tool calls are written immediately, without any review dialog.
+						This disables collecting tool calls, since there is nothing left to review in one chunk.
+						Applied changes can still be reverted via Refactor > Undo.
+						""");
+		chkChatToolsYolo.addSelectionListener(
+				SelectionListener.widgetSelectedAdapter(e -> updateToolApplyModeEnablement()));
 		chkChatSubmitOnEnter = createBooleanField(main, "Submit message on Enter (Shift+Enter for new line)",
 				"""
 						Controls how the Enter key is handled and the current chat message is submitted.
@@ -245,6 +254,18 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		return button;
 	}
 
+	/**
+	 * YOLO mode and collecting tool calls are mutually exclusive: collecting only
+	 * makes sense if a human reviews the collected changes afterwards.
+	 */
+	private void updateToolApplyModeEnablement() {
+		boolean yolo = chkChatToolsYolo.getSelection();
+		if (yolo) {
+			chkChatToolsApplyDeferred.setSelection(false);
+		}
+		chkChatToolsApplyDeferred.setEnabled(!yolo);
+	}
+
 	private void createSeparator(Composite parent) {
 		Label ruler = new Label(parent, SWT.SEPARATOR | SWT.HORIZONTAL);
 		ruler.setLayoutData(new GridData(SWT.FILL, SWT.BOTTOM, true, false, 3, 1));
@@ -267,6 +288,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 		chkChatToolsEnabled.setSelection(store.getBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED));
 		chkChatToolsApplyDeferred.setSelection(store.getBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED));
+		chkChatToolsYolo.setSelection(store.getBoolean(PreferenceConstants.CHAT_TOOLS_YOLO_ENABLED));
+		updateToolApplyModeEnablement();
 		chkChatSubmitOnEnter.setSelection(store.getBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER));
 
 		chkDebugLogPrompts.setSelection(store.getBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));
@@ -311,6 +334,7 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 
 		store.setValue(PreferenceConstants.CHAT_TOOLS_ENABLED, chkChatToolsEnabled.getSelection());
 		store.setValue(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED, chkChatToolsApplyDeferred.getSelection());
+		store.setValue(PreferenceConstants.CHAT_TOOLS_YOLO_ENABLED, chkChatToolsYolo.getSelection());
 		store.setValue(PreferenceConstants.CHAT_SUBMIT_ON_ENTER, chkChatSubmitOnEnter.getSelection());
 
 		store.setValue(PreferenceConstants.DEBUG_LOG_PROMPTS, chkDebugLogPrompts.getSelection());
@@ -342,6 +366,8 @@ public class CodeIntelligencePreferencePage extends PreferencePage implements IW
 		chkChatToolsEnabled.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_TOOLS_ENABLED));
 		chkChatToolsApplyDeferred
 				.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED));
+		chkChatToolsYolo.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_TOOLS_YOLO_ENABLED));
+		updateToolApplyModeEnablement();
 		chkChatSubmitOnEnter.setSelection(store.getDefaultBoolean(PreferenceConstants.CHAT_SUBMIT_ON_ENTER));
 
 		chkDebugLogPrompts.setSelection(store.getDefaultBoolean(PreferenceConstants.DEBUG_LOG_PROMPTS));

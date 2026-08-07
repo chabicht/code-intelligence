@@ -13,6 +13,7 @@ import java.util.function.Function;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.NullProgressMonitor;
@@ -24,7 +25,9 @@ import org.eclipse.jface.text.IDocument;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
 import org.eclipse.ltk.core.refactoring.MultiStateTextFileChange;
+import org.eclipse.ltk.core.refactoring.PerformChangeOperation;
 import org.eclipse.ltk.core.refactoring.Refactoring;
+import org.eclipse.ltk.core.refactoring.RefactoringCore;
 import org.eclipse.ltk.core.refactoring.RefactoringStatus;
 import org.eclipse.ltk.core.refactoring.TextFileChange;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
@@ -939,7 +942,7 @@ public class FunctionCallSession {
 
 		try {
 			if (rootChange.getChildren().length > 0) {
-				return launchRefactoringWizard(rootChange);
+				return isYoloModeEnabled() ? performChangeSilently(rootChange) : launchRefactoringWizard(rootChange);
 			} else {
 				Activator.logInfo("No pending changes from any tool to apply.");
 				return ChangeApplicationResult.SUCCESS;
@@ -1028,15 +1031,8 @@ public class FunctionCallSession {
 	 *         the chat.
 	 */
 	public String getPendingChangesSummary() {
-		List<IFile> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
-		List<String> createdFiles = new ArrayList<>(pendingCreateFileChanges.keySet());
-
-		java.util.Collections.sort(modifiedFiles, (o1, o2) -> {
-			String s1 = o1 == null ? "" : o1.getFullPath().toString();
-			String s2 = o2 == null ? "" : o2.getFullPath().toString();
-			return StringUtils.compare(s1, s2, true);
-		});
-		java.util.Collections.sort(createdFiles);
+		List<IFile> modifiedFiles = getSortedModifiedFiles();
+		List<String> createdFiles = getSortedCreatedFiles();
 
 		if (modifiedFiles.isEmpty() && createdFiles.isEmpty()) {
 			return "Tool usage complete. No file changes were queued.";
@@ -1052,6 +1048,61 @@ public class FunctionCallSession {
 		}
 
 		return summary.toString();
+	}
+
+	private List<IFile> getSortedModifiedFiles() {
+		List<IFile> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
+		java.util.Collections.sort(modifiedFiles, (o1, o2) -> {
+			String s1 = o1 == null ? "" : o1.getFullPath().toString();
+			String s2 = o2 == null ? "" : o2.getFullPath().toString();
+			return StringUtils.compare(s1, s2, true);
+		});
+		return modifiedFiles;
+	}
+
+	private List<String> getSortedCreatedFiles() {
+		List<String> createdFiles = new ArrayList<>(pendingCreateFileChanges.keySet());
+		java.util.Collections.sort(createdFiles);
+		return createdFiles;
+	}
+
+	/**
+	 * Checks whether YOLO mode is enabled, i.e. whether changes should be applied
+	 * without presenting them for review first.
+	 */
+	public static boolean isYoloModeEnabled() {
+		return Activator.getDefault().getPreferenceStore()
+				.getBoolean(PreferenceConstants.CHAT_TOOLS_YOLO_ENABLED);
+	}
+
+	/**
+	 * Applies the change without any confirmation dialog. The undo change is
+	 * registered with the refactoring undo manager, so the result can still be
+	 * reverted via Refactor &gt; Undo, just like the wizard-based path.
+	 */
+	private ChangeApplicationResult performChangeSilently(CompositeChange rootChange) {
+		List<IFile> modifiedFiles = getSortedModifiedFiles();
+		List<String> createdFiles = getSortedCreatedFiles();
+
+		try {
+			PerformChangeOperation operation = new PerformChangeOperation(rootChange);
+			operation.setUndoManager(RefactoringCore.getUndoManager(), "Apply AI Suggested Code Changes");
+			ResourcesPlugin.getWorkspace().run(operation, new NullProgressMonitor());
+
+			StringBuilder applied = new StringBuilder("YOLO mode: applied AI suggested changes without review.");
+			for (String path : createdFiles) {
+				applied.append("\n  created: ").append(path);
+			}
+			for (IFile file : modifiedFiles) {
+				applied.append("\n  modified: ").append(file.getFullPath().toString());
+			}
+			Activator.logInfo(applied.toString());
+
+			return ChangeApplicationResult.SUCCESS;
+		} catch (Exception e) {
+			Activator.logError("Failed to apply AI changes in YOLO mode: " + e.getMessage(), e);
+			return ChangeApplicationResult.ERROR;
+		}
 	}
 
 	private ChangeApplicationResult launchRefactoringWizard(CompositeChange rootChange) {
