@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,6 +55,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 
 public class FunctionCallSession {
+	/** Tools whose results describe a file change that still has to be applied. */
+	public static final Set<String> CHANGE_TOOL_NAMES = Set.of("apply_change", "apply_patch", "create_file");
+
 	public static enum ChangeApplicationResult {
 		SUCCESS, ERROR, CANCEL;
 	}
@@ -584,15 +588,17 @@ public class FunctionCallSession {
 				tfcs.add(tfc);
 
 				result.addPrettyResult("preview", "```diff\n" + prepResult.getDiffPreview() + "\n```", true);
-				result.addPrettyResult("status", "Change Queued", false);
-				jsonResult.addProperty("status", "Queued");
+				addChangeStatus(result, jsonResult, "Change Queued", "Change Applied");
 				messagesWithPendingChanges.add(messageId);
+				String message = decorateChangeMessage(prepResult.getMessage());
+				result.addPrettyResult("message", message, false);
+				jsonResult.addProperty("message", message);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				jsonResult.addProperty("status", "Error");
+				result.addPrettyResult("message", prepResult.getMessage(), false);
+				jsonResult.addProperty("message", prepResult.getMessage());
 			}
-			result.addPrettyResult("message", prepResult.getMessage(), false);
-			jsonResult.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) {
 			String errorMsg = "Error processing apply_change function call: " + e.getMessage();
@@ -645,15 +651,17 @@ public class FunctionCallSession {
 				tfc.setEdit(prepResult.getEdits().get(0)); // Patch tool returns one big ReplaceEdit
 				tfcs.add(tfc);
 
-				result.addPrettyResult("status", "Patch Queued", false);
-				jsonResult.addProperty("status", "Queued");
+				addChangeStatus(result, jsonResult, "Patch Queued", "Patch Applied");
 				messagesWithPendingChanges.add(messageId);
+				String message = decorateChangeMessage(prepResult.getMessage());
+				result.addPrettyResult("message", message, true);
+				jsonResult.addProperty("message", message);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				jsonResult.addProperty("status", "Error");
+				result.addPrettyResult("message", prepResult.getMessage(), true);
+				jsonResult.addProperty("message", prepResult.getMessage());
 			}
-			result.addPrettyResult("message", prepResult.getMessage(), true);
-			jsonResult.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) {
 			String errorMsg = "Error processing apply_patch function call: " + e.getMessage();
@@ -897,15 +905,17 @@ public class FunctionCallSession {
 			JsonObject jsonResponse = new JsonObject();
 			if (prepResult.isSuccess()) {
 				pendingCreateFileChanges.put(filePath, prepResult.getChange());
-				result.addPrettyResult("status", "Queued for Review", false);
-				jsonResponse.addProperty("status", "Queued");
+				addChangeStatus(result, jsonResponse, "Queued for Review", "File Created");
 				messagesWithPendingChanges.add(messageId);
+				String message = decorateChangeMessage(prepResult.getMessage());
+				result.addPrettyResult("message", message, false);
+				jsonResponse.addProperty("message", message);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				jsonResponse.addProperty("status", "Error");
+				result.addPrettyResult("message", prepResult.getMessage(), false);
+				jsonResponse.addProperty("message", prepResult.getMessage());
 			}
-			result.addPrettyResult("message", prepResult.getMessage(), false);
-			jsonResponse.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResponse));
 		} catch (Exception e) {
 			String errorMsg = "Error processing create_file function call: " + e.getMessage();
@@ -1067,6 +1077,82 @@ public class FunctionCallSession {
 	}
 
 	/**
+	 * Sets the status of a successfully prepared change, worded according to the
+	 * current mode: in YOLO mode the change is written right after the batch
+	 * finishes, in every other mode it is queued for review first.
+	 */
+	private void addChangeStatus(FunctionResult result, JsonObject json, String queuedLabel, String appliedLabel) {
+		if (isYoloModeEnabled()) {
+			result.addPrettyResult("status", appliedLabel, false);
+			json.addProperty("status", "Applied");
+		} else {
+			result.addPrettyResult("status", queuedLabel, false);
+			json.addProperty("status", "Queued");
+		}
+	}
+
+	private String decorateChangeMessage(String message) {
+		return isYoloModeEnabled() ? message + "\nWritten directly to the file (YOLO mode, no review)." : message;
+	}
+
+	/**
+	 * Overwrites the status and message of all change-producing tool results in the
+	 * given messages. Used when applying the accumulated changes failed or was
+	 * rejected, so the recorded results don't keep claiming success. Calls that
+	 * already failed during preparation keep their own error.
+	 *
+	 * @return the messages that were actually modified, so callers can re-render
+	 *         them.
+	 */
+	public List<ChatMessage> overwriteChangeResults(List<ChatMessage> messages, String jsonStatus, String prettyStatus,
+			String message) {
+		List<ChatMessage> modified = new ArrayList<>();
+		if (messages == null) {
+			return modified;
+		}
+
+		for (ChatMessage chatMessage : messages) {
+			if (chatMessage == null || chatMessage.getFunctionCallBatch().isEmpty()) {
+				continue;
+			}
+
+			boolean touched = false;
+			for (FunctionCallItem item : chatMessage.getFunctionCallBatch().get().getItems()) {
+				FunctionResult result = item == null ? null : item.getResult();
+				if (result == null || !CHANGE_TOOL_NAMES.contains(result.getFunctionName())) {
+					continue;
+				}
+				if (isErrorResult(result)) {
+					continue;
+				}
+
+				result.addPrettyResult("status", prettyStatus, false);
+				result.addPrettyResult("message", message, false);
+
+				JsonObject json;
+				try {
+					json = gson.fromJson(result.getResultJson(), JsonObject.class);
+				} catch (JsonSyntaxException e) {
+					json = null;
+				}
+				if (json == null) {
+					json = new JsonObject();
+				}
+				json.addProperty("status", jsonStatus);
+				json.addProperty("message", message);
+				result.setResultJson(gson.toJson(json));
+				touched = true;
+			}
+
+			if (touched) {
+				modified.add(chatMessage);
+			}
+		}
+
+		return modified;
+	}
+
+	/**
 	 * Checks whether YOLO mode is enabled, i.e. whether changes should be applied
 	 * without presenting them for review first.
 	 */
@@ -1085,9 +1171,20 @@ public class FunctionCallSession {
 		List<String> createdFiles = getSortedCreatedFiles();
 
 		try {
+			// LTK requires the validation data to be initialized before a change may be
+			// validated or performed. The wizard path gets this for free via
+			// CreateChangeOperation; here we have to do it ourselves.
+			rootChange.initializeValidationData(new NullProgressMonitor());
+
 			PerformChangeOperation operation = new PerformChangeOperation(rootChange);
 			operation.setUndoManager(RefactoringCore.getUndoManager(), "Apply AI Suggested Code Changes");
 			ResourcesPlugin.getWorkspace().run(operation, new NullProgressMonitor());
+
+			if (!operation.changeExecuted()) {
+				Activator.logError("AI changes were not applied in YOLO mode. Validation status: "
+						+ operation.getValidationStatus());
+				return ChangeApplicationResult.ERROR;
+			}
 
 			StringBuilder applied = new StringBuilder("YOLO mode: applied AI suggested changes without review.");
 			for (String path : createdFiles) {
@@ -1102,6 +1199,9 @@ public class FunctionCallSession {
 		} catch (Exception e) {
 			Activator.logError("Failed to apply AI changes in YOLO mode: " + e.getMessage(), e);
 			return ChangeApplicationResult.ERROR;
+		} finally {
+			// Releases the file buffer connections acquired by initializeValidationData().
+			rootChange.dispose();
 		}
 	}
 

@@ -656,9 +656,28 @@ public class ChatView extends ViewPart {
 												|| !Activator.getDefault().getPreferenceStore().getBoolean(
 														PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED);
 										if (applyChangesImmediately && callbackSession.hasPendingChanges()) {
+											List<UUID> changedMessageIds = new ArrayList<>(
+													callbackSession.getMessagesWithPendingChanges());
 											ChangeApplicationResult res = callbackSession.applyPendingChanges();
 											if (res != ChangeApplicationResult.SUCCESS) {
-												abortChat();
+												// Tell the model (and the transcript) that the changes it
+												// prepared did not make it to disk after all.
+												CompletableFuture<Void> corrections = correctChangeResults(
+														callbackSession, callbackConversation, changedMessageIds, res);
+												if (res == ChangeApplicationResult.CANCEL) {
+													// The user deliberately declined: stop the run.
+													corrections.thenRun(() -> runOnUiThread(() -> abortChat()));
+													return;
+												}
+												corrections.thenRun(() -> runOnUiThread(() -> {
+													if (!isCurrentChatSession(generation, callbackConversation,
+															callbackSession)) {
+														return;
+													}
+													chat.markMessageFinished(message.getId());
+													logDebugContinuationRequestBuilt(batchReport);
+													sendFunctionResult(callbackConversation, callbackConnection);
+												}));
 												return;
 											}
 										}
@@ -869,7 +888,7 @@ public class ChatView extends ViewPart {
 							return;
 						}
 						if (!report.isCanceled() && callbackSession.hasPendingChanges()) {
-							callbackSession.applyPendingChanges();
+							applyPendingChangesAndCorrectResults(callbackSession, callbackConversation);
 						}
 						btnSend.setText("\u25B6");
 					}));
@@ -963,7 +982,7 @@ public class ChatView extends ViewPart {
 									return;
 								}
 								if (!report.isCanceled() && callbackSession.hasPendingChanges()) {
-									callbackSession.applyPendingChanges();
+									applyPendingChangesAndCorrectResults(callbackSession, callbackConversation);
 								} else if (!report.isCanceled()) {
 									Log.logInfo("Re-execution finished, but no pending changes were generated.");
 								}
@@ -2640,6 +2659,57 @@ public class ChatView extends ViewPart {
 		paperclipBase64 = java.util.Base64.getEncoder().encodeToString(baos.toByteArray());
 	}
 
+	private static final String APPLY_FAILED_MESSAGE = "The change could NOT be applied; the file is unchanged. "
+			+ "Do not assume your edit took effect.";
+	private static final String APPLY_REJECTED_MESSAGE = "You rejected these changes; the files are unchanged.";
+
+	/**
+	 * Corrects the recorded tool results after applying the accumulated changes did
+	 * not succeed, so neither the model nor a resumed conversation is left with
+	 * results claiming a change that never reached the file, and re-renders the
+	 * affected messages.
+	 *
+	 * @return a future that completes once the corrected messages have been
+	 *         rendered.
+	 */
+	private CompletableFuture<Void> correctChangeResults(FunctionCallSession session,
+			ChatConversation targetConversation, List<UUID> changedMessageIds, ChangeApplicationResult res) {
+		if (res == ChangeApplicationResult.SUCCESS || session == null || targetConversation == null
+				|| changedMessageIds == null || changedMessageIds.isEmpty()) {
+			return CompletableFuture.completedFuture(null);
+		}
+
+		boolean rejected = res == ChangeApplicationResult.CANCEL;
+		Set<UUID> ids = new HashSet<>(changedMessageIds);
+		List<ChatMessage> messages = targetConversation.getMessages().stream().filter(m -> ids.contains(m.getId()))
+				.collect(Collectors.toList());
+
+		List<ChatMessage> modified = session.overwriteChangeResults(messages, rejected ? "Rejected" : "Error",
+				rejected ? "Rejected by User" : "Apply Failed",
+				rejected ? APPLY_REJECTED_MESSAGE : APPLY_FAILED_MESSAGE);
+
+		if (chatListener == null) {
+			return CompletableFuture.completedFuture(null);
+		}
+
+		List<CompletableFuture<Void>> flushes = new ArrayList<>();
+		for (ChatMessage modifiedMessage : modified) {
+			flushes.add(chatListener.queueMessageRender(modifiedMessage, true));
+		}
+		return CompletableFuture.allOf(flushes.toArray(new CompletableFuture[flushes.size()]));
+	}
+
+	/**
+	 * Applies the pending changes of a session that has no continuation to the
+	 * model, correcting the recorded results if the apply failed or was rejected.
+	 */
+	private void applyPendingChangesAndCorrectResults(FunctionCallSession session,
+			ChatConversation targetConversation) {
+		List<UUID> changedMessageIds = new ArrayList<>(session.getMessagesWithPendingChanges());
+		ChangeApplicationResult res = session.applyPendingChanges();
+		correctChangeResults(session, targetConversation, changedMessageIds, res);
+	}
+
 	private void applyPendingChanges() {
 		applyPendingChanges(functionCallSession, conversation);
 	}
@@ -2673,7 +2743,7 @@ public class ChatView extends ViewPart {
 			targetConversation.addMessage(summaryMessage, false); // false because it's a final message
 
 			// 5. Trigger the refactoring dialog as before
-			session.applyPendingChanges();
+			applyPendingChangesAndCorrectResults(session, targetConversation);
 		}
 	}
 

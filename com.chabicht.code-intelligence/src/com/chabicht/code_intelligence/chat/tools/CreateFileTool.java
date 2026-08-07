@@ -96,7 +96,7 @@ public class CreateFileTool {
 
 			Log.logInfo("Prepared CustomCreateFileChange for: " + filePath);
 			return CreateFilePreparationResult
-					.success("File creation for '" + filePath + "' has been queued for review.", change);
+					.success("File creation for '" + filePath + "' has been prepared.", change);
 		} catch (Exception e) {
 			Log.logError("Error preparing CreateFileChange for " + filePath, e);
 			return CreateFilePreparationResult
