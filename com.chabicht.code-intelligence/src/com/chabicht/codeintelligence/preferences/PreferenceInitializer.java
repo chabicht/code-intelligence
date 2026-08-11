@@ -7,6 +7,7 @@ import com.chabicht.code_intelligence.Activator;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions;
 import com.chabicht.code_intelligence.chat.tools.ToolDefinitions.Tool;
 import com.chabicht.code_intelligence.chat.tools.ToolProfile;
+import com.chabicht.code_intelligence.model.ToolCallDetail;
 
 /**
  * Class used to initialize default preference values.
@@ -37,6 +38,9 @@ public class PreferenceInitializer extends AbstractPreferenceInitializer {
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_APPLY_DEFERRED_ENABLED, true);
 		store.setDefault(PreferenceConstants.CHAT_TOOLS_YOLO_ENABLED, false);
 		store.setDefault(PreferenceConstants.CHAT_SUBMIT_ON_ENTER, false);
+
+		store.setDefault(PreferenceConstants.CHAT_COPY_INCLUDE_REASONING, true);
+		store.setDefault(PreferenceConstants.CHAT_COPY_TOOL_CALL_DETAIL, ToolCallDetail.DETAILED.name());
 
 
 		store.setDefault(PreferenceConstants.MAX_FILES_SEARCH_RESULTS, 100);

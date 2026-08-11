@@ -1,5 +1,6 @@
 package com.chabicht.code_intelligence.chat;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -11,8 +12,14 @@ import com.chabicht.code_intelligence.model.ChatConversation.ChatMessage;
 import com.chabicht.code_intelligence.model.ChatConversation.ImageAttachment;
 import com.chabicht.code_intelligence.model.ChatConversation.MessageContext;
 import com.chabicht.code_intelligence.model.ChatConversation.Role;
+import com.chabicht.code_intelligence.model.ToolCallDetail;
+import com.chabicht.code_intelligence.util.ReasoningSplitter;
+import com.chabicht.code_intelligence.util.ReasoningSplitter.MessageContentWithReasoning;
 
 public final class ChatMarkdownExporter {
+
+	/** Heading level of the per-message headings in an exported conversation. */
+	private static final int MESSAGE_HEADING_LEVEL = 2;
 
 	private ChatMarkdownExporter() {
 	}
@@ -27,15 +34,22 @@ public final class ChatMarkdownExporter {
 			markdown.append(message.getContent());
 		}
 
-		appendContextSection(markdown, "# Context:", message.getContext(), true);
+		appendContextSection(markdown, "## Context", message.getContext(), true);
 		appendImageSection(markdown, message.getImageAttachments());
-		markdown.append(message.getToolCallDetailsAsMarkdown());
+		markdown.append(message.getToolCallDetailsAsMarkdown(MESSAGE_HEADING_LEVEL, ToolCallDetail.DETAILED));
 		return markdown.toString();
 	}
 
 	public static String exportConversation(ChatConversation conversation, Date exportedAt) {
+		return exportConversation(conversation, exportedAt, ChatCopyOptions.defaults());
+	}
+
+	public static String exportConversation(ChatConversation conversation, Date exportedAt, ChatCopyOptions options) {
 		if (conversation == null || conversation.getMessages().isEmpty()) {
 			return "";
+		}
+		if (options == null) {
+			options = ChatCopyOptions.defaults();
 		}
 
 		StringBuilder markdown = new StringBuilder();
@@ -48,29 +62,60 @@ public final class ChatMarkdownExporter {
 		markdown.append("**Exported:** ").append(exportedAt == null ? new Date() : exportedAt).append("\n\n");
 		markdown.append("---\n\n");
 
-		List<ChatMessage> messages = conversation.getMessages();
-		for (int i = 0; i < messages.size(); i++) {
-			ChatMessage message = messages.get(i);
-			markdown.append("## ").append(formatRoleHeader(message.getRole())).append("\n\n");
-
-			if (StringUtils.isNotBlank(message.getContent())) {
-				markdown.append(message.getContent()).append("\n\n");
-			}
-
-			appendContextSection(markdown, "### Context", message.getContext(), false);
-			appendImageSection(markdown, message.getImageAttachments());
-
-			String toolCallDetails = message.getToolCallDetailsAsMarkdown();
-			if (StringUtils.isNotBlank(toolCallDetails)) {
-				markdown.append(toolCallDetails).append("\n");
-			}
-
-			if (i < messages.size() - 1) {
-				markdown.append("---\n\n");
+		// Render first, then drop the messages that ended up without any payload, so
+		// that no stray separators remain.
+		List<String> renderedMessages = new ArrayList<>();
+		for (ChatMessage message : conversation.getMessages()) {
+			String rendered = renderMessage(message, options);
+			if (StringUtils.isNotBlank(rendered)) {
+				renderedMessages.add(rendered);
 			}
 		}
 
+		markdown.append(String.join("---\n\n", renderedMessages));
+
 		return markdown.toString();
+	}
+
+	/**
+	 * Renders a single message including its role heading, or an empty string if
+	 * nothing is left of it under the given options.
+	 */
+	private static String renderMessage(ChatMessage message, ChatCopyOptions options) {
+		MessageContentWithReasoning split = ReasoningSplitter.split(message);
+
+		StringBuilder body = new StringBuilder();
+
+		if (options.isIncludeReasoning() && StringUtils.isNotBlank(split.getThoughts())) {
+			body.append("> ").append(headingPrefix(MESSAGE_HEADING_LEVEL + 1)).append("💭 Reasoning\n");
+			appendBlockquote(body, split.getThoughts());
+			body.append("\n");
+		}
+
+		if (StringUtils.isNotBlank(split.getMessage())) {
+			body.append(split.getMessage().strip()).append("\n\n");
+		}
+
+		appendContextSection(body, headingPrefix(MESSAGE_HEADING_LEVEL + 1) + "Context", message.getContext(), false);
+		appendImageSection(body, message.getImageAttachments());
+
+		String toolCallDetails = message.getToolCallDetailsAsMarkdown(MESSAGE_HEADING_LEVEL + 1,
+				options.getToolCallDetail());
+		if (StringUtils.isNotBlank(toolCallDetails)) {
+			body.append(toolCallDetails.strip()).append("\n\n");
+		}
+
+		if (StringUtils.isBlank(body)) {
+			return "";
+		}
+
+		return headingPrefix(MESSAGE_HEADING_LEVEL) + formatRoleHeader(message.getRole()) + "\n\n" + body;
+	}
+
+	private static void appendBlockquote(StringBuilder markdown, String text) {
+		for (String line : text.strip().split("\\r?\\n")) {
+			markdown.append("> ").append(line).append("\n");
+		}
 	}
 
 	private static void appendContextSection(StringBuilder markdown, String heading, List<MessageContext> contexts,
@@ -116,6 +161,10 @@ public final class ChatMarkdownExporter {
 		if (!markdown.toString().endsWith("\n\n")) {
 			markdown.append("\n\n");
 		}
+	}
+
+	private static String headingPrefix(int level) {
+		return "#".repeat(Math.max(1, level)) + " ";
 	}
 
 	private static String escapeMarkdownAlt(String value) {

@@ -346,26 +346,42 @@ public class ChatConversation {
 		}
 
 		public String getToolCallDetailsAsMarkdown() {
+			return getToolCallDetailsAsMarkdown(2, ToolCallDetail.DETAILED);
+		}
+
+		/**
+		 * Renders the tool calls of this message as markdown.
+		 *
+		 * @param headingLevel heading level for the "Tool Call" headings; parameters and
+		 *                     results are rendered one level deeper
+		 * @param detail       how much of each call to render
+		 */
+		public String getToolCallDetailsAsMarkdown(int headingLevel, ToolCallDetail detail) {
+			if (detail == ToolCallDetail.OFF) {
+				return "";
+			}
+
 			List<FunctionCallBatch.FunctionCallItem> callableItems = getCallableFunctionItems();
 			if (callableItems.isEmpty()) {
 				return "";
 			}
 
+			int subHeadingLevel = headingLevel + 1;
 			StringBuilder sb = new StringBuilder();
 			for (int i = 0; i < callableItems.size(); i++) {
 				FunctionCallBatch.FunctionCallItem item = callableItems.get(i);
 				FunctionCall call = item.getCall();
 				FunctionResult result = item.getResult();
 
-				sb.append("\n\n## Tool Call");
+				sb.append("\n\n> ").append(headingPrefix(headingLevel)).append("🛠️ Tool Call");
 				if (callableItems.size() > 1) {
 					sb.append(" ").append(i + 1).append("/").append(callableItems.size());
 				}
 				sb.append(" ").append(call.getFunctionName()).append("\n");
-				sb.append(call.getParamsAsMarkdown());
+				sb.append(call.getParamsAsMarkdown(subHeadingLevel, detail));
 
 				if (result != null) {
-					sb.append(result.getResultsAsMarkdown());
+					sb.append(result.getResultsAsMarkdown(subHeadingLevel, detail));
 				}
 			}
 			return sb.toString();
@@ -561,12 +577,16 @@ public class ChatConversation {
 		}
 
 		public String getParamsAsMarkdown() {
+			return getParamsAsMarkdown(3, ToolCallDetail.DETAILED);
+		}
+
+		public String getParamsAsMarkdown(int headingLevel, ToolCallDetail detail) {
 			if (getPrettyParams().isEmpty()) {
 				return "";
 			}
-			StringBuilder sb = new StringBuilder("### Parameters\n");
+			StringBuilder sb = new StringBuilder("> ").append(headingPrefix(headingLevel)).append("Parameters\n");
 			for (Map.Entry<String, FunctionParamValue> entry : getPrettyParams().entrySet()) {
-				entry.getValue().appendMarkdown(sb, entry.getKey());
+				appendValue(sb, entry.getKey(), entry.getValue(), detail);
 			}
 			return sb.toString();
 		}
@@ -618,12 +638,16 @@ public class ChatConversation {
 		}
 
 		public String getResultsAsMarkdown() {
+			return getResultsAsMarkdown(3, ToolCallDetail.DETAILED);
+		}
+
+		public String getResultsAsMarkdown(int headingLevel, ToolCallDetail detail) {
 			if (getPrettyResults().isEmpty()) {
 				return "";
 			}
-			StringBuilder sb = new StringBuilder("### Results\n");
+			StringBuilder sb = new StringBuilder("> ").append(headingPrefix(headingLevel)).append("Results\n");
 			for (Map.Entry<String, FunctionParamValue> entry : getPrettyResults().entrySet()) {
-				entry.getValue().appendMarkdown(sb, entry.getKey());
+				appendValue(sb, entry.getKey(), entry.getValue(), detail);
 			}
 			return sb.toString();
 		}
@@ -811,7 +835,7 @@ public class ChatConversation {
 			String contentIndent = "  "; // Indentation for content lines under the key, relative to the key's base
 											// indent.
 
-			sb.append("  **").append(key).append(":** ");
+			sb.append(">  **").append(key).append(":** ");
 
 			if (this.isMarkdown()) {
 				boolean isAlreadyCodeBlock = value.trim().startsWith("```") && value.trim().endsWith("```");
@@ -820,7 +844,7 @@ public class ChatConversation {
 					// Value is already a complete ```code block```
 					// Indent each line of the existing code block
 					for (String line : value.split("\\r?\\n")) {
-						sb.append(contentIndent).append(line).append("\n");
+						sb.append("> ").append(contentIndent).append(line).append("\n");
 					}
 				} else {
 					// Value is markdown, but not a pre-formatted code block. Wrap it.
@@ -841,15 +865,53 @@ public class ChatConversation {
 
 				if (isNumeric || isShort) {
 					// Simple, single-line value, append directly after "key: "
-					sb.append(value).append("  \n");
+					sb.append("> ").append(value).append("  \n");
 				} else {
 					// Longer, non-markdown text, format as blockquote on new lines
 					sb.append("\n"); // Start blockquote on a new line after "key: "
 					for (String line : value.split("\\r?\\n")) {
-						sb.append(contentIndent).append("> ").append(line).append("\n");
+						sb.append("> ").append(contentIndent).append("> ").append(line).append("\n");
 					}
 				}
 			}
+		}
+
+		/**
+		 * Appends a compact form of this value: short single-line values are kept
+		 * verbatim, bulky ones are replaced by a placeholder stating what was omitted.
+		 */
+		public void appendBriefMarkdown(StringBuilder sb, String key) {
+			String value = StringUtils.defaultString(this.getValue());
+
+			sb.append(">   **").append(key).append(":** ");
+
+			if (isShortValue(value)) {
+				sb.append(value).append("  \n");
+			} else {
+				int lines = value.split("\\r?\\n").length;
+				sb.append("_(omitted, ").append(lines).append(lines == 1 ? " line)_" : " lines)_").append("  \n");
+			}
+		}
+
+		private static boolean isShortValue(String value) {
+			return value.length() < 120 && !value.contains("\n");
+		}
+	}
+
+	/** e.g. {@code "### "} for level 3. */
+	private static String headingPrefix(int level) {
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < Math.max(1, level); i++) {
+			sb.append("#");
+		}
+		return sb.append(" ").toString();
+	}
+
+	private static void appendValue(StringBuilder sb, String key, FunctionParamValue value, ToolCallDetail detail) {
+		if (detail == ToolCallDetail.BRIEF) {
+			value.appendBriefMarkdown(sb, key);
+		} else {
+			value.appendMarkdown(sb, key);
 		}
 	}
 

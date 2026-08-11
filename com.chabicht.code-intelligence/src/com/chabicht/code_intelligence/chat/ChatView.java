@@ -28,8 +28,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.commons.beanutils.BeanUtils;
@@ -45,6 +43,7 @@ import org.eclipse.jdt.core.formatter.CodeFormatter;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.layout.GridDataFactory;
+import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.resource.LocalResourceManager;
@@ -138,8 +137,11 @@ import com.chabicht.code_intelligence.model.ChatConversation.Role;
 import com.chabicht.code_intelligence.model.ChatHistoryEntry;
 import com.chabicht.code_intelligence.model.PromptTemplate;
 import com.chabicht.code_intelligence.model.PromptType;
+import com.chabicht.code_intelligence.model.ToolCallDetail;
 import com.chabicht.code_intelligence.util.Log;
 import com.chabicht.code_intelligence.util.MarkdownUtil;
+import com.chabicht.code_intelligence.util.ReasoningSplitter;
+import com.chabicht.code_intelligence.util.ReasoningSplitter.MessageContentWithReasoning;
 import com.chabicht.code_intelligence.util.ModelUtil;
 import com.chabicht.code_intelligence.util.ThemeUtil;
 import com.chabicht.codeintelligence.preferences.PreferenceConstants;
@@ -149,11 +151,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 
 public class ChatView extends ViewPart {
-	private static final Pattern PATTERN_THINK_START = Pattern.compile("<think>|<\\|begin_of_thought\\|>|<thought>");
-	private static final Pattern PATTERN_THINK_END = Pattern.compile("<[/]think>|<\\|end_of_thought\\|>|</thought>");
-	private static final Pattern PATTERN_TAGS_TO_REMOVE = Pattern
-			.compile("<\\|begin_of_solution\\|>|<\\|end_of_solution\\|>");
-
 	private static final int MIN_UPPER_HEIGHT = 90;
 	private static final int MIN_LOWER_HEIGHT = 130;
 	private static final int BUTTON_SIZE = 40;
@@ -1077,30 +1074,6 @@ public class ChatView extends ViewPart {
 		return prettyJson;
 	}
 
-	private static class MessageContentWithReasoning {
-		private final String thoughts;
-		private final String message;
-		private final boolean endOfReasoningReached;
-
-		public MessageContentWithReasoning(String thoughts, String message, boolean endOfReasoningReached) {
-			this.thoughts = thoughts;
-			this.message = message;
-			this.endOfReasoningReached = endOfReasoningReached;
-		}
-
-		public String getThoughts() {
-			return thoughts;
-		}
-
-		public String getMessage() {
-			return message;
-		}
-
-		public boolean isEndOfReasoningReached() {
-			return endOfReasoningReached;
-		}
-	};
-
 	private void addConversationToHistory() {
 		addCaptionForConversationInBackgroundAndAddToHistory();
 	}
@@ -1256,9 +1229,10 @@ public class ChatView extends ViewPart {
 		gd_btnCopyAll.heightHint = BUTTON_SIZE;
 		gd_btnCopyAll.widthHint = BUTTON_SIZE;
 		btnCopyAll.setLayoutData(gd_btnCopyAll);
-		btnCopyAll.setToolTipText("Copy entire conversation to clipboard");
+		btnCopyAll.setToolTipText("Copy entire conversation to clipboard (right-click for options)");
 		btnCopyAll.setImage(copyImage);
 		btnCopyAll.setFont(smallButtonSymbolFont);
+		addCopyOptionsMenu(btnCopyAll);
 
 		// --- Sash ---
 		final Sash sash = new Sash(outer, SWT.HORIZONTAL);
@@ -2362,8 +2336,44 @@ public class ChatView extends ViewPart {
 	 * Copies the entire chat conversation to clipboard in markdown format. Includes
 	 * all messages with their roles, content, context, and tool calls.
 	 */
+	/**
+	 * Attaches the context menu that configures what {@link #copyEntireChatToClipboard()}
+	 * puts on the clipboard.
+	 */
+	private void addCopyOptionsMenu(Button btnCopyAll) {
+		btnCopyAll.addMenuDetectListener(event -> {
+			IPreferenceStore store = Activator.getDefault().getPreferenceStore();
+			Menu menu = new Menu(btnCopyAll.getShell(), SWT.POP_UP);
+
+			MenuItem reasoningItem = new MenuItem(menu, SWT.CHECK);
+			reasoningItem.setText("Include reasoning");
+			reasoningItem.setSelection(store.getBoolean(PreferenceConstants.CHAT_COPY_INCLUDE_REASONING));
+			reasoningItem.addListener(SWT.Selection, evt -> store
+					.setValue(PreferenceConstants.CHAT_COPY_INCLUDE_REASONING, reasoningItem.getSelection()));
+
+			new MenuItem(menu, SWT.SEPARATOR);
+
+			ToolCallDetail currentDetail = ToolCallDetail
+					.fromString(store.getString(PreferenceConstants.CHAT_COPY_TOOL_CALL_DETAIL), ToolCallDetail.DETAILED);
+			for (ToolCallDetail detail : ToolCallDetail.values()) {
+				MenuItem detailItem = new MenuItem(menu, SWT.RADIO);
+				detailItem.setText("Tool calls: " + detail.name().toLowerCase());
+				detailItem.setSelection(detail == currentDetail);
+				detailItem.addListener(SWT.Selection, evt -> {
+					if (detailItem.getSelection()) {
+						store.setValue(PreferenceConstants.CHAT_COPY_TOOL_CALL_DETAIL, detail.name());
+					}
+				});
+			}
+
+			menu.setLocation(event.x, event.y);
+			menu.setVisible(true);
+		});
+	}
+
 	public void copyEntireChatToClipboard() {
-		String markdown = ChatMarkdownExporter.exportConversation(conversation, new Date());
+		String markdown = ChatMarkdownExporter.exportConversation(conversation, new Date(),
+				ChatCopyOptions.fromPreferences());
 		if (StringUtils.isBlank(markdown)) {
 			// Optionally show a message that there's nothing to copy
 			return;
@@ -2557,52 +2567,16 @@ public class ChatView extends ViewPart {
 	}
 
 	private MessageContentWithReasoning splitThoughtsFromMessage(ChatMessage message) {
-		if (StringUtils.isNotBlank(message.getThinkingContent())) {
-			return new MessageContentWithReasoning(message.getThinkingContent(), StringUtils.defaultString(message.getContent()), message.isThinkingComplete());
-		}
-		return splitThoughtsFromMessage(message.getContent());
+		return ReasoningSplitter.split(message);
 	}
 
 	private MessageContentWithReasoning splitThoughtsFromMessage(MessageRenderSnapshot message) {
-		if (StringUtils.isNotBlank(message.getThinkingContent())) {
-			return new MessageContentWithReasoning(message.getThinkingContent(), StringUtils.defaultString(message.getContent()), message.isThinkingComplete());
-		}
-		return splitThoughtsFromMessage(message.getContent());
+		return ReasoningSplitter.split(message.getContent(), message.getThinkingContent(),
+				message.isThinkingComplete());
 	}
 
-
-
 	private MessageContentWithReasoning splitThoughtsFromMessage(String content) {
-		content = StringUtils.stripToEmpty(content);
-		Matcher thinkStartMatcher = PATTERN_THINK_START.matcher(content);
-		Matcher thinkEndMatcher = PATTERN_THINK_END.matcher(content);
-
-		String thinkContent = "";
-		String messageContent = content;
-		boolean endOfThinkingReached = false;
-		match_found: if (thinkStartMatcher.find()) {
-
-			// If we encounter a start tag in the middle of a conversation, it's probably a
-			// model talking about reasoning.
-			if ((thinkStartMatcher.start() > 0)) {
-				break match_found;
-			}
-
-			if (thinkEndMatcher.find()) {
-				int endPosition = thinkEndMatcher.start();
-				thinkContent = messageContent.substring(thinkStartMatcher.end(), endPosition);
-				messageContent = messageContent.substring(thinkEndMatcher.end());
-				endOfThinkingReached = true;
-			} else {
-				thinkContent = messageContent.substring(thinkStartMatcher.end());
-				messageContent = "";
-			}
-		}
-		messageContent = PATTERN_TAGS_TO_REMOVE.matcher(messageContent).replaceAll("");
-
-		MessageContentWithReasoning thoughtsAndMessage = new MessageContentWithReasoning(thinkContent, messageContent,
-				endOfThinkingReached);
-		return thoughtsAndMessage;
+		return ReasoningSplitter.split(content);
 	}
 
 	@Override
