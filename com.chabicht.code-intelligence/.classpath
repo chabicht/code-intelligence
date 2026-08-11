@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry exported="true" kind="lib" path="lib/java-diff-utils-4.16.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/commonmark-0.27.0.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/commonmark-ext-gfm-strikethrough-0.27.0.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/commonmark-ext-gfm-tables-0.27.0.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/commons-text-1.13.1.jar" sourcepath="C:/Users/chabicht/java/source/commons-text-1.13.1-sources.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/java-diff-utils-4.17.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/commonmark-0.30.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/commonmark-ext-gfm-strikethrough-0.30.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/commonmark-ext-gfm-tables-0.30.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/commons-lang3-3.20.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/commons-text-1.15.0.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/jmustache-1.16.jar"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-17"/>
 	<classpathentry kind="con" path="org.eclipse.pde.core.requiredPlugins"/>

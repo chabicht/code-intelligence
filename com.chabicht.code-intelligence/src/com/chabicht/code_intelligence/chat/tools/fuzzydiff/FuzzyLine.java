@@ -9,8 +9,17 @@ import java.util.Objects;
 public class FuzzyLine implements java.io.Serializable, Comparable<FuzzyLine>, CharSequence {
 	private final String originalLine;
 
+	/**
+	 * The representation two fuzzy lines are compared by: surrounding whitespace is
+	 * irrelevant, and so is case (the latter is handled by the comparison itself).
+	 * Precomputed because applying a patch compares every document line against the
+	 * patch chunks over and over.
+	 */
+	private final String normalizedLine;
+
 	public FuzzyLine(String originalLine) {
 		this.originalLine = originalLine;
+		this.normalizedLine = originalLine == null ? "" : originalLine.trim();
 	}
 
 	@Override
@@ -21,10 +30,15 @@ public class FuzzyLine implements java.io.Serializable, Comparable<FuzzyLine>, C
 	@Override
 	public boolean equals(Object obj) {
 		if (obj != null && obj instanceof FuzzyLine fl) {
-			return fl.originalLine.trim().equalsIgnoreCase(this.originalLine);
+			return fl.normalizedLine.equalsIgnoreCase(this.normalizedLine);
 		} else {
 			return Objects.equals(this.originalLine, obj);
 		}
+	}
+
+	@Override
+	public int hashCode() {
+		return normalizedLine.toLowerCase().hashCode();
 	}
 
 	@Override

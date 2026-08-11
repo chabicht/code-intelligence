@@ -497,7 +497,7 @@ public class TestFile implements IFile {
 
 	@Override
 	public IPath getFullPath() {
-		return null;
+		return new Path("/test/" + name);
 	}
 
 	@Override
