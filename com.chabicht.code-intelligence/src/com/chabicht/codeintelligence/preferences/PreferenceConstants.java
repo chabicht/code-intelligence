@@ -21,6 +21,7 @@ public class PreferenceConstants {
 	public static final String CHAT_TOOL_ENABLED_SUFFIX = "enabled";
 	public static final String CHAT_TOOL_PROFILE = "chatToolProfile";
 	public static final String CHAT_TOOLS_APPLY_DEFERRED_ENABLED = "chatToolsApplyDeferredEnabled";
+	public static final String CHAT_TOOLS_YOLO_ENABLED = "chatToolsYoloEnabled";
 	public static final String CHAT_SUBMIT_ON_ENTER = "chatSubmitOnEnter";
 	public static final String FAVORITE_MODELS = "favoriteModels";
 

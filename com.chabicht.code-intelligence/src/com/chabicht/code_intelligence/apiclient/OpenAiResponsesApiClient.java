@@ -12,6 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,6 +51,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 
 	private static final String RESPONSES_REL_PATH = "responses";
 	private static final String META_OPENAI_RESPONSE_ID = "openai_response_id";
+	private static final String META_OPENAI_RESPONSE_REPLAY_ITEMS_JSON = "openai_response_replay_items_json";
+	private static final String INCLUDE_REASONING_ENCRYPTED_CONTENT = "reasoning.encrypted_content";
 
 	private static final Set<String> INCOMPATIBLE_PRESET_KEYS = Set.of("messages", "functions", "function_call",
 			"max_completion_tokens", "stream_options");
@@ -298,6 +301,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 
 		Map<ChatOption, Object> options = chat.getOptions();
 		applyReasoningOptions(req, options);
+		applyReasoningSummaryAndReplayOptions(req, options);
 		if (options.containsKey(TOOLS_ENABLED) && Boolean.TRUE.equals(options.get(TOOLS_ENABLED))) {
 			ToolProfile profile = (ToolProfile) options.getOrDefault(TOOL_PROFILE, ToolProfile.ALL);
 			patchMissingProperties(req, ToolDefinitions.getInstance().getToolDefinitionsOpenAi(profile));
@@ -348,6 +352,46 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		}
 	}
 
+	private void applyReasoningSummaryAndReplayOptions(JsonObject req, Map<ChatOption, Object> options) {
+		if (!isReasoningExplicitlyNone(req, options)) {
+			JsonObject reasoning = getOrAddJsonObject(req, "reasoning");
+			if (!reasoning.has("summary")) {
+				reasoning.addProperty("summary", "auto");
+			}
+		}
+		appendIncludeValue(req, INCLUDE_REASONING_ENCRYPTED_CONTENT);
+	}
+
+	private boolean isReasoningExplicitlyNone(JsonObject req, Map<ChatOption, Object> options) {
+		Object effortOption = options != null ? options.get(REASONING_EFFORT) : null;
+		if (effortOption instanceof ReasoningEffort reasoningEffort && ReasoningEffort.NONE.equals(reasoningEffort)) {
+			return true;
+		}
+
+		JsonObject reasoning = getObject(req, "reasoning");
+		return reasoning != null && StringUtils.equals("none", getString(reasoning, "effort"));
+	}
+
+	private void appendIncludeValue(JsonObject req, String includeValue) {
+		JsonArray include;
+		if (req.has("include") && req.get("include").isJsonArray()) {
+			include = req.getAsJsonArray("include");
+		} else {
+			include = new JsonArray();
+			if (req.has("include") && !req.get("include").isJsonNull()) {
+				include.add(req.get("include").deepCopy());
+			}
+			req.add("include", include);
+		}
+
+		for (JsonElement element : include) {
+			if (element.isJsonPrimitive() && StringUtils.equals(includeValue, element.getAsString())) {
+				return;
+			}
+		}
+		include.add(includeValue);
+	}
+
 	private JsonArray buildIncrementalInputItems(ChatConversation chat, String previousResponseId) {
 		JsonArray input = new JsonArray();
 		List<ChatMessage> messages = chat.getMessages();
@@ -384,6 +428,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			if (Role.USER.equals(message.getRole())) {
 				input.add(buildUserMessageItem(message));
 			} else if (Role.ASSISTANT.equals(message.getRole())) {
+				appendReplayItemsAndFunctionCalls(input, message);
 				String assistantText = StringUtils.trimToEmpty(message.getContent());
 				if (StringUtils.isNotBlank(assistantText)) {
 					input.add(buildMessageItem("assistant", assistantText));
@@ -396,6 +441,63 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 
 	private void appendFunctionCallOutputs(JsonArray input, ChatMessage message) {
 		appendBatchFunctionCallOutputs(input, message);
+	}
+
+	private void appendReplayItemsAndFunctionCalls(JsonArray input, ChatMessage message) {
+		Set<String> replayedCallIds = appendOpenAiReplayItems(input, message);
+		appendReconstructedFunctionCallItems(input, message, replayedCallIds);
+	}
+
+	private Set<String> appendOpenAiReplayItems(JsonArray input, ChatMessage message) {
+		Set<String> replayedFunctionCallIds = new HashSet<>();
+		Object replayItemsJson = message != null ? message.getMetadata(META_OPENAI_RESPONSE_REPLAY_ITEMS_JSON) : null;
+		if (!(replayItemsJson instanceof String replayItemsString) || StringUtils.isBlank(replayItemsString)) {
+			return replayedFunctionCallIds;
+		}
+
+		try {
+			JsonElement replayItems = JsonParser.parseString(replayItemsString);
+			if (!replayItems.isJsonArray()) {
+				return replayedFunctionCallIds;
+			}
+			for (JsonElement replayItemElement : replayItems.getAsJsonArray()) {
+				if (!replayItemElement.isJsonObject()) {
+					continue;
+				}
+				JsonObject replayItem = replayItemElement.getAsJsonObject();
+				if (!isReplayableResponseItem(replayItem)) {
+					continue;
+				}
+				input.add(replayItem.deepCopy());
+				if ("function_call".equals(getString(replayItem, "type"))) {
+					String callId = getString(replayItem, "call_id");
+					if (StringUtils.isNotBlank(callId)) {
+						replayedFunctionCallIds.add(callId);
+					}
+				}
+			}
+		} catch (JsonSyntaxException e) {
+			Activator.logWarn("Could not parse OpenAI Responses replay metadata.");
+		}
+		return replayedFunctionCallIds;
+	}
+
+	private void appendReconstructedFunctionCallItems(JsonArray input, ChatMessage message,
+			Set<String> replayedFunctionCallIds) {
+		if (message == null || message.getFunctionCallBatch().isEmpty()) {
+			return;
+		}
+
+		for (FunctionCallItem item : message.getFunctionCallBatch().get().getItems()) {
+			if (item == null || item.getCall() == null) {
+				continue;
+			}
+			FunctionCall call = item.getCall();
+			if (replayedFunctionCallIds.contains(call.getId())) {
+				continue;
+			}
+			input.add(buildFunctionCallItem(call));
+		}
 	}
 
 	private boolean appendBatchFunctionCallOutputs(JsonArray input, ChatMessage message) {
@@ -439,6 +541,15 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		item.addProperty("type", "function_call_output");
 		item.addProperty("call_id", functionResult.getId());
 		item.addProperty("output", StringUtils.defaultString(functionResult.getResultJson()));
+		return item;
+	}
+
+	private JsonObject buildFunctionCallItem(FunctionCall functionCall) {
+		JsonObject item = new JsonObject();
+		item.addProperty("type", "function_call");
+		item.addProperty("call_id", functionCall.getId());
+		item.addProperty("name", functionCall.getFunctionName());
+		item.addProperty("arguments", StringUtils.defaultIfBlank(functionCall.getArgsJson(), "{}"));
 		return item;
 	}
 
@@ -513,6 +624,22 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			return;
 		}
 
+		if ("response.reasoning_summary_text.delta".equals(type)) {
+			if (payload.has("delta") && !payload.get("delta").isJsonNull()) {
+				assistantMessage.setThinkingContent(
+						StringUtils.defaultString(assistantMessage.getThinkingContent()) + payload.get("delta").getAsString());
+				assistantMessage.setThinkingComplete(false);
+				chat.notifyMessageUpdated(assistantMessage);
+			}
+			return;
+		}
+
+		if ("response.reasoning_summary_text.done".equals(type)) {
+			assistantMessage.setThinkingComplete(true);
+			chat.notifyMessageUpdated(assistantMessage);
+			return;
+		}
+
 		if ("response.function_call_arguments.delta".equals(type)) {
 			toolCallAccumulator.applyArgumentsDelta(payload);
 			return;
@@ -533,7 +660,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			if (StringUtils.isNotBlank(responseId)) {
 				assistantMessage.setMetadata(META_OPENAI_RESPONSE_ID, responseId);
 			}
-			toolCallAccumulator.markResponseCompleted();
+			assistantMessage.setThinkingComplete(true);
+			toolCallAccumulator.markResponseCompleted(payload);
 			toolCallAccumulator.finalizeIfComplete(assistantMessage, chat);
 			return;
 		}
@@ -586,6 +714,11 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			return false;
 		}
 		return body.contains("previous_response_not_found");
+	}
+
+	private static boolean isReplayableResponseItem(JsonObject item) {
+		String type = getString(item, "type");
+		return StringUtils.isNotBlank(type) && !"message".equals(type) && !"function_call_output".equals(type);
 	}
 
 	private void logDebugInputSummary(boolean usedPreviousResponseId, JsonArray input) {
@@ -687,6 +820,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 
 		private final Map<Integer, PendingToolCall> callsByOutputIndex = new TreeMap<>();
 		private final Map<String, Integer> outputIndexByItemId = new HashMap<>();
+		private final Map<Integer, JsonObject> replayItemsByOutputIndex = new TreeMap<>();
 		private int nextSyntheticIndex = SYNTHETIC_INDEX_START;
 
 		private boolean responseCompleted;
@@ -698,6 +832,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			if (item == null) {
 				item = payload;
 			}
+			recordReplayItem(payload, item);
 			if (item == null || !"function_call".equals(getString(item, "type"))) {
 				return;
 			}
@@ -722,6 +857,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 		private void applyDoneEvent(JsonObject payload) {
 			JsonObject item = getObject(payload, "item");
 			if (item != null) {
+				recordReplayItem(payload, item);
 				String type = getString(item, "type");
 				if (StringUtils.isNotBlank(type) && !"function_call".equals(type)) {
 					return;
@@ -740,7 +876,8 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			}
 		}
 
-		private void markResponseCompleted() {
+		private void markResponseCompleted(JsonObject payload) {
+			recordResponseOutputReplayItems(payload);
 			responseCompleted = true;
 		}
 
@@ -756,6 +893,11 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 				return;
 			}
 
+			String replayItemsJson = buildReplayItemsJson();
+			if (StringUtils.isNotBlank(replayItemsJson)) {
+				assistantMessage.setMetadata(META_OPENAI_RESPONSE_REPLAY_ITEMS_JSON, replayItemsJson);
+			}
+
 			FunctionCallBatch batch = new FunctionCallBatch();
 			for (PendingToolCall pendingCall : callsByOutputIndex.values()) {
 				FunctionCall functionCall = pendingCall.toFunctionCall();
@@ -764,6 +906,7 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 				}
 			}
 			if (batch.getItems().isEmpty()) {
+				finalized = true;
 				return;
 			}
 
@@ -772,6 +915,69 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 			logDebugBatchParsed(assistantMessage, batch);
 			chat.notifyFunctionCalled(assistantMessage);
 			finalized = true;
+		}
+
+		private void recordReplayItem(JsonObject payload, JsonObject item) {
+			if (item == null || !isReplayableResponseItem(item)) {
+				return;
+			}
+
+			int outputIndex = resolveOutputIndex(payload, item);
+			replayItemsByOutputIndex.put(outputIndex, item.deepCopy());
+		}
+
+		private void recordResponseOutputReplayItems(JsonObject payload) {
+			JsonObject response = getObject(payload, "response");
+			if (response == null || !response.has("output") || !response.get("output").isJsonArray()) {
+				return;
+			}
+			JsonArray output = response.getAsJsonArray("output");
+			for (int i = 0; i < output.size(); i++) {
+				JsonElement outputItemElement = output.get(i);
+				if (!outputItemElement.isJsonObject()) {
+					continue;
+				}
+				JsonObject outputItem = outputItemElement.getAsJsonObject();
+				if (isReplayableResponseItem(outputItem)) {
+					replayItemsByOutputIndex.put(i, outputItem.deepCopy());
+				}
+			}
+		}
+
+		private int resolveOutputIndex(JsonObject payload, JsonObject item) {
+			int outputIndex = getInt(payload, "output_index", NO_INDEX);
+			String itemId = getString(payload, "item_id");
+			if (item != null && StringUtils.isBlank(itemId)) {
+				itemId = getString(item, "id");
+			}
+			if (outputIndex == NO_INDEX && StringUtils.isNotBlank(itemId) && outputIndexByItemId.containsKey(itemId)) {
+				outputIndex = outputIndexByItemId.get(itemId);
+			}
+			if (outputIndex == NO_INDEX) {
+				outputIndex = nextSyntheticIndex++;
+			}
+			if (StringUtils.isNotBlank(itemId)) {
+				outputIndexByItemId.put(itemId, outputIndex);
+			}
+			return outputIndex;
+		}
+
+		private String buildReplayItemsJson() {
+			TreeMap<Integer, JsonObject> replayItems = new TreeMap<>(replayItemsByOutputIndex);
+			for (PendingToolCall pendingCall : callsByOutputIndex.values()) {
+				JsonObject functionCallItem = pendingCall.toReplayItem(replayItems.get(pendingCall.outputIndex));
+				if (functionCallItem != null) {
+					replayItems.put(pendingCall.outputIndex, functionCallItem);
+				}
+			}
+
+			JsonArray replayItemsArray = new JsonArray();
+			for (JsonObject replayItem : replayItems.values()) {
+				if (isReplayableResponseItem(replayItem)) {
+					replayItemsArray.add(replayItem);
+				}
+			}
+			return replayItemsArray.isEmpty() ? null : gson.toJson(replayItemsArray);
 		}
 
 		private PendingToolCall resolveCall(JsonObject payload) {
@@ -917,6 +1123,26 @@ public class OpenAiResponsesApiClient extends AbstractApiClient implements IAiAp
 				}
 				String argumentsJson = StringUtils.defaultIfBlank(argumentsBuilder.toString(), "{}");
 				return new FunctionCall(resolvedId, functionName, argumentsJson);
+			}
+
+			private JsonObject toReplayItem(JsonObject existingItem) {
+				String resolvedFunctionName = StringUtils.defaultIfBlank(functionName, getString(existingItem, "name"));
+				if (StringUtils.isBlank(resolvedFunctionName)) {
+					return null;
+				}
+
+				JsonObject item = existingItem != null ? existingItem.deepCopy() : new JsonObject();
+				item.addProperty("type", "function_call");
+				String resolvedCallId = StringUtils.defaultIfBlank(callId, getString(item, "call_id"));
+				if (StringUtils.isBlank(resolvedCallId)) {
+					resolvedCallId = StringUtils.isNotBlank(itemId) ? itemId : "call_" + outputIndex;
+				}
+				item.addProperty("call_id", resolvedCallId);
+				item.addProperty("name", resolvedFunctionName);
+				if (!item.has("arguments") || item.get("arguments").isJsonNull()) {
+					item.addProperty("arguments", StringUtils.defaultIfBlank(argumentsBuilder.toString(), "{}"));
+				}
+				return item;
 			}
 
 			private void setItemId(String itemId) {

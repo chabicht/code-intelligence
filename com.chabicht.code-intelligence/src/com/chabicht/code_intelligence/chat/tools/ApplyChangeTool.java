@@ -199,7 +199,7 @@ public class ApplyChangeTool {
 
 			Log.logInfo("Prepared TextEdit for file: " + fileName);
 
-			return ToolChangePreparationResult.success("Change validated and prepared for preview.", file,
+			return ToolChangePreparationResult.success("Change validated and prepared.", file,
 					java.util.Collections.singletonList(edit), // Return as a list
 					diff);
 		} catch (IllegalArgumentException | BadLocationException e) {

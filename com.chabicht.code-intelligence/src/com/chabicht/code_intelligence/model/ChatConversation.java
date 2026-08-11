@@ -487,7 +487,7 @@ public class ChatConversation {
 				sb.append("  thinkingContent:\n  ===\n").append(thinkingContent).append("\n  ===\n");
 				sb.append("  isThinkingComplete=").append(isThinkingComplete).append("\n");
 				if (!metadata.isEmpty()) {
-					sb.append("  metadata=").append(metadata).append("\n");
+					sb.append("  metadata=").append(toDiagnosticMetadata()).append("\n");
 				}
 			}
 			if (context != null && !context.isEmpty()) {
@@ -508,6 +508,18 @@ public class ChatConversation {
 			}
 			sb.append("\n");
 			return sb.toString();
+		}
+
+		private Map<String, Object> toDiagnosticMetadata() {
+			Map<String, Object> diagnosticMetadata = new LinkedHashMap<>();
+			for (Map.Entry<String, Object> entry : metadata.entrySet()) {
+				if (entry.getKey() != null && entry.getKey().startsWith("openai_response_replay")) {
+					diagnosticMetadata.put(entry.getKey(), "<omitted>");
+				} else {
+					diagnosticMetadata.put(entry.getKey(), entry.getValue());
+				}
+			}
+			return diagnosticMetadata;
 		}
 	}
 

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -13,6 +14,7 @@ import java.util.function.Function;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.NullProgressMonitor;
@@ -24,7 +26,9 @@ import org.eclipse.jface.text.IDocument;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
 import org.eclipse.ltk.core.refactoring.MultiStateTextFileChange;
+import org.eclipse.ltk.core.refactoring.PerformChangeOperation;
 import org.eclipse.ltk.core.refactoring.Refactoring;
+import org.eclipse.ltk.core.refactoring.RefactoringCore;
 import org.eclipse.ltk.core.refactoring.RefactoringStatus;
 import org.eclipse.ltk.core.refactoring.TextFileChange;
 import org.eclipse.ltk.ui.refactoring.RefactoringWizard;
@@ -51,6 +55,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 
 public class FunctionCallSession {
+	/** Tools whose results describe a file change that still has to be applied. */
+	public static final Set<String> CHANGE_TOOL_NAMES = Set.of("apply_change", "apply_patch", "create_file");
+
 	public static enum ChangeApplicationResult {
 		SUCCESS, ERROR, CANCEL;
 	}
@@ -581,15 +588,17 @@ public class FunctionCallSession {
 				tfcs.add(tfc);
 
 				result.addPrettyResult("preview", "```diff\n" + prepResult.getDiffPreview() + "\n```", true);
-				result.addPrettyResult("status", "Change Queued", false);
-				jsonResult.addProperty("status", "Queued");
+				addChangeStatus(result, jsonResult, "Change Queued", "Change Applied");
 				messagesWithPendingChanges.add(messageId);
+				String message = decorateChangeMessage(prepResult.getMessage());
+				result.addPrettyResult("message", message, false);
+				jsonResult.addProperty("message", message);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				jsonResult.addProperty("status", "Error");
+				result.addPrettyResult("message", prepResult.getMessage(), false);
+				jsonResult.addProperty("message", prepResult.getMessage());
 			}
-			result.addPrettyResult("message", prepResult.getMessage(), false);
-			jsonResult.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) {
 			String errorMsg = "Error processing apply_change function call: " + e.getMessage();
@@ -642,15 +651,17 @@ public class FunctionCallSession {
 				tfc.setEdit(prepResult.getEdits().get(0)); // Patch tool returns one big ReplaceEdit
 				tfcs.add(tfc);
 
-				result.addPrettyResult("status", "Patch Queued", false);
-				jsonResult.addProperty("status", "Queued");
+				addChangeStatus(result, jsonResult, "Patch Queued", "Patch Applied");
 				messagesWithPendingChanges.add(messageId);
+				String message = decorateChangeMessage(prepResult.getMessage());
+				result.addPrettyResult("message", message, true);
+				jsonResult.addProperty("message", message);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				jsonResult.addProperty("status", "Error");
+				result.addPrettyResult("message", prepResult.getMessage(), true);
+				jsonResult.addProperty("message", prepResult.getMessage());
 			}
-			result.addPrettyResult("message", prepResult.getMessage(), true);
-			jsonResult.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResult));
 		} catch (Exception e) {
 			String errorMsg = "Error processing apply_patch function call: " + e.getMessage();
@@ -894,15 +905,17 @@ public class FunctionCallSession {
 			JsonObject jsonResponse = new JsonObject();
 			if (prepResult.isSuccess()) {
 				pendingCreateFileChanges.put(filePath, prepResult.getChange());
-				result.addPrettyResult("status", "Queued for Review", false);
-				jsonResponse.addProperty("status", "Queued");
+				addChangeStatus(result, jsonResponse, "Queued for Review", "File Created");
 				messagesWithPendingChanges.add(messageId);
+				String message = decorateChangeMessage(prepResult.getMessage());
+				result.addPrettyResult("message", message, false);
+				jsonResponse.addProperty("message", message);
 			} else {
 				result.addPrettyResult("status", "Error", false);
 				jsonResponse.addProperty("status", "Error");
+				result.addPrettyResult("message", prepResult.getMessage(), false);
+				jsonResponse.addProperty("message", prepResult.getMessage());
 			}
-			result.addPrettyResult("message", prepResult.getMessage(), false);
-			jsonResponse.addProperty("message", prepResult.getMessage());
 			result.setResultJson(gson.toJson(jsonResponse));
 		} catch (Exception e) {
 			String errorMsg = "Error processing create_file function call: " + e.getMessage();
@@ -939,7 +952,7 @@ public class FunctionCallSession {
 
 		try {
 			if (rootChange.getChildren().length > 0) {
-				return launchRefactoringWizard(rootChange);
+				return isYoloModeEnabled() ? performChangeSilently(rootChange) : launchRefactoringWizard(rootChange);
 			} else {
 				Activator.logInfo("No pending changes from any tool to apply.");
 				return ChangeApplicationResult.SUCCESS;
@@ -1028,15 +1041,8 @@ public class FunctionCallSession {
 	 *         the chat.
 	 */
 	public String getPendingChangesSummary() {
-		List<IFile> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
-		List<String> createdFiles = new ArrayList<>(pendingCreateFileChanges.keySet());
-
-		java.util.Collections.sort(modifiedFiles, (o1, o2) -> {
-			String s1 = o1 == null ? "" : o1.getFullPath().toString();
-			String s2 = o2 == null ? "" : o2.getFullPath().toString();
-			return StringUtils.compare(s1, s2, true);
-		});
-		java.util.Collections.sort(createdFiles);
+		List<IFile> modifiedFiles = getSortedModifiedFiles();
+		List<String> createdFiles = getSortedCreatedFiles();
 
 		if (modifiedFiles.isEmpty() && createdFiles.isEmpty()) {
 			return "Tool usage complete. No file changes were queued.";
@@ -1052,6 +1058,151 @@ public class FunctionCallSession {
 		}
 
 		return summary.toString();
+	}
+
+	private List<IFile> getSortedModifiedFiles() {
+		List<IFile> modifiedFiles = new ArrayList<>(pendingTextFileChanges.keySet());
+		java.util.Collections.sort(modifiedFiles, (o1, o2) -> {
+			String s1 = o1 == null ? "" : o1.getFullPath().toString();
+			String s2 = o2 == null ? "" : o2.getFullPath().toString();
+			return StringUtils.compare(s1, s2, true);
+		});
+		return modifiedFiles;
+	}
+
+	private List<String> getSortedCreatedFiles() {
+		List<String> createdFiles = new ArrayList<>(pendingCreateFileChanges.keySet());
+		java.util.Collections.sort(createdFiles);
+		return createdFiles;
+	}
+
+	/**
+	 * Sets the status of a successfully prepared change, worded according to the
+	 * current mode: in YOLO mode the change is written right after the batch
+	 * finishes, in every other mode it is queued for review first.
+	 */
+	private void addChangeStatus(FunctionResult result, JsonObject json, String queuedLabel, String appliedLabel) {
+		if (isYoloModeEnabled()) {
+			result.addPrettyResult("status", appliedLabel, false);
+			json.addProperty("status", "Applied");
+		} else {
+			result.addPrettyResult("status", queuedLabel, false);
+			json.addProperty("status", "Queued");
+		}
+	}
+
+	private String decorateChangeMessage(String message) {
+		return isYoloModeEnabled() ? message + "\nWritten directly to the file (YOLO mode, no review)." : message;
+	}
+
+	/**
+	 * Overwrites the status and message of all change-producing tool results in the
+	 * given messages. Used when applying the accumulated changes failed or was
+	 * rejected, so the recorded results don't keep claiming success. Calls that
+	 * already failed during preparation keep their own error.
+	 *
+	 * @return the messages that were actually modified, so callers can re-render
+	 *         them.
+	 */
+	public List<ChatMessage> overwriteChangeResults(List<ChatMessage> messages, String jsonStatus, String prettyStatus,
+			String message) {
+		List<ChatMessage> modified = new ArrayList<>();
+		if (messages == null) {
+			return modified;
+		}
+
+		for (ChatMessage chatMessage : messages) {
+			if (chatMessage == null || chatMessage.getFunctionCallBatch().isEmpty()) {
+				continue;
+			}
+
+			boolean touched = false;
+			for (FunctionCallItem item : chatMessage.getFunctionCallBatch().get().getItems()) {
+				FunctionResult result = item == null ? null : item.getResult();
+				if (result == null || !CHANGE_TOOL_NAMES.contains(result.getFunctionName())) {
+					continue;
+				}
+				if (isErrorResult(result)) {
+					continue;
+				}
+
+				result.addPrettyResult("status", prettyStatus, false);
+				result.addPrettyResult("message", message, false);
+
+				JsonObject json;
+				try {
+					json = gson.fromJson(result.getResultJson(), JsonObject.class);
+				} catch (JsonSyntaxException e) {
+					json = null;
+				}
+				if (json == null) {
+					json = new JsonObject();
+				}
+				json.addProperty("status", jsonStatus);
+				json.addProperty("message", message);
+				result.setResultJson(gson.toJson(json));
+				touched = true;
+			}
+
+			if (touched) {
+				modified.add(chatMessage);
+			}
+		}
+
+		return modified;
+	}
+
+	/**
+	 * Checks whether YOLO mode is enabled, i.e. whether changes should be applied
+	 * without presenting them for review first.
+	 */
+	public static boolean isYoloModeEnabled() {
+		return Activator.getDefault().getPreferenceStore()
+				.getBoolean(PreferenceConstants.CHAT_TOOLS_YOLO_ENABLED);
+	}
+
+	/**
+	 * Applies the change without any confirmation dialog. The undo change is
+	 * registered with the refactoring undo manager, so the result can still be
+	 * reverted via Refactor &gt; Undo, just like the wizard-based path.
+	 */
+	private ChangeApplicationResult performChangeSilently(CompositeChange rootChange) {
+		List<IFile> modifiedFiles = getSortedModifiedFiles();
+		List<String> createdFiles = getSortedCreatedFiles();
+
+		try {
+			// LTK requires the validation data to be initialized before a change may be
+			// validated or performed. The wizard path gets this for free via
+			// CreateChangeOperation; here we have to do it ourselves.
+			rootChange.initializeValidationData(new NullProgressMonitor());
+
+			PerformChangeOperation operation = new PerformChangeOperation(rootChange);
+			operation.setUndoManager(RefactoringCore.getUndoManager(), "Apply AI Suggested Code Changes");
+			ResourcesPlugin.getWorkspace().run(operation, new NullProgressMonitor());
+
+			if (!operation.changeExecuted()) {
+				Activator.logError("AI changes were not applied in YOLO mode. Validation status: "
+						+ operation.getValidationStatus());
+				return ChangeApplicationResult.ERROR;
+			}
+
+			StringBuilder applied = new StringBuilder("YOLO mode: applied AI suggested changes without review.");
+			for (String path : createdFiles) {
+				applied.append("\n  created: ").append(path);
+			}
+			for (IFile file : modifiedFiles) {
+				applied.append("\n  modified: ").append(file.getFullPath().toString());
+			}
+			Activator.logInfo(applied.toString());
+
+			return ChangeApplicationResult.SUCCESS;
+		} catch (Exception e) {
+			Activator.logError("Failed to apply AI changes in YOLO mode: " + e.getMessage(), e);
+			return ChangeApplicationResult.ERROR;
+		} finally {
+			// Releases the file buffer connections acquired by initializeValidationData().
+			rootChange.dispose();
+		}
 	}
 
 	private ChangeApplicationResult launchRefactoringWizard(CompositeChange rootChange) {
