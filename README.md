@@ -95,6 +95,7 @@ Here you can add connections to different API providers and configure the model 
 - Use *Type* Anthropic.
 - For the *Base URI*, use `https://api.anthropic.com/v1`.
 - You have to create an API key in the [Anthropic Console settings](https://console.anthropic.com/settings/keys).  
+- Claude 3.x and Claude 4.0–4.5 use fixed-budget thinking. Newer and unlisted Anthropic models use adaptive thinking with the shared *Effort* selector: Model default (high), Low, Medium, High, XHigh, or Max.
 
 ## X.ai/Grok connection settings
 

@@ -196,6 +196,15 @@ public class ChatSettings extends Bean {
 		}
 	}
 
+	static ReasoningControlMode getReasoningControlMode(AiApiConnection.ApiType apiType, String modelPart) {
+		if (apiType == AiApiConnection.ApiType.ANTHROPIC
+				&& com.chabicht.code_intelligence.apiclient.AnthropicModelCapabilities
+						.forModelId(modelPart).isUseAdaptiveThinkingAndEffort()) {
+			return ReasoningControlMode.EFFORT;
+		}
+		return getReasoningControlMode(apiType);
+	}
+
 	public static ReasoningControlMode getReasoningControlMode(String modelId) {
 		Optional<Tuple<String, String>> tuple = ModelUtil.getProviderModelTuple(modelId);
 		if (tuple.isEmpty()) {
@@ -206,12 +215,7 @@ public class ChatSettings extends Bean {
 		String modelPart = tuple.get().getSecond();
 		for (AiApiConnection connection : ConnectionFactory.getApis()) {
 			if (StringUtils.equals(connection.getName(), connectionName)) {
-				if (connection.getType() == AiApiConnection.ApiType.ANTHROPIC
-						&& com.chabicht.code_intelligence.apiclient.AnthropicModelCapabilities
-								.forModelId(modelPart).isUseAdaptiveThinkingAndEffort()) {
-					return ReasoningControlMode.EFFORT;
-				}
-				return getReasoningControlMode(connection.getType());
+				return getReasoningControlMode(connection.getType(), modelPart);
 			}
 		}
 		return ReasoningControlMode.NONE;

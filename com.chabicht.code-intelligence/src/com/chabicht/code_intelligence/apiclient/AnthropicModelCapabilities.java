@@ -6,16 +6,16 @@ import java.util.regex.Pattern;
  * Detects per-model API capabilities for Anthropic models.
  *
  * <ul>
- * <li>Opus 4.6 / Sonnet 4.6 — adaptive thinking + effort (budget_tokens deprecated)</li>
- * <li>Opus 4.7+ — adaptive thinking + effort only; no manual thinking, no sampling params</li>
- * <li>Older models — manual thinking with budget_tokens; sampling params allowed</li>
+ * <li>Claude 3.x and Claude 4.0 through 4.5 — manual thinking with {@code budget_tokens}</li>
+ * <li>All other model IDs — adaptive thinking with an effort setting</li>
  * </ul>
  */
 public class AnthropicModelCapabilities {
 
-	// Opus 4.6, Opus 4.7+, Sonnet 4.6 support adaptive thinking + effort.
-	private static final Pattern ADAPTIVE_THINKING_PATTERN = Pattern.compile(
-			"claude-opus-4-[6-9]|claude-sonnet-4-6",
+	// Keep this deliberately narrow. New and unrecognised Anthropic models use adaptive
+	// thinking by default; only these established families retain manual token budgets.
+	private static final Pattern LEGACY_MANUAL_THINKING_PATTERN = Pattern.compile(
+			"claude-3(?:[.-]|\\b)|claude(?:-(?:opus|sonnet|haiku))?-4-[0-5](?!\\d)",
 			Pattern.CASE_INSENSITIVE);
 
 	// Opus 4.7+ only: manual thinking (budget_tokens) and sampling params are rejected (HTTP 400).
@@ -35,20 +35,18 @@ public class AnthropicModelCapabilities {
 	}
 
 	public static AnthropicModelCapabilities forModelId(String modelId) {
-		if (modelId == null) {
-			return new AnthropicModelCapabilities(false, true, true);
-		}
-		boolean adaptiveAndEffort = ADAPTIVE_THINKING_PATTERN.matcher(modelId).find();
-		boolean adaptiveOnly = ADAPTIVE_ONLY_PATTERN.matcher(modelId).find();
-		return new AnthropicModelCapabilities(adaptiveAndEffort, !adaptiveOnly, !adaptiveOnly);
+		boolean legacyManualThinking = modelId != null
+				&& LEGACY_MANUAL_THINKING_PATTERN.matcher(modelId).find();
+		boolean adaptiveOnly = modelId != null && ADAPTIVE_ONLY_PATTERN.matcher(modelId).find();
+		return new AnthropicModelCapabilities(!legacyManualThinking, legacyManualThinking, !adaptiveOnly);
 	}
 
-	/** True for Opus 4.6, Opus 4.7+, Sonnet 4.6 — use {@code thinking:{type:"adaptive"}} + {@code output_config.effort}. */
+	/** True unless the model is in the explicit legacy manual-thinking allowlist. */
 	public boolean isUseAdaptiveThinkingAndEffort() {
 		return useAdaptiveThinkingAndEffort;
 	}
 
-	/** False for Opus 4.7+ — {@code thinking:{type:"enabled",budget_tokens:N}} returns HTTP 400. */
+	/** True only for models in the explicit legacy manual-thinking allowlist. */
 	public boolean isAllowManualThinking() {
 		return allowManualThinking;
 	}

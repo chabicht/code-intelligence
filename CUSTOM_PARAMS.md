@@ -87,6 +87,10 @@ If you want the same settings for both chat and completion requests, configure b
 
 For the full list of Ollama request parameters, see the official [Ollama API documentation](https://github.com/ollama/ollama/blob/main/docs/api.md).
 
+## Anthropic reasoning
+
+The chat settings own Anthropic reasoning parameters. Claude 3.x and Claude 4.0–4.5 use the fixed token budget. Newer and unlisted Anthropic models use adaptive thinking and the shared effort selector: Model default (high), Low, Medium, High, XHigh, or Max. Do not set `thinking` or `output_config.effort` as custom parameters, because the chat settings apply them for the selected model.
+
 ## Tips
 
 - Start with `Reset to Default` if you want a provider-specific template.

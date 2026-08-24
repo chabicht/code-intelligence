@@ -24,6 +24,16 @@ public class ChatSettingsTest {
 	}
 
 	@Test
+	void getReasoningControlModeUsesEffortForFableAndTokenBudgetForLegacyAnthropicModels() {
+		assertEquals(ReasoningControlMode.EFFORT,
+				ChatSettings.getReasoningControlMode(ApiType.ANTHROPIC, "claude-fable-5"));
+		assertEquals(ReasoningControlMode.EFFORT,
+				ChatSettings.getReasoningControlMode(ApiType.ANTHROPIC, "claude-unlisted-6"));
+		assertEquals(ReasoningControlMode.TOKEN_BUDGET,
+				ChatSettings.getReasoningControlMode(ApiType.ANTHROPIC, "claude-sonnet-4-5"));
+	}
+
+	@Test
 	void getSupportedReasoningEffortsRestrictsOllamaChoices() {
 		assertArrayEquals(
 				new ReasoningEffort[] { ReasoningEffort.DEFAULT, ReasoningEffort.NONE, ReasoningEffort.LOW,

@@ -160,20 +160,17 @@ public class AnthropicApiClient extends AbstractApiClient implements IAiApiClien
 		// Set thinking mode and max tokens depending on model capabilities.
 		AnthropicModelCapabilities caps = AnthropicModelCapabilities.forModelId(modelName);
 		if (caps.isUseAdaptiveThinkingAndEffort()) {
-			// Opus 4.6, Opus 4.7+, Sonnet 4.6: adaptive thinking + output_config.effort
+			// Current Anthropic models use adaptive thinking. Its summarized display keeps
+			// reasoning visible while output_config selects the optional effort level.
 			req.addProperty("max_tokens", maxResponseTokens);
+			JsonObject thinking = new JsonObject();
+			thinking.addProperty("type", "adaptive");
+			thinking.addProperty("display", "summarized");
+			req.add("thinking", thinking);
 			Object effortOption = options.get(REASONING_EFFORT);
 			if (effortOption instanceof ReasoningEffort reasoningEffort
 					&& reasoningEffort.getApiValue() != null
 					&& ANTHROPIC_EFFORT_API_VALUES.contains(reasoningEffort.getApiValue())) {
-				JsonObject thinking = new JsonObject();
-				thinking.addProperty("type", "adaptive");
-				if (!caps.isAllowSamplingParams()) {
-					// Opus 4.7+: thinking content is omitted by default — opt in to match 4.6 behavior.
-					thinking.addProperty("display", "summarized");
-				}
-				req.add("thinking", thinking);
-
 				JsonObject outputConfig = new JsonObject();
 				outputConfig.addProperty("effort", reasoningEffort.getApiValue());
 				req.add("output_config", outputConfig);

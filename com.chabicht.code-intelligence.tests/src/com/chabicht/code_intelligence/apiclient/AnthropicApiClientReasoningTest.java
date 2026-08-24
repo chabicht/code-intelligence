@@ -42,43 +42,47 @@ public class AnthropicApiClientReasoningTest {
 			""";
 
 	@Test
-	void opus47WithHighEffortEmitsAdaptiveThinkingAndOutputConfig() throws Exception {
-		try (RecordingAnthropicServer server = new RecordingAnthropicServer(MINIMAL_RESPONSE)) {
+	void fable5WithEveryExplicitEffortEmitsAdaptiveThinkingAndOutputConfig() throws Exception {
+		try (RecordingAnthropicServer server = new RecordingAnthropicServer(MINIMAL_RESPONSE, MINIMAL_RESPONSE,
+				MINIMAL_RESPONSE, MINIMAL_RESPONSE, MINIMAL_RESPONSE)) {
 			AnthropicApiClient client = new AnthropicApiClient(createConnection(server));
-			ChatConversation chat = createChat();
-			chat.getOptions().put(REASONING_EFFORT, ReasoningEffort.HIGH);
+			for (ReasoningEffort effort : new ReasoningEffort[] { ReasoningEffort.LOW, ReasoningEffort.MEDIUM,
+					ReasoningEffort.HIGH, ReasoningEffort.XHIGH, ReasoningEffort.MAX }) {
+				ChatConversation chat = createChat();
+				chat.getOptions().put(REASONING_EFFORT, effort);
 
-			runAndAwait(client, "claude-opus-4-7", chat);
+				runAndAwait(client, "claude-fable-5", chat);
 
-			JsonObject req = server.getRequests().get(0);
-			assertTrue(req.has("thinking"), "thinking block should be present");
-			JsonObject thinking = req.getAsJsonObject("thinking");
-			assertEquals("adaptive", thinking.get("type").getAsString());
-			assertEquals("summarized", thinking.get("display").getAsString(),
-					"Opus 4.7 should opt in to summarized display");
-			assertTrue(req.has("output_config"), "output_config should be present");
-			assertEquals("high", req.getAsJsonObject("output_config").get("effort").getAsString());
-			assertFalse(req.has("temperature"), "temperature must be stripped for Opus 4.7");
-			assertFalse(req.has("top_p"), "top_p must be stripped for Opus 4.7");
-			assertFalse(req.has("top_k"), "top_k must be stripped for Opus 4.7");
+				JsonObject req = server.getRequests().get(server.getRequests().size() - 1);
+				assertTrue(req.has("thinking"), "thinking block should be present");
+				JsonObject thinking = req.getAsJsonObject("thinking");
+				assertEquals("adaptive", thinking.get("type").getAsString());
+				assertFalse("enabled".equals(thinking.get("type").getAsString()));
+				assertEquals("summarized", thinking.get("display").getAsString());
+				assertTrue(req.has("output_config"), "output_config should be present");
+				assertEquals(effort.getApiValue(), req.getAsJsonObject("output_config").get("effort").getAsString());
+				assertFalse(thinking.has("budget_tokens"));
+			}
 		}
 	}
 
 	@Test
-	void opus47WithDefaultEffortOmitsThinkingAndOutputConfig() throws Exception {
+	void fable5WithDefaultEffortOmitsOutputConfigButUsesAdaptiveThinking() throws Exception {
 		try (RecordingAnthropicServer server = new RecordingAnthropicServer(MINIMAL_RESPONSE)) {
 			AnthropicApiClient client = new AnthropicApiClient(createConnection(server));
 			ChatConversation chat = createChat();
 			chat.getOptions().put(REASONING_EFFORT, ReasoningEffort.DEFAULT);
 
-			runAndAwait(client, "claude-opus-4-7", chat);
+			runAndAwait(client, "claude-fable-5", chat);
 
 			JsonObject req = server.getRequests().get(0);
-			assertFalse(req.has("thinking"), "no thinking when effort is DEFAULT");
+			assertTrue(req.has("thinking"), "adaptive thinking should be enabled for the model default");
+			JsonObject thinking = req.getAsJsonObject("thinking");
+			assertEquals("adaptive", thinking.get("type").getAsString());
+			assertFalse("enabled".equals(thinking.get("type").getAsString()));
+			assertEquals("summarized", thinking.get("display").getAsString());
+			assertFalse(thinking.has("budget_tokens"));
 			assertFalse(req.has("output_config"), "no output_config when effort is DEFAULT");
-			assertFalse(req.has("temperature"), "temperature must be stripped for Opus 4.7");
-			assertFalse(req.has("top_p"), "top_p must be stripped for Opus 4.7");
-			assertFalse(req.has("top_k"), "top_k must be stripped for Opus 4.7");
 		}
 	}
 
@@ -108,7 +112,7 @@ public class AnthropicApiClientReasoningTest {
 	}
 
 	@Test
-	void opus46WithMediumEffortEmitsAdaptiveThinkingWithoutDisplayField() throws Exception {
+	void opus46WithMediumEffortEmitsSummarizedAdaptiveThinking() throws Exception {
 		try (RecordingAnthropicServer server = new RecordingAnthropicServer(MINIMAL_RESPONSE)) {
 			AnthropicApiClient client = new AnthropicApiClient(createConnection(server)) {
 				@Override
@@ -127,8 +131,7 @@ public class AnthropicApiClientReasoningTest {
 			assertTrue(req.has("thinking"), "thinking block should be present");
 			JsonObject thinking = req.getAsJsonObject("thinking");
 			assertEquals("adaptive", thinking.get("type").getAsString());
-			assertFalse(thinking.has("display"),
-					"Opus 4.6 should not set display — summarized is already the API default");
+			assertEquals("summarized", thinking.get("display").getAsString());
 			assertTrue(req.has("output_config"), "output_config should be present");
 			assertEquals("medium", req.getAsJsonObject("output_config").get("effort").getAsString());
 			assertTrue(req.has("temperature"), "Opus 4.6 should keep sampling params");
